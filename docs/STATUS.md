@@ -36,9 +36,9 @@ Startup-latency axis (2026-08-07): `MEASURED / provisional`. Cold launch to firs
 6 legs contended, uncontended repeat died with a host reboot.
 [Detail](../.agents/specs/startup-latency-axis.md).
 
-Protocol (2026-08-08): `agent-start.py` → claim → preflight; review failures
-cycle through fresh implementer, gates, and reviewer. Dormant structured-state
-parser: 15 focused tests; live record/cutover unchanged. Verified PRs merge;
+Protocol (2026-08-08): claim and preflight first; review failures cycle
+via fresh implementer, gates, and reviewer. Dormant state parser: 17 tests
+(legacy scalar/date strict); live format unchanged. Verified PRs merge;
 obsolete close.
 
 Supported-model registry guard (2026-08-06): the public per-architecture list in

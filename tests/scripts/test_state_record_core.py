@@ -398,6 +398,83 @@ class EventParsingTests(unittest.TestCase):
             self.assertEqual(errors, [])
             self.assertEqual([event.event_id for event in events], [event_id])
 
+    def test_legacy_import_rejects_malformed_nonempty_metadata(self) -> None:
+        cases = {
+            "subject": (3, "POL GOOD"),
+            "phase": (4, "coding"),
+            "outcome": (5, "ok"),
+        }
+        for expected, (index, value) in cases.items():
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as directory:
+                root = self.make_root(directory)
+                event_id = "STATE-LEGACY-000001"
+                evidence_path = f".agents/state-events/2026-08/{event_id}.md"
+                fields = [
+                    event_id,
+                    "",
+                    "legacy_import",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    evidence_path,
+                    "",
+                    "",
+                    "",
+                ]
+                fields[index] = value
+                (root / self.shard.index_path).write_text(
+                    self.header + ",".join(fields) + "\n", encoding="utf-8"
+                )
+                (root / evidence_path).write_bytes(
+                    f"<!-- state-event: {event_id} -->\n".encode("utf-8")
+                    + b"<!-- legacy-payload:begin -->\n"
+                    + b"historical payload\n"
+                    + b"<!-- legacy-payload:end -->\n"
+                )
+
+                events, errors = self.parse_events(root)
+
+                self.assertEqual(events, [])
+                self.assertTrue(any(expected in error for error in errors), errors)
+
+    def test_legacy_import_rejects_calendar_invalid_date(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            event_id = "STATE-LEGACY-000001"
+            evidence_path = f".agents/state-events/2026-08/{event_id}.md"
+            fields = [
+                event_id,
+                "2026-02-30",
+                "legacy_import",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                evidence_path,
+                "",
+                "",
+                "",
+            ]
+            (root / self.shard.index_path).write_text(
+                self.header + ",".join(fields) + "\n", encoding="utf-8"
+            )
+            (root / evidence_path).write_bytes(
+                f"<!-- state-event: {event_id} -->\n".encode("utf-8")
+                + b"<!-- legacy-payload:begin -->\n"
+                + b"historical payload\n"
+                + b"<!-- legacy-payload:end -->\n"
+            )
+
+            events, errors = self.parse_events(root)
+
+            self.assertEqual(events, [])
+            self.assertTrue(any("timestamp" in error for error in errors), errors)
+
 
 if __name__ == "__main__":
     unittest.main()

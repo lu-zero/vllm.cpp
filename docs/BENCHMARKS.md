@@ -4,7 +4,7 @@
 
 | Reference | Workload | Headline | Tokens |
 |---|---|---|---|
-| **Structured state record parser (dormant)** | v1 manifest, shard-index, event-file, and legacy-payload scalar contracts | **No performance number owed:** parser/scalar layer only; 15 focused tests GREEN. Migration, integration, and live-format cutover remain pending | n/a |
+| **Structured state record parser (dormant)** | v1 manifest, shard-index, event-file, and legacy-payload scalar contracts | **No performance number owed:** parser/scalar layer only; 17 focused tests GREEN, including malformed legacy metadata/date rejection. Migration, integration, and live-format cutover remain pending | n/a |
 | **Binary release matrix (spiked)** | `ENG-RELEASE-BINARIES`: primary host-ABI fat-CUDA + adaptive-CPU static-core bundles; optional per-SM diagnostics; experimental literal-static musl CPU | **PENDING:** pins 10-SM fat CUDA, adaptive no-AVX2 CPU, W1-W13/W10-W12 policy, public pending states; 30 tests GREEN. No archive, staged smoke, runtime, correctness, or performance evidence | n/a |
 | **Developer agent entry point (implemented)** | `DOCS-AGENT-PROTOCOL-ENTRYPOINT`: public contribution guide + synchronized, mutation-gated pre-claim intake rule | Rebased documentation/protocol only; benchmark void | n/a |
 | **ARCH audit: ABI is text-only** | 4 capabilities (H3 video, Laguna, Kimi-Linear, DeepSeek-V4) reachable only from `examples/`, none registry-backed. No gate asks whether a CONSUMER can reach a capability. Documentation only |

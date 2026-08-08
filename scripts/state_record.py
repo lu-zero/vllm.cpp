@@ -142,6 +142,16 @@ def _valid_utc_timestamp(value: str) -> bool:
     return True
 
 
+def _valid_calendar_date(value: str) -> bool:
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is None:
+        return False
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return True
+
+
 def _validate_evidence(root: Path, event: Event, *, legacy: bool) -> list[str]:
     path = root / event.evidence_path
     errors: list[str] = []
@@ -206,10 +216,19 @@ def _event_scalar_errors(event: Event, shard: Shard, location: str) -> list[str]
                     )
         elif (
             event.occurred_at
-            and re.fullmatch(r"\d{4}-\d{2}-\d{2}", event.occurred_at) is None
+            and not _valid_calendar_date(event.occurred_at)
             and not _valid_utc_timestamp(event.occurred_at)
         ):
             errors.append(f"{location}: invalid legacy timestamp {event.occurred_at!r}")
+        if event.subject_ids and any(
+            SUBJECT_RE.fullmatch(subject) is None
+            for subject in event.subject_ids.split(";")
+        ):
+            errors.append(f"{location}: invalid subject ID syntax")
+        if event.phase and event.phase not in PHASES:
+            errors.append(f"{location}: invalid phase {event.phase!r}")
+        if event.outcome and event.outcome not in OUTCOMES:
+            errors.append(f"{location}: invalid outcome {event.outcome!r}")
     else:
         if not _valid_utc_timestamp(event.occurred_at):
             errors.append(f"{location}: invalid timestamp {event.occurred_at!r}")
