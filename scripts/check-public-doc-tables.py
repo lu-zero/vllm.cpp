@@ -421,16 +421,10 @@ STATUS_RATCHET = {
     # prose already lives in docs/USAGE.md, so the cell now keeps only the
     # capability groups and binding limitations. Net -366 from rebased main.
     #
-    # 244015 since 2026-08-09 (measured 244015): #189 moved the server TU into
-    # the shared layer, which made "All six record checkers now green on main"
-    # false -- check-device-leakage went 32 -> 37 on 5 VT_BENCH_PROFILE_CONTROL
-    # guards. Correcting that claim costs chars, so it is paid for by collapsing
-    # the env-doc hygiene sentence beside it to its binding result: it spelled
-    # out which of two env vars went to ENVIRONMENT.md and which to the
-    # allowlist, and both files state that authoritatively. Net -111, and
-    # re-pinned byte-tight to match the convention this ratchet was set with
-    # rather than quietly keeping the slack as headroom.
-    "chars": 244015,
+    # 243949 since 2026-08-09 (measured 243949): the W6 claim checkpoint
+    # replaces the longer container-only paragraph with the current binary and
+    # container dependency state. Re-pinned byte-tight after #194.
+    "chars": 243949,
     "h2_sections": 11,
     "long_paragraphs": 82,
     "oversized_cells": 44,

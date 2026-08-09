@@ -43725,3 +43725,22 @@ ggml-vulkan.cpp:3193). That is the largest identified residual and the next row.
 FIRST RESUME COMMAND:
     git log --oneline -1   # expect 66275b1f on row/BACKEND-VULKAN-HOSTDISPATCH
     ssh dgx.casa 'grep -E "^VLLM_CPP_VULKAN" ~/vk-hostdispatch/build-vk/CMakeCache.txt'  # must be ON
+
+## 2026-08-09 — ENG-RELEASE-BINARIES W6 claimed after empty release diagnosis
+<!-- state: 2026-08-09T14:30 -->
+
+The `v0.0.2-alpha1-ci-test` release proved the expected W5 boundary: GitHub
+created the release with zero assets and launched zero release-event workflows.
+Current claim base `7534da65` contains only `ci.yml`, `triton-aot-sync.yml`, the W5
+manifest schema/generator, and no server install/package or publish workflow.
+PR #141 explicitly excluded W1-W4 and W6-W13; it merged W5 at `bd20da30`.
+
+`CLAIM-ENG-RELEASE-BINARIES-W6` now owns the first missing executable boundary:
+canonical `vllm-server`, a server-only install component and deterministic
+staging/archive target, plus an empty-prefix -> archive -> empty-extraction ->
+`bin/vllm-server --help` gate. The existing library/header install surface must
+remain byte-for-byte unchanged. W1-W4, W7-W13, publication, GPU execution,
+runtime-model correctness/performance, downloads, services, and channel
+advancement remain excluded from this claim. First implementation command:
+write the focused W6 test and prove it fails because the current target is named
+`server` and no server install/archive rule exists.

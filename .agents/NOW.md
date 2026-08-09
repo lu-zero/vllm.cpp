@@ -29,7 +29,7 @@ Work: exact-chunks on main `1ce0d662b`; sm_120 measured at `3d2581551`.
 | Vulkan 27B decode | **4.285 vs 4.35**; host ~3 ms/tok, pipeline -1.41 ms (5/5), spin rejected | NOT met: 900 barriers/tok |
 | `BACKEND-ROCM` | **(b) fix in; #140 gfx1201 hipBLAS + Gemma-4 MoE landed (contributor, authorship-preserved); W0 green 4 archs** | compile + M2 ([spec](specs/rocm-unified-memory-b.md)) |
 | TP spike #287 (PR #143) | **TP-W1 LANDED**: rank-group table + TP handle (6/6); DSR leak FIXED (unblocks #127/#154/#155) | TP-W2 (linears + loader) |
-| Release | **ACTIVE; W5 19/19+10/10; contract 30/30** | #141; artifacts pending |
+| Release | **ACTIVE; W5 19/19+10/10; contract 30/30** | W6 claimed on `7534da65`: install/package + extracted help |
 | Surface coverage (`ARCH-ONE-SURFACE`) | ROW 8 + #139; **embeddings live (#137): model, runner, ABI v15, endpoint, fold 4/4-231** | Real-checkpoint oracle cosine |
 
 In-flight, default-OFF, not pushed: see state.md.

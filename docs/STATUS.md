@@ -36,10 +36,10 @@ Startup-latency axis (2026-08-07): `MEASURED / provisional`. Cold launch to firs
 6 legs contended, uncontended repeat died with a host reboot.
 [Detail](../.agents/specs/startup-latency-axis.md).
 
-Container images (2026-08-08): `INVENTORIED`, nothing built. `ENG-RELEASE-CONTAINERS` records GHCR images
-published by GitHub Actions - lanes `-cuda`/`-vulkan`/`-cpu` plus moving `latest-cuda`/`latest-vulkan`/`latest-cpu`,
-each an amd64+arm64 manifest. The image is the `ENG-RELEASE-BINARIES` staged bundle, which does not exist yet, so
-no Dockerfile, workflow or registry package is claimed. Metal/MLX are NOT-CONTAINERIZABLE. Issue #170.
+Binary releases (2026-08-09): W5 manifest tooling is merged; W6's install/package boundary is `CLAIMED` on
+`7534da65`. No server archive or release workflow exists yet, so `v0.0.2-alpha1-ci-test` has zero assets.
+`ENG-RELEASE-CONTAINERS` remains `INVENTORIED` behind that staged bundle: GHCR CPU/CUDA/Vulkan amd64+arm64;
+Metal/MLX are not containerizable. Issues #117/#170.
 
 Protocol (2026-08-08): `agent-start.py` → claim → preflight; review FAIL →
 fresh implementer → both gates → fresh review until PASS. Budgets cannot stop

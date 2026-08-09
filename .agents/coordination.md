@@ -118,19 +118,21 @@ without the selected contention proof for their entire run are discarded.
 
 ## Active claims
 
-**Server binary release manifest W5 (`ENG-RELEASE-BINARIES`, 2026-08-08,
-`CLAIM-ENG-RELEASE-BINARIES-W5`).** Codex (GPT-5), isolated worktree
+**Server binary release W6 (`ENG-RELEASE-BINARIES`, 2026-08-09,
+`CLAIM-ENG-RELEASE-BINARIES-W6`).** Codex (GPT-5), isolated worktree
 `/home/mudler/_git/vllm.cpp-release-binaries`, branch
-`row/ENG-RELEASE-BINARIES`, base `origin/main` `b38f78a7`. PR #129 merged the
-accepted release matrix; the current claim is W5 only: a versioned manifest
-schema, deterministic generator/validator, canonical fixtures, mutation tests,
-and the narrow release-contract/record surfaces those tests require. No W1-W4
-CUDA/CPU implementation, W6 archive/install target, release workflow,
-published artifact, download, GPU, model, kernel, or service change is in
-scope. Draft PR #141 is the claim. W5 is implemented and green at 19/19 after
-the fresh review's ten production-removal mutations were killed; the row is
-`ACTIVE`, while every archive, staged smoke, runtime, correctness, performance,
-install/package and publication claim remains pending.
+`row/ENG-RELEASE-BINARIES`, base `origin/main` `7534da65`. W5 merged in PR #141
+at `bd20da30`; the current claim is W6 only: canonical `vllm-server` output,
+an install component, a deterministic staging/archive target, and a gate that
+installs into an empty prefix, extracts the archive, and runs `--help` from the
+extracted tree while proving the existing library install remains unchanged.
+Owns `examples/CMakeLists.txt`, focused release-package CMake/script fixtures
+and tests, the W6 contract/status checkpoint, and no W1-W4 CUDA/CPU dispatch,
+W7 archive-policy validator, W8 release workflow, published artifact, GPU,
+model, kernel, download, or service change. Draft PR pending the claim commit.
+The row remains `ACTIVE`; archive validation beyond the W6 help smoke and all
+runtime, correctness, performance, supply-chain and publication claims remain
+pending.
 
 **CPU grouped keep-quant GEMM activation-dtype P0 (`QUANT-GGUF-CIQ-GEMM`,
 2026-08-06, `CLAIM-QUANT-GGUF-CIQ-GROUPED-DTYPE`).** Claude Code
