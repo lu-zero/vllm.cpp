@@ -43744,3 +43744,27 @@ runtime-model correctness/performance, downloads, services, and channel
 advancement remain excluded from this claim. First implementation command:
 write the focused W6 test and prove it fails because the current target is named
 `server` and no server install/archive rule exists.
+
+## 2026-08-09 — ENG-RELEASE-BINARIES W6 installed server package GREEN
+<!-- state: 2026-08-09T16:00 -->
+
+Draft PR #196 implements W6 on rebased claim base `b859724f`: the server keeps the thin
+public C-ABI client but links the static core, installs as `bin/vllm-server`
+through component `vllm-server`, and exposes deterministic `vllm-server-stage`
+and `vllm-server-archive` targets. Packaging always installs into a new empty
+prefix and normalizes archive ordering, owner, modes and timestamps.
+
+RED: `python3 tests/scripts/test_server_package.py` failed because target
+`vllm-server-archive` did not exist. GREEN: the same clean CPU test completed
+1/1 in 105.000 s; a second run against the prebuilt tree completed in 3.285 s.
+It reproduced the archive SHA256, extracted into a second empty tree, ran
+canonical `bin/vllm-server --help` with loader-path overrides removed, proved
+Linux `ldd` has no `libvllm`, and confirmed the existing `vllm.h`, static and
+shared library installs remain present. CI runs this gate on its built CPU tree.
+
+The row remains `ACTIVE`. W1-W4 and W7-W13 remain pending; this development
+archive has no W7 allowlist/dependency/RPATH audit, VERSION, manifest, SBOM,
+licenses, provenance or final checksum and has not been published. No model
+runtime, correctness, performance or channel claim advances. First resume
+command after W6 review: claim W1 and run the cross-family CUDA fat-build RED
+gate from the accepted dependency graph.

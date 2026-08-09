@@ -1,10 +1,10 @@
 # Benchmarks
 
-## At a glance: W5 guarded; W6 claimed; release artifacts pending
+## At a glance: W5/W6 green; validated release artifacts pending
 
 | Reference | Workload | Headline | Tokens |
 |---|---|---|---|
-| **Binary release matrix (ACTIVE; W5 implemented)** | `ENG-RELEASE-BINARIES`: versioned deterministic manifest for primary host-ABI fat-CUDA + adaptive-CPU static-core bundles, optional per-SM diagnostics and experimental literal-static musl CPU | **W5 GREEN:** 19/19 + ten review mutations killed; contract 30/30; PR-size classes/budget GREEN. Synthetic fixtures only. **PENDING:** W1-W4/W6-W13 and all archive/staged-smoke/runtime/correctness/performance gates | n/a |
+| **Binary release matrix (ACTIVE; W5+W6 implemented)** | `ENG-RELEASE-BINARIES`: deterministic manifest plus installed static-core server archive; fat-CUDA/adaptive-CPU bundles remain the target | **W6 GREEN 1/1:** clean CPU build; reproducible archive; extracted help; no dynamic `libvllm`; library install preserved. **PENDING:** W1-W4/W7-W13, W7 validation, model/runtime gates, publication | n/a |
 | **Container images (inventoried)** | `ENG-RELEASE-CONTAINERS`: GHCR images from GitHub Actions; lanes `-cuda`/`-vulkan`/`-cpu`, amd64+arm64 manifests | **No number owed:** record-only. No Dockerfile, workflow, registry package or image exists; the image is the unimplemented `ENG-RELEASE-BINARIES` bundle | n/a |
 | **Developer agent entry point (implemented)** | `DOCS-AGENT-PROTOCOL-ENTRYPOINT`: public contribution guide + synchronized, mutation-gated pre-claim intake rule | Rebased documentation/protocol only; benchmark void | n/a |
 | **ARCH audit: ABI is text-only** | 4 capabilities (H3 video, Laguna, Kimi-Linear, DeepSeek-V4) reachable only from `examples/`, none registry-backed. No gate asks whether a CONSUMER can reach a capability. Documentation only |

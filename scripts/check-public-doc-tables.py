@@ -421,10 +421,10 @@ STATUS_RATCHET = {
     # prose already lives in docs/USAGE.md, so the cell now keeps only the
     # capability groups and binding limitations. Net -366 from rebased main.
     #
-    # 243949 since 2026-08-09 (measured 243949): the W6 claim checkpoint
-    # replaces the longer container-only paragraph with the current binary and
-    # container dependency state. Re-pinned byte-tight after #194.
-    "chars": 243949,
+    # 243910 since 2026-08-09 (measured 243910): the W6 implementation checkpoint
+    # replaces claim prose with the binding package result. Re-pinned byte-tight
+    # after #194, preserving current main's ratchet convention.
+    "chars": 243910,
     "h2_sections": 11,
     "long_paragraphs": 82,
     "oversized_cells": 44,
