@@ -163,8 +163,8 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
   REQUIRE(gap.shape[1] == T);
   REQUIRE(static_cast<size_t>(N) == Prompts().size());
   const int32_t* gd = AsI32(g);
-  const int32_t* od = AsI32(o);
-  const int32_t* gapd = AsI32(gap);
+  const int32_t* od = AsI32(o);       // may be reassigned to a device golden below
+  const int32_t* gapd = AsI32(gap);   // may be reassigned to a device golden below
 
   std::vector<int32_t> our_dump;
   if (dump) our_dump.assign(static_cast<size_t>(N * T), -1);
@@ -173,6 +173,72 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
   std::unique_ptr<vllm::entrypoints::LoadedEngine> loaded =
       vllm::entrypoints::LoadedEngine::FromModelDir(
           snap, vllm::entrypoints::EngineParams{});
+
+  // Which device did SelectQueue actually pick? On dgx this is kCUDA and the
+  // gate below is byte-for-byte the historical CUDA gate (the strict our_ids
+  // anchor + near-tie band). On Blackhole it is kTENSTORRENT. Two things
+  // change on a partial accelerator: (1) the Mistral ops must PROVE they ran
+  // on that provider (selections > 0, declines == 0); (2) the gate is held
+  // against THAT device's OWN oracle-backed golden, not CUDA's — identical
+  // anchor+band logic, device-appropriate goldens (different bf16 decoders
+  // resolve genuine near-ties differently; see the Qwen3 gate's file header).
+  const vt::DeviceType run_dev = loaded->runner().device().type;
+  const bool tenstorrent = run_dev == vt::DeviceType::kTENSTORRENT;
+  const bool device_golden = tenstorrent;
+  // Mistral reuses the Qwen3-dense forward (qk-norm skipped, plain rope,
+  // untied lm_head). The untied lm_head is the one op Qwen3-0.6B (tied) does
+  // not dispatch: a standalone kMatmul. Every op here is registered on TT.
+  const std::vector<vt::OpId> kMistralOps = {
+      vt::OpId::kEmbedding,      vt::OpId::kMatmulBT,       vt::OpId::kRmsNorm,
+      vt::OpId::kRopeNeox,       vt::OpId::kReshapeAndCache, vt::OpId::kPagedAttention,
+      vt::OpId::kSiluAndMul,     vt::OpId::kMatmul,          vt::OpId::kGreedyArgmax};
+  parity::NpyArray o_dev, gap_dev;  // keep device arrays alive for the loop
+  if (device_golden) {
+    for (vt::OpId op : kMistralOps) {
+      CHECK(vt::OpRegistered(op, run_dev));
+      vt::ResetOpProviderStats(op, run_dev);
+    }
+    vt::EnableOpProviderCallStats(true);
+    MESSAGE(label << ": running on device type " << static_cast<int>(run_dev)
+            << " (6=TENSTORRENT) — gated against this device's OWN "
+               "oracle-backed golden");
+  }
+
+  // Device-appropriate anchor + teacher-forced gap goldens. Base = CUDA pair.
+  // Tenstorrent has its own pair (captured via VT_DUMP_IDS=1 on Blackhole,
+  // then qwen3-neartie-gap.py teacher-forces vLLM on that sequence).
+  const char* ids_name = tenstorrent ? "our_ids_tenstorrent.npy" : "our_ids.npy";
+  const char* gap_name =
+      tenstorrent ? "neartie_gap_mnats_tenstorrent.npy" : "neartie_gap_mnats.npy";
+  bool bootstrap_only = false;
+  if (device_golden) {
+    const bool have_dev = fs::exists(gdir / ids_name) && fs::exists(gdir / gap_name);
+    if (!have_dev && dump) {
+      // Bootstrap dump path: generate tokens, write raw i32, skip the gate.
+      // qwen3-neartie-gap.py then teacher-forces vLLM on that sequence.
+      bootstrap_only = true;
+      MESSAGE(label << ": BOOTSTRAP dump (device golden absent) for Tenstorrent...");
+    } else {
+      REQUIRE_MESSAGE(have_dev,
+                      label << ": device oracle golden absent (" << ids_name << " / "
+                            << gap_name
+                            << ") — capture sequence with VT_DUMP_IDS=1, then "
+                               "teacher-force vLLM: qwen3-neartie-gap.py -> device "
+                               "golden pair");
+      o_dev = parity::LoadNpy((gdir / ids_name).string());
+      gap_dev = parity::LoadNpy((gdir / gap_name).string());
+      REQUIRE(o_dev.dtype == "<i4");
+      REQUIRE(gap_dev.dtype == "<i4");
+      REQUIRE(o_dev.shape.size() == 2);
+      REQUIRE(o_dev.shape[0] == N);
+      REQUIRE(o_dev.shape[1] == T);
+      REQUIRE(gap_dev.shape.size() == 2);
+      REQUIRE(gap_dev.shape[0] == N);
+      REQUIRE(gap_dev.shape[1] == T);
+      od = AsI32(o_dev);
+      gapd = AsI32(gap_dev);
+    }
+  }
 
   int strict_exact = 0;   // prompts where our tokens == vLLM greedy exactly
   int neartie_only = 0;   // prompts that pass only via the near-tie band
@@ -190,6 +256,8 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
     if (dump)
       for (int64_t j = 0; j < T; ++j)
         our_dump[static_cast<size_t>(i * T + j)] = got[static_cast<size_t>(j)];
+
+    if (bootstrap_only) continue;  // dump-only path; no anchor/gap yet
 
     // Anchor: the committed our_ids is the exact deterministic sequence our CUDA
     // engine produces, and the committed gaps are vLLM 0.25.0 teacher-forced on
@@ -230,8 +298,37 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
     CHECK(prompt_ok);
   }
 
+  // Backend proof: token equality alone does not prove which device ran.
+  // This is the block the op-registration setup above was arming for: read
+  // back the per-op stats and REQUIRE selections > 0 (the op actually ran on
+  // this provider) and declines == 0 (no silent CPU fallback). Mirrors
+  // test_qwen3_paged_engine.cpp:373-400. Skipped on the bootstrap dump path
+  // (which does not run the full op set through to a comparison) and on CUDA.
+  if (device_golden && !bootstrap_only) {
+    vt::EnableOpProviderCallStats(false);
+    for (vt::OpId op : kMistralOps) {
+      const auto st = vt::GetOpProviderStats(op, run_dev);
+      const bool ran = st.selections > 0;
+      CHECK_MESSAGE(ran,
+                    label << ": op " << static_cast<int>(op)
+                          << " was never dispatched on device type "
+                          << static_cast<int>(run_dev));
+      CHECK_MESSAGE(st.declines == 0,
+                    label << ": op " << static_cast<int>(op)
+                          << " DECLINED and fell back");
+    }
+    MESSAGE(label << ": BACKEND PROOF — Mistral ops on device type "
+            << static_cast<int>(run_dev) << " with 0 declines (kMatmul selections="
+            << vt::GetOpProviderStats(vt::OpId::kMatmul, run_dev).selections
+            << ", kPagedAttention selections="
+            << vt::GetOpProviderStats(vt::OpId::kPagedAttention, run_dev).selections
+            << ")");
+  }
+
   if (dump) {
-    const std::string path = (gdir / "our_ids.i32").string();
+    const std::string dump_name =
+        tenstorrent ? "our_ids_tenstorrent.i32" : "our_ids.i32";
+    const std::string path = (gdir / dump_name).string();
     std::FILE* f = std::fopen(path.c_str(), "wb");
     if (f != nullptr) {
       std::fwrite(our_dump.data(), sizeof(int32_t), our_dump.size(), f);
