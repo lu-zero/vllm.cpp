@@ -250,7 +250,11 @@ MATRICES = {
     # spike for wiring the landed #354 graph-capture foundation into a
     # capturable forward region (decode host-free region? capture tok/s cost?
     # ttnn program-cache warm-up?). No code; decision record only.
-    "BACKEND": (AGENTS / "backend-matrix.md", 82),
+    # 83 since 2026-08-13: +`BACKEND-TENSTORRENT-HOST-FREE-FORWARD`, the plan
+    # row decomposing the host-free decode forward (R1 RmsNorm+RoPE, R2
+    # QkvSplit+RAC, R3 PA decode, R4 capture wire) that the trace-runner
+    # spike revealed as the real prerequisite for decode capture.
+    "BACKEND": (AGENTS / "backend-matrix.md", 83),
 }
 
 ENGINE_MATRIX = AGENTS / "engine-matrix.md"
