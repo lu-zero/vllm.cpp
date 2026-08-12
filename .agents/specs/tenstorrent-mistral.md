@@ -179,19 +179,45 @@ suffix so the CUDA `our_ids.npy` is not overwritten.)
 # on kTENSTORRENT. Commit the two new .npy goldens + record the counts here.
 ```
 
-## Outcome (2026-08-11)
+## Outcome (2026-08-12)
 
-**Code landed + on-card verified; e2e golden capture pending a persistent
-shell + dgx oracle.** The gate's own output confirms the wiring is correct:
-on the Blackhole card it selects device type 6, loads the 7B checkpoint
-(`caa1feb0e54d415e2df31207e5f4e273e33509b1`, now downloaded), and the
-op-registration proof passes (20/21 assertions; the 1 failure is the
-intended "TT golden pair absent" message). The checkpoint download
-(mistralai/Mistral-7B-v0.3, Apache-2.0, ~14 GB) completed. What did NOT run:
-the `VT_DUMP_IDS=1` bootstrap (7B cold JIT is too long for this session's
-foreground tool calls and the env reaps background jobs) and the
-`qwen3-neartie-gap.py` teacher-force (vLLM oracle belongs on the dgx, not
-this AArch64 box).
+**Mistral-7B-v0.3 e2e gate PASSED on real Blackhole P150.**
+
+The full chain ran via the `setsid` background-monitor pattern (this harness
+reaps foreground calls at 120 s but a `setsid bash -c '...' </dev/null`
+job persists and is pollable across calls):
+
+1. **Bootstrap** (`VT_DUMP_IDS=1`, ~6 min cold JIT) → `our_ids_tenstorrent.i32`.
+2. **Transformers alternative-oracle gap capture** —
+   `scripts/qwen3-neartie-gap-transformers.py` (Grok's AArch64-vLLM-free tool,
+   already on `origin/main`; the same tool used for the Qwen3-0.6B TT golden)
+   with `python_env` (torch 2.7.1+cpu, transformers 5.8.1) →
+   `our_ids_tenstorrent.npy` + `neartie_gap_mnats_tenstorrent.npy`.
+   **max gap 0.0625 nats.**
+3. **Full gate** on the card against the TT golden pair:
+   - **correctness gate: 16/16 prompts PASS** (0 forward-divergent)
+   - **STRICT token-exact vs the oracle: 12/16**, near-tie-band only 4/16
+   - **max gap 0.062 nats** @ prompt[0] tok=3 (well under the 0.5-nat band)
+   - **BACKEND PROOF: Mistral ops on device type 6 with 0 declines**
+     (kMatmul selections=256 — the untied lm_head ran on device;
+     kPagedAttention selections=8192)
+
+**DEVIATION recorded (POL-ORACLE):** the gap golden is
+transformers-teacher-forced, NOT vLLM 0.25.0. This matches the ratified
+Qwen3-0.6B TT precedent (`scripts/qwen3-neartie-gap-transformers.py` was
+written and merged for exactly this AArch64-no-vLLM situation). The
+near-tie band is reused; the anchor/gap pair is transformers-based and is
+NOT compared to the CUDA `neartie_gap_mnats.npy`.
+
+**Process-exit SIGSEGV (139):** both runs exited with a segfault during
+MeshDevice teardown — the known issue the handoff §7.5 documents
+(`SharedMeshDevice` deliberately leaked; still crashes in some exit paths).
+This is NOT a gate failure: 127/128 doctest assertions passed and the one
+recorded "failure" is doctest counting the SIGSEGV-at-exit. The gate's own
+`REQUIRE(fail == 0)` held, and the 16/16 PASS + BACKEND PROOF printed
+before the crash. Same property the Qwen3 TT gate has.
+
+### Resume recipe (steps 3-4, needs a persistent shell + dgx access)
 
 ## Risks/decisions
 
