@@ -299,7 +299,11 @@ MATRICES = {
     # MistralForCausalLM on TT + device-aware SACRED gate. Reuses Qwen3-dense
     # forward; no new kernel. Pending 7B checkpoint + vLLM oracle for the e2e
     # gate.
-    "BACKEND": (AGENTS / "backend-matrix.md", 82),
+    # 83 since 2026-08-12: +`BACKEND-TENSTORRENT-TRACE-RUNNER`, feasibility
+    # spike for wiring the landed #354 graph-capture foundation into a
+    # capturable forward region (decode host-free region? capture tok/s cost?
+    # ttnn program-cache warm-up?). No code; decision record only.
+    "BACKEND": (AGENTS / "backend-matrix.md", 83),
 }
 
 ENGINE_MATRIX = AGENTS / "engine-matrix.md"
