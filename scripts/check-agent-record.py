@@ -246,7 +246,11 @@ MATRICES = {
     # row owing residual-RMS numerics evidence at the device boundary (rows>=32
     # bf16 device path vs CPU f32 oracle). Bot-flagged on #289; READY once the
     # RED-first probe lands.
-    "BACKEND": (AGENTS / "backend-matrix.md", 81),
+    # 82 since 2026-08-12: +`BACKEND-TENSTORRENT-TRACE-RUNNER`, feasibility
+    # spike for wiring the landed #354 graph-capture foundation into a
+    # capturable forward region (decode host-free region? capture tok/s cost?
+    # ttnn program-cache warm-up?). No code; decision record only.
+    "BACKEND": (AGENTS / "backend-matrix.md", 82),
 }
 
 ENGINE_MATRIX = AGENTS / "engine-matrix.md"
