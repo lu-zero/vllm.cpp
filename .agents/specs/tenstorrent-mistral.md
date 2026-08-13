@@ -1,6 +1,8 @@
 # Tenstorrent Mistral allowlist + device-aware gate — spike
 
-Status: **DRAFT, 2026-08-11.** Owes the RED mutation + on-card run before the
+Status: **ACTIVE, 2026-08-12.** The RED mutation and the on-card run are DONE;
+see `## Outcome`. Issue: [#670](https://github.com/mudler/vllm.cpp/issues/670).
+Superseded draft note, kept for provenance: owed the RED mutation + on-card run before the
 row leaves `SPIKE`. Two environmental prerequisites (7B checkpoint + vLLM
 oracle) are required for the e2e gate and are being staged in parallel.
 
@@ -72,7 +74,7 @@ gate lacks the device-aware branch; (3) no TT golden pair exists; (4) the
 |---|---|
 | `src/vllm/platforms/tenstorrent.cpp:53` | Add `\|\| architecture == "MistralForCausalLM"` to `supports_model_architecture` |
 | `tests/parity/test_mistral_paged_engine.cpp` | Mirror `test_qwen3_paged_engine.cpp:221-296`: read `run_dev`, set `tenstorrent = run_dev == kTENSTORRENT`, `device_golden = tenstorrent`, op-registration proof for the Mistral op set, device-appropriate golden selection (`our_ids_tenstorrent.npy` / `neartie_gap_mnats_tenstorrent.npy`) with the existing BOOTSTRAP dump path. |
-| `tests/parity/goldens/mistral_greedy_7b/` | NEW `our_ids_tenstorrent.npy` + `neartie_gap_mnats_tenstorrent.npy` (captured via `VT_DUMP_IDS=1` on Blackhole → `scripts/qwen3-neartie-gap.py` teacher-force against the vLLM oracle). |
+| `tests/parity/goldens/mistral_greedy_7b/` | NEW `our_ids_tenstorrent.npy` + `neartie_gap_mnats_tenstorrent.npy` (captured via `VT_DUMP_IDS=1` on Blackhole → `scripts/qwen3-neartie-gap-transformers.py` teacher-force against the `transformers` SECONDARY oracle -- vLLM has no Tenstorrent backend, so it cannot produce this at all; see AGENTS.md "When vLLM has no implementation" and [`transformers.md`](../oracles/transformers.md)). |
 
 The Mistral op set for the registration proof (untied lm_head → includes
 `kMatmul`):
@@ -178,6 +180,27 @@ suffix so the CUDA `our_ids.npy` is not overwritten.)
 # Expect: strict-exact + near-tie-only >= 16/16, fail == 0, op selections > 0
 # on kTENSTORRENT. Commit the two new .npy goldens + record the counts here.
 ```
+
+## Now
+
+`ACTIVE`. The gate PASSED on a Blackhole P150 on 2026-08-12: 16/16 prompts, 12/16
+strict token-exact against the oracle, 4/16 inside the near-tie band, 0
+forward-divergent, max gap 0.062 nats, BACKEND PROOF with 0 declines
+(`kMatmul` selections 256 = the untied lm_head running on device,
+`kPagedAttention` 8192).
+
+Both former blockers are cleared. The 7B checkpoint is staged, and the goldens
+are teacher-forced by `transformers` rather than a vLLM oracle -- vLLM has no
+Tenstorrent backend, so it cannot produce this comparison at all. That is the
+sanctioned path under AGENTS.md "When vLLM has no implementation"; see
+[`transformers.md`](../oracles/transformers.md).
+
+Not owed and not claimed: any speed number. This row is correctness only.
+
+Next: nothing on this row. Device-residency and `ttnn::sdpa_decode` belong to
+the parent `BACKEND-TENSTORRENT`. Decode-graph capture is separately established
+as unavailable on this hardware -- trace capture refuses host readbacks -- but
+that spike's spec is not merged yet, so this row does not link it.
 
 ## Outcome (2026-08-12)
 

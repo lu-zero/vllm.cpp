@@ -192,11 +192,24 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
       vt::OpId::kEmbedding,      vt::OpId::kMatmulBT,       vt::OpId::kRmsNorm,
       vt::OpId::kRopeNeox,       vt::OpId::kReshapeAndCache, vt::OpId::kPagedAttention,
       vt::OpId::kSiluAndMul,     vt::OpId::kMatmul,          vt::OpId::kGreedyArgmax};
+  // kRopeNeox can legitimately be SUBSUMED rather than dispatched. Mistral
+  // reuses the Qwen3-dense `dense_attn::AttnBlock`, where VT_QWEN3_ROPE_CACHE
+  // is DEFAULT ON (dense_attn_block.h) and routes rope through kRopeFromCache;
+  // both cache ops are registered on TT (tenstorrent_ops.cpp). The mirrored
+  // Qwen3 gate tolerates exactly this (test_qwen3_paged_engine.cpp) and this
+  // copy dropped the escape, so a cache-path run would CHECK-fail "kRopeNeox
+  // was never dispatched" on a correct engine. Absence is only a defect if
+  // NOTHING covered the rope.
+  const std::vector<vt::OpId> kMistralRopeCacheOps = {
+      vt::OpId::kRopeCosSinCache, vt::OpId::kRopeFromCache};
   parity::NpyArray o_dev, gap_dev;  // keep device arrays alive for the loop
   if (device_golden) {
     for (vt::OpId op : kMistralOps) {
       CHECK(vt::OpRegistered(op, run_dev));
       vt::ResetOpProviderStats(op, run_dev);
+    }
+    for (vt::OpId op : kMistralRopeCacheOps) {
+      if (vt::OpRegistered(op, run_dev)) vt::ResetOpProviderStats(op, run_dev);
     }
     vt::EnableOpProviderCallStats(true);
     MESSAGE(label << ": running on device type " << static_cast<int>(run_dev)
@@ -206,7 +219,9 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
 
   // Device-appropriate anchor + teacher-forced gap goldens. Base = CUDA pair.
   // Tenstorrent has its own pair (captured via VT_DUMP_IDS=1 on Blackhole,
-  // then qwen3-neartie-gap.py teacher-forces vLLM on that sequence).
+  // then qwen3-neartie-gap-transformers.py teacher-forces `transformers` on
+  // that sequence -- NOT vLLM, which has no Tenstorrent backend at all. See
+  // AGENTS.md "When vLLM has no implementation" and .agents/oracles/transformers.md.
   const char* ids_name = tenstorrent ? "our_ids_tenstorrent.npy" : "our_ids.npy";
   const char* gap_name =
       tenstorrent ? "neartie_gap_mnats_tenstorrent.npy" : "neartie_gap_mnats.npy";
@@ -215,7 +230,8 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
     const bool have_dev = fs::exists(gdir / ids_name) && fs::exists(gdir / gap_name);
     if (!have_dev && dump) {
       // Bootstrap dump path: generate tokens, write raw i32, skip the gate.
-      // qwen3-neartie-gap.py then teacher-forces vLLM on that sequence.
+      // qwen3-neartie-gap-transformers.py then teacher-forces `transformers`
+      // on that sequence (the secondary oracle; vLLM has no TT backend).
       bootstrap_only = true;
       MESSAGE(label << ": BOOTSTRAP dump (device golden absent) for Tenstorrent...");
     } else {
@@ -260,8 +276,9 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
     if (bootstrap_only) continue;  // dump-only path; no anchor/gap yet
 
     // Anchor: the committed our_ids is the exact deterministic sequence our CUDA
-    // engine produces, and the committed gaps are vLLM 0.25.0 teacher-forced on
-    // that prefix. A drift from the anchor is a hard REQUIRE — it gives the gate
+    // engine produces. The committed gaps are teacher-forced on that prefix by
+    // the oracle that actually produced them: `transformers` for the Tenstorrent
+    // pair (vLLM has no TT backend), vLLM for the CUDA base pair. A drift from the anchor is a hard REQUIRE — it gives the gate
     // teeth: a real forward change flips a token off the anchor and fails HERE,
     // and the near-tie band below independently proves each token is one vLLM's
     // own logits cannot separate from its argmax.
@@ -304,11 +321,15 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
   // this provider) and declines == 0 (no silent CPU fallback). Mirrors
   // test_qwen3_paged_engine.cpp:373-400. Skipped on the bootstrap dump path
   // (which does not run the full op set through to a comparison) and on CUDA.
+  if (device_golden) vt::EnableOpProviderCallStats(false);
   if (device_golden && !bootstrap_only) {
-    vt::EnableOpProviderCallStats(false);
+    const auto rope_cache = vt::GetOpProviderStats(vt::OpId::kRopeFromCache, run_dev);
+    const auto fused_pre = vt::GetOpProviderStats(vt::OpId::kAttnQkNormRope, run_dev);
     for (vt::OpId op : kMistralOps) {
       const auto st = vt::GetOpProviderStats(op, run_dev);
-      const bool ran = st.selections > 0;
+      const bool rope_alt = (op == vt::OpId::kRopeNeox) &&
+                            (rope_cache.selections > 0 || fused_pre.selections > 0);
+      const bool ran = st.selections > 0 || rope_alt;
       CHECK_MESSAGE(ran,
                     label << ": op " << static_cast<int>(op)
                           << " was never dispatched on device type "
@@ -335,6 +356,18 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
       std::fclose(f);
       MESSAGE(label << " dumped our token ids -> " << path);
     }
+  }
+  if (bootstrap_only) {
+    // BOOTSTRAP complete -- no correctness bar this run. Every prompt hit the
+    // `continue` above, so strict_exact/neartie_only/fail are all 0 and the
+    // summary below would print "0/16 prompts PASS ... 0 forward-divergent"
+    // over a REQUIRE(fail == 0) that holds vacuously. That reads in a log
+    // exactly like a gate that ran. The mirrored Qwen3 gate returns here
+    // (test_qwen3_paged_engine.cpp) and this copy dropped it.
+    MESSAGE(label << ": BOOTSTRAP complete -- ids dumped, NO correctness bar "
+                     "was applied this run. Teacher-force the dumped sequence, "
+                     "commit the golden pair, then re-run without VT_DUMP_IDS.");
+    return;
   }
   MESSAGE(label << " correctness gate: " << (strict_exact + neartie_only) << "/" << N
           << " prompts PASS  (STRICT token-exact vs vLLM per-prompt greedy: "
