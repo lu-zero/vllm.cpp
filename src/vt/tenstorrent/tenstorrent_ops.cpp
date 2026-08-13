@@ -78,6 +78,8 @@ ttnn::Tensor chunked_scaled_dot_product_attention(
 #endif
 #include <ttnn/operations/experimental/paged_cache/paged_cache.hpp>
 #include <ttnn/operations/core/to_memory_config/to_memory_config_op.hpp>
+#include <ttnn/operations/data_movement/copy/copy.hpp>
+#include <ttnn/operations/creation/creation.hpp>
 #include <tt-metalium/core_coord.hpp>
 #include <tt-metalium/work_split.hpp>
 #include <tt-metalium/experimental/tensor/spec/memory_config/memory_config.hpp>
@@ -94,10 +96,28 @@ ttnn::Tensor chunked_scaled_dot_product_attention(
 namespace vt::tenstorrent {
 namespace {
 
+// Bisection diagnostic: logs op entry during capture (VT_TT_TRACE_DEBUG).
+#define TT_OP_TRACE(name)                                          \
+  do {                                                             \
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr &&             \
+        tt_capture_active())                                       \
+      std::fprintf(stderr, "[TT-OP] %s\n", name);                  \
+  } while (0)
+
 // ---- Host/device residency -------------------------------------------------
 // vt::Tensor.data is always a host pointer from Backend::Alloc. A shadow map
 // (Metal AllocMap shape) holds an optional device-resident ttnn::Tensor for
 // that host base so multi-op chains need not download after every matmul.
+
+// File-scope capture flag (flipped by TraceBeginCapture/TraceEndCapture) so the
+// residency helpers below can detect readbacks during capture (ttnn prohibits
+// them). Defined here, before the helpers that query it.
+namespace {
+bool& tt_capture_active() {
+  static bool b = false;
+  return b;
+}
+}  // namespace
 
 struct BufferSlot {
   void* host = nullptr;
@@ -170,6 +190,8 @@ bool IsFloatDType(DType d) {
 }
 
 void DownloadToHost(ttnn::Tensor& dev, Tensor& out) {
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-TRACE] to_vector readback DURING CAPTURE\n");
   std::vector<float> result = dev.to_vector<float>();
   VT_CHECK(static_cast<int64_t>(result.size()) == out.Numel(),
            "tenstorrent: unexpected result size");
@@ -758,6 +780,7 @@ void CommitHost(Tensor& out) {
 // Device compute: keep result on device (CommitDevice2D). Host round-trip only
 // when the consumer is a host-staged op (EnsureHost) or an untracked buffer.
 void MatmulKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
+  TT_OP_TRACE("Matmul");
   VT_CHECK(a.rank == 2 && b.rank == 2 && out.rank == 2,
            "tenstorrent kMatmul: only rank-2 tensors are supported in W0");
   VT_CHECK(IsFloatDType(a.dtype) && IsFloatDType(b.dtype) &&
@@ -784,6 +807,7 @@ void MatmulKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
 // that flag flipped — no separate upload shape needed since `b` is uploaded
 // in its native [N,K] layout and ttnn transposes on device.
 void MatmulBTKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
+  TT_OP_TRACE("MatmulBT");
   VT_CHECK(a.rank == 2 && b.rank == 2 && out.rank == 2,
            "tenstorrent kMatmulBT: only rank-2 tensors are supported in W0");
   VT_CHECK(IsFloatDType(a.dtype) && IsFloatDType(b.dtype) &&
@@ -812,6 +836,7 @@ void MatmulBTKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
 // this kernel's behavior pinned to the CPU reference rather than to
 // whatever ttnn::add happens to support today.
 void AddKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
+  TT_OP_TRACE("Add");
   VT_CHECK(a.rank == 2 && out.rank == 2, "tenstorrent kAdd: `a`/`out` must be rank-2 in W0");
   VT_CHECK(b.rank == 2 || b.rank == 1, "tenstorrent kAdd: `b` must be rank-1 or rank-2 in W0");
   VT_CHECK(IsFloatDType(a.dtype) && IsFloatDType(b.dtype) &&
@@ -917,6 +942,7 @@ ttnn::Tensor EnsureEmbedTableDevice(const Tensor& table, MeshDevice& device) {
 // vt::EmbeddingFn's (table, ids). Output is TILE so the next matmul can keep
 // the activation device-resident without a host round-trip.
 void EmbeddingKernel(Queue&, Tensor& out, const Tensor& table, const Tensor& ids) {
+  TT_OP_TRACE("Embedding");
   VT_CHECK(table.rank == 2 && ids.rank == 1 && out.rank == 2,
            "tenstorrent kEmbedding: table rank-2, ids rank-1, out rank-2");
   VT_CHECK(IsFloatDType(table.dtype) && (out.dtype == DType::kF32 || out.dtype == DType::kBF16),
@@ -1004,6 +1030,7 @@ ttnn::Tensor EnsureAffine1D(const Tensor& t, uint32_t d, MeshDevice& device) {
 // LayerNormArgs (OPT default 1e-5, not ttnn's 1e-12 default).
 void LayerNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor* weight,
                      const Tensor* bias, const LayerNormArgs& args) {
+  TT_OP_TRACE("LayerNorm");
   VT_CHECK(x.rank == 2 && out.rank == 2,
            "tenstorrent kLayerNorm: only rank-2 tensors are supported in this step");
   VT_CHECK(IsFloatDType(x.dtype) && (out.dtype == DType::kF32 || out.dtype == DType::kBF16),
@@ -1044,6 +1071,7 @@ void LayerNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor* weight,
 // upload via the same TILE [1,D] affine helper as kLayerNorm.
 void RmsNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& weight,
                    const RmsNormArgs& args, Tensor* residual) {
+  TT_OP_TRACE("RmsNorm");
   VT_CHECK(x.rank == 2 && out.rank == 2,
            "tenstorrent kRmsNorm: only rank-2 tensors are supported in this step");
   VT_CHECK(IsFloatDType(x.dtype) && (out.dtype == DType::kF32 || out.dtype == DType::kBF16),
@@ -1068,8 +1096,14 @@ void RmsNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& weight,
   // (rows=1) pays more for device add+rms launches than a host loop, and was
   // a measurable e2e regression vs host residual.
   constexpr uint32_t kDeviceResidualMinRows = 32;
-  const bool host_residual =
-      args.gemma || (residual != nullptr && rows < kDeviceResidualMinRows);
+  // HOST-FREE-FORWARD R1: force the residual merge + RMS device path at T=1 when
+  // capture is desired (ttnn trace prohibits host ops in the captured region).
+  // Opt-in via VT_TT_HOST_FREE_DECODE; inert by default (keeps the 12.5 tok/s
+  // hybrid baseline). Numerics proven by BACKEND-TENSTORRENT-RESIDUAL-GOLDEN.
+  const bool host_free_decode =
+      std::getenv("VT_TT_HOST_FREE_DECODE") != nullptr;
+  const bool host_residual = !host_free_decode &&
+      (args.gemma || (residual != nullptr && rows < kDeviceResidualMinRows));
   if (host_residual) {
     EnsureHost(x);
     EnsureHost(weight);
@@ -1124,6 +1158,7 @@ void RmsNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& weight,
 // last-dim halves, ttnn::silu(gate), ttnn::multiply by up. BF16 tile path
 // (same envelope as matmul/norm); not bit-exact vs host f32.
 void SiluAndMulKernel(Queue&, Tensor& out, const Tensor& x) {
+  TT_OP_TRACE("SiluAndMul");
   VT_CHECK(x.rank == 2 && out.rank == 2,
            "tenstorrent kSiluAndMul: only rank-2 tensors are supported");
   VT_CHECK(IsFloatDType(x.dtype) && (out.dtype == DType::kF32 || out.dtype == DType::kBF16),
@@ -1156,6 +1191,7 @@ void SiluAndMulKernel(Queue&, Tensor& out, const Tensor& x) {
 // CastBf16Kernel / CastF32Kernel). Qwen3 uses these for K/V cache dtype and
 // the logits / rope-cache paths. Host-staged; bit-exact for supported pairs.
 void CastBf16Kernel(Queue&, Tensor& out, const Tensor& in) {
+  TT_OP_TRACE("CastBf16");
   VT_CHECK(out.dtype == DType::kBF16, "tenstorrent kCastBf16: out must be bf16");
   VT_CHECK(IsFloatDType(in.dtype), "tenstorrent kCastBf16: in must be float");
   VT_CHECK(out.Numel() == in.Numel(), "tenstorrent kCastBf16: numel mismatch");
@@ -1168,6 +1204,7 @@ void CastBf16Kernel(Queue&, Tensor& out, const Tensor& in) {
 }
 
 void CastF32Kernel(Queue&, Tensor& out, const Tensor& in) {
+  TT_OP_TRACE("CastF32");
   VT_CHECK(out.dtype == DType::kF32, "tenstorrent kCastF32: out must be f32");
   VT_CHECK(IsFloatDType(in.dtype), "tenstorrent kCastF32: in must be float");
   VT_CHECK(out.Numel() == in.Numel(), "tenstorrent kCastF32: numel mismatch");
@@ -1340,11 +1377,14 @@ void RopeApplyHost(Tensor& qs, Tensor* ks, const float* cos_t, const float* sin_
 // Short Qwen3 decode (T=1,H=16) is host-faster even when Q is already on device
 // (measured regression when always-device-for-resident was forced).
 inline bool PreferDeviceRope(int64_t tokens, int64_t heads) {
+  // HOST-FREE-FORWARD R1: force device RoPE at T=1 for capture (see RmsNorm note).
+  if (std::getenv("VT_TT_HOST_FREE_DECODE") != nullptr) return true;
   return tokens * heads >= 64;
 }
 
 // kRopeNeox: Qwen3-dense RoPE. Device NeoX for large [T*H]; host for short decode.
 void RopeNeoxKernel(Queue&, Tensor& qs, Tensor& ks, const Tensor& pos, const RopeArgs& args) {
+  TT_OP_TRACE("RopeNeox");
   VT_CHECK(qs.rank == 3 && ks.rank == 3, "tenstorrent kRopeNeox: qs/ks rank-3");
   VT_CHECK(IsFloatDType(qs.dtype) && qs.dtype == ks.dtype,
            "tenstorrent kRopeNeox: qs/ks float same dtype");
@@ -1458,6 +1498,7 @@ void RopeFromCacheKernel(Queue&, Tensor& qs, Tensor* ks, const Tensor& positions
 // reuse without download+reupload. Host path (bit-exact memcpy) when qkv is
 // host-only — unit tests and weight-load style callers.
 void QkvSplitKernel(Queue&, Tensor& q_out, Tensor& k_out, Tensor& v_out, const Tensor& qkv) {
+  TT_OP_TRACE("QkvSplit");
   VT_CHECK(qkv.rank == 2 && IsFloatDType(qkv.dtype),
            "tenstorrent kQkvSplit: rank-2 float qkv required");
   VT_CHECK(q_out.dtype == qkv.dtype && k_out.dtype == qkv.dtype && v_out.dtype == qkv.dtype,
@@ -1526,6 +1567,7 @@ void QkvSplitKernel(Queue&, Tensor& q_out, Tensor& k_out, Tensor& v_out, const T
 // Host-staged pure element copy for F32.
 void ReshapeAndCacheKernel(Queue&, const Tensor& k, const Tensor& v, Tensor& k_cache,
                            Tensor& v_cache, const Tensor& slot_mapping) {
+  TT_OP_TRACE("ReshapeAndCache");
   VT_CHECK(k.rank == 3 && v.rank == 3 && k_cache.rank == 4 && v_cache.rank == 4,
            "tenstorrent kReshapeAndCache: k/v rank-3, caches rank-4");
   VT_CHECK(IsFloatDType(k.dtype) && k.dtype == v.dtype && k_cache.dtype == k.dtype &&
@@ -1623,6 +1665,7 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
                                    const Tensor& v_cache, const Tensor& block_table,
                                    const Tensor& seq_lens, const Tensor& query_start_loc,
                                    const PagedAttentionArgs& args) {
+  TT_OP_TRACE("TryPagedAttentionDeviceDecode");
   if (!args.causal || args.logits_soft_cap > 0.0f) return false;
   if (args.window_size.has_value()) return false;
   if (args.kv_cache_dtype != Fp8KVCacheDataType::kAuto) return false;
@@ -1778,6 +1821,8 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
 
     // Output ~ [1, B, H, D] → host [B, H, D] in request order, then scatter to
     // global query token indices.
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] PA decode to_vector\n");
     std::vector<float> result = dev_out.to_vector<float>();
     VT_CHECK(static_cast<int64_t>(result.size()) >= num_reqs * hq * d,
              "tenstorrent device PA: unexpected output size");
@@ -1954,6 +1999,8 @@ bool TryPagedAttentionDevicePrefill(Tensor& out, const Tensor& query, const Tens
           continue;
         }
 
+        if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+          std::fprintf(stderr, "[TT-TRACE] PA prefill to_vector\n");
         std::vector<float> result = dev_out.to_vector<float>();
         // Expected dense logical [1, H, kChunk, D].
         VT_CHECK(static_cast<int64_t>(result.size()) >= hq * kChunk * d,
@@ -2372,6 +2419,9 @@ void TraceBeginCapture() {
   MeshDevice& device = SharedMeshDevice();
   s.capturing_id = ttnn::operations::trace::begin_trace_capture(&device, kTraceCq);
   s.capturing = true;
+  tt_capture_active() = true;
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr, "[TT-TRACE] BeginCapture (flag set)\n");
 }
 
 void TraceEndCapture() {
@@ -2389,6 +2439,7 @@ void TraceEndCapture() {
   s.replay_id = s.capturing_id;
   s.has_replay = true;
   s.capturing = false;
+  tt_capture_active() = false;
 }
 
 void TraceReplay() {
@@ -2405,6 +2456,7 @@ void* TraceEndCaptureGraph() {
   MeshDevice& device = SharedMeshDevice();
   ttnn::operations::trace::end_trace_capture(&device, s.capturing_id, kTraceCq);
   s.capturing = false;
+  tt_capture_active() = false;
   // Opaque handle: heap-allocated MeshTraceId for the multi-graph API.
   return new ttnn::MeshTraceId(s.capturing_id);
 }
@@ -2467,6 +2519,8 @@ void MarkHostWritten(void* host) {
 
 void EnsureHostBytes(void* host) {
   if (host == nullptr) return;
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-TRACE] EnsureHostBytes DURING CAPTURE\n");
   ttnn::Tensor dev;
   size_t bytes = 0;
   void* base = nullptr;
@@ -2498,6 +2552,96 @@ void EnsureHostBytes(void* host) {
     }
     s->host_current = true;
   }
+}
+
+// HOST-FREE-FORWARD R2: device->device copy when capturing, so Backend::Copy
+// does not to_vector inside the captured region. Both dst and src must carry a
+// current device shadow of equal byte size; dst's shadow becomes a copy of src.
+bool CopyDeviceDeviceIfCapture(void* dst, const void* src) {
+  // Run the device->device copy when EITHER capturing OR in host-free-decode
+  // mode (the env opt-in). The latter is essential so the EAGER warmup step
+  // (which the decode-graph framework runs BEFORE capture) also exercises
+  // ttnn::empty+ttnn::copy, compiling those programs into the cache so the
+  // subsequent capture doesn't hit "Cannot load new binaries during trace
+  // capture."
+  static const bool host_free =
+      std::getenv("VT_TT_HOST_FREE_DECODE") != nullptr;
+  if (!tt_capture_active() && !host_free) return false;
+  static bool once = [&] {
+    // Enable program cache once on the first host-free path use — ttnn trace
+    // requires every captured op to be program-cache-warm.
+    MeshDevice& device = SharedMeshDevice();
+    device.enable_program_cache();
+    return true;
+  }();
+  (void)once;
+  ttnn::Tensor src_dev;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(const_cast<void*>(src));
+    BufferSlot* d = FindSlot(dst);
+    if (s == nullptr || !s->device_current || !s->device.has_value()) return false;
+    if (d == nullptr) return false;
+    if (s->bytes != d->bytes) return false;
+    src_dev = *s->device;
+  }
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr, "[TT-TRACE] device->device copy (capture-safe)\n");
+  MeshDevice& device = SharedMeshDevice();
+  // Allocate a destination device tensor matching src's shape/dtype/layout,
+  // then copy. No host readback.
+  ttnn::Tensor cloned = ttnn::empty(src_dev.logical_shape(), src_dev.dtype(),
+                                    src_dev.layout(), &device,
+                                    src_dev.memory_config());
+  cloned = ttnn::copy(src_dev, cloned);
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* d = FindSlot(dst);
+    if (d == nullptr) return false;
+    d->device = std::move(cloned);
+    d->device_current = true;
+    d->host_current = false;
+  }
+  return true;
+}
+
+// HOST-FREE-FORWARD R3: on-device fill (for DBuf::Zero -> Backend::Memset)
+// when host-free decode is active, so no host write happens inside capture.
+// Reinterprets the buffer as a 2D [rows, cols] f32 tensor matching the
+// existing device shadow's numel (zeros is the only value the forward uses).
+bool MemsetDeviceIfCapture(void* p, int value) {
+  static const bool host_free =
+      std::getenv("VT_TT_HOST_FREE_DECODE") != nullptr;
+  if (!tt_capture_active() && !host_free) return false;
+  if (value != 0) return false;  // only zero-fill is handled on-device
+  // Need an existing shadow to know shape/dtype; or allocate from the slot.
+  std::optional<ttnn::Tensor> dev;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(p);
+    if (s != nullptr && s->device_current && s->device.has_value()) {
+      dev = *s->device;
+    }
+  }
+  MeshDevice& device = SharedMeshDevice();
+  if (!dev.has_value()) {
+    // No shadow yet: DBuf::Zero on a brand-new buffer with no device tensor.
+    return false;  // fall back to host memset; the buffer is host-only for now
+  }
+  const ttnn::Tensor& shadow = *dev;
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr, "[TT-TRACE] device zero-fill (capture-safe)\n");
+  ttnn::Tensor z = ttnn::zeros(shadow.logical_shape(), shadow.dtype(), shadow.layout(),
+                               std::ref(device));
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(p);
+    if (s == nullptr) return false;
+    s->device = std::move(z);
+    s->device_current = true;
+    s->host_current = false;
+  }
+  return true;
 }
 
 }  // namespace vt::tenstorrent

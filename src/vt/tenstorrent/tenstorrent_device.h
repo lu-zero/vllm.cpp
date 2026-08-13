@@ -49,6 +49,17 @@ void MarkHostWritten(void* host);
 // of truth, download to host. Used by Backend::Copy so D2H-style reads see
 // device-resident results without every op writing host eagerly.
 void EnsureHostBytes(void* host);
+// HOST-FREE-FORWARD R2: when capture is active and BOTH dst and src carry a
+// current device shadow, do a device->device copy (ttnn) instead of staging
+// through host. Returns true if it performed a device copy, false if the
+// caller should fall back to host memcpy.
+bool CopyDeviceDeviceIfCapture(void* dst, const void* src);
+// HOST-FREE-FORWARD R3: when capture/host-free is active, fill the buffer's
+// device shadow with `value` on-device (ttnn::full) instead of host memset.
+// Returns true if it performed a device fill, false if the caller should fall
+// back to host memset. Requires the buffer to have a device shadow of a known
+// 2D shape (it is reinterpreted as [rows, cols] f32; zeros is the common case).
+bool MemsetDeviceIfCapture(void* p, int value);
 
 // ---- ttnn mesh-trace capture (Backend graph-capture mapping) --------------
 // Maps vt::Backend::{BeginCapture,EndCapture,Replay} onto
