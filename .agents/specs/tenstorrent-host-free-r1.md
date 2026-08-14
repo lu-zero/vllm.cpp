@@ -646,3 +646,24 @@ returns a new tensor. The fix would be either:
 
 Option (a) is the cleanest (an upstream issue/PR to ttnn). This is the
 genuine gate — not a vllm.cpp code issue but a ttnn API limitation.
+
+### Item 5: RAC — paged_update_cache IS in-place; writes from build_padded
+
+Key discovery: `paged_update_cache::create_output_tensors` returns
+`tensor_args.cache_tensor` — it's an **in-place** operation (no output
+allocation). The `Writes are not supported` error was NOT from
+`paged_update_cache` itself but from `build_padded`'s helper ops:
+`ttnn::to_memory_config` (sharding allocates a new buffer) and possibly
+`ttnn::concat`/`ttnn::zeros`.
+
+Attempted: pre-build the sharded zero input in WarmRacIdx and use
+`ttnn::copy` (capture-safe) in `build_padded`. Crashed (segfault 139)
+during the cold step — likely a shape/lifetime mismatch between the
+pre-built sharded tensor and what `build_padded` produces. The
+`sharded_zero` may be default-constructed (empty) if the warm loop didn't
+find a shadow, or the shapes don't align.
+
+NEXT: debug the sharded_zero lifetime/shape, or take the simpler approach
+(b) — replace `paged_update_cache` with a manual `ttnn::copy` into a
+pre-sliced cache region (simpler op, no sharding requirement, proven
+capture-safe by the R2 copy fix).

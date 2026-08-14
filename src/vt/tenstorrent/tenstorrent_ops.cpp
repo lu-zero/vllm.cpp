@@ -1720,9 +1720,10 @@ void QkvSplitKernel(Queue&, Tensor& q_out, Tensor& k_out, Tensor& v_out, const T
 // different graph size gets its own entries.
 namespace {
 struct RacIdxEntry {
-  ttnn::Tensor update_idxs;  // uint32 [C] device
+  ttnn::Tensor update_idxs;  // int32 [C] device
   ttnn::Tensor page_table;   // int32 [C,1] device
   std::vector<int32_t> idx_host;  // content identity for reuse check
+  ttnn::Tensor sharded_zero;  // pre-allocated height-sharded [1,1,nkv_pad,d] zero
 };
 std::mutex& RacIdxMutex() { static std::mutex m; return m; }
 // Keyed by (num_slots, block_size) shape — idx tensors depend on slot values + block_size.
@@ -1824,7 +1825,7 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
   // Build the padded [1,1,nkv_pad,d] input ON DEVICE from the k/v shadows:
   // rows [0,nkv) hold the token, [nkv,nkv_pad) stay zero (persistent zero
   // buffer via the zero-cache, or first-build outside capture).
-  auto build_padded = [&](const ttnn::Tensor& src) -> ttnn::Tensor {
+  auto build_padded = [&](const ttnn::Tensor& src, const RacIdxEntry& idx_entry) -> ttnn::Tensor {
     // src: [T*nkv, d] TILE bf16; T==1 -> [nkv, d].
     ttnn::Tensor rows = ttnn::slice(src, ttsl::SmallVector<uint32_t>{0, 0},
                                     ttsl::SmallVector<uint32_t>{static_cast<uint32_t>(nkv), static_cast<uint32_t>(d)},
@@ -1843,23 +1844,22 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
         ttsl::SmallVector<uint32_t>{nkv_pad, static_cast<uint32_t>(d)},
         ttsl::SmallVector<uint32_t>{1, 1})}, 0);
     ttnn::Tensor reshaped = padded.reshape(ttnn::Shape({1u, 1u, nkv_pad, static_cast<uint32_t>(d)}));
-    // paged_update_cache requires a HEIGHT-SHARDED input (one shard per core).
-    const auto grid = device.compute_with_storage_grid_size();
-    const tt::tt_metal::CoreRangeSet core_set =
-        tt::tt_metal::num_cores_to_corerangeset(1u, grid, /*row_wise=*/true);
-    tt::tt_metal::ShardSpec shard_spec(core_set, {nkv_pad, static_cast<uint32_t>(d)},
-                                       tt::tt_metal::ShardOrientation::ROW_MAJOR);
-    tt::tt_metal::MemoryConfig sharded_mem(tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED,
-                                           tt::tt_metal::BufferType::L1, shard_spec);
-    return ttnn::to_memory_config(reshaped, sharded_mem);
+    // Use the persistent sharded zero from the warm cache; copy the padded
+    // content into it (device->device, capture-safe) and return that.
+    ttnn::Tensor result = ttnn::copy(reshaped, idx_entry.sharded_zero);
+    return result;
   };
 
+  const RacIdxEntry& it2 = [&] {
+    std::lock_guard<std::mutex> g(RacIdxMutex());
+    return RacIdxCache().at(std::make_pair(num_slots, static_cast<int64_t>(bs)));
+  }();
   const bool capturing = tt_capture_active();
   if (capturing)
     std::fprintf(stderr, "[TT-TRACE] RAC device->device update (capture-safe)\n");
 
-  ttnn::Tensor k_in = build_padded(*k_dev);
-  ttnn::Tensor v_in = build_padded(*v_dev);
+  ttnn::Tensor k_in = build_padded(*k_dev, it2);
+  ttnn::Tensor v_in = build_padded(*v_dev, it2);
   ttnn::Tensor new_kc = ttnn::experimental::paged_update_cache(
       *kc_dev, k_in, /*update_idxs=*/{}, idx, /*share_cache=*/false, pt,
       /*batch_offset=*/0, /*compute_kernel_config=*/std::nullopt,
@@ -3107,6 +3107,33 @@ void WarmRacIdx(const void* /*slot_mapping_owner*/, const int64_t* slots,
   e.update_idxs = std::move(idx);
   e.page_table = std::move(pt);
   e.idx_host = idxv;
+  // Build the persistent sharded zero input [1,1,nkv_pad,d] (the shape
+  // paged_update_cache expects). Allocated OUTSIDE capture; the captured
+  // RAC copies the real k/v rows into its top slice then passes it.
+  // Build the persistent sharded zero input [1,1,nkv_pad,d] from the first
+  // available paged-KV shadow's geometry (same nkv/d as the cache).
+  {
+    std::lock_guard<std::mutex> pg(PagedKvMutex());
+    for (auto& [ptr, shadow] : PagedKvShadows()) {
+      if (shadow.nkv > 0 && shadow.d > 0) {
+        const uint32_t np = std::max(32u, ((shadow.nkv + 31u) / 32u) * 32u);
+        ttnn::Tensor z = ttnn::zeros(
+            ttnn::Shape({1u, 1u, np, shadow.d}),
+            ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, std::ref(device));
+        ttnn::Tensor reshaped = z.reshape(ttnn::Shape({1u, 1u, np, shadow.d}));
+        const auto grid = device.compute_with_storage_grid_size();
+        const tt::tt_metal::CoreRangeSet core_set =
+            tt::tt_metal::num_cores_to_corerangeset(1u, grid, true);
+        tt::tt_metal::ShardSpec ss(core_set, {np, shadow.d},
+                                   tt::tt_metal::ShardOrientation::ROW_MAJOR);
+        tt::tt_metal::MemoryConfig sm(
+            tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED,
+            tt::tt_metal::BufferType::L1, ss);
+        e.sharded_zero = ttnn::to_memory_config(reshaped, sm);
+        break;
+      }
+    }
+  }
   RacIdxCache()[std::make_pair(num_slots, block_size)] = std::move(e);
   // paged_update_cache is warmed naturally: WarmPagedKvShadow (called by
   // the driver BEFORE WarmRacIdx) primes the shadows, and the cold step's
