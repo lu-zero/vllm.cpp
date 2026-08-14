@@ -1847,28 +1847,26 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
   if (tt_capture_active())
     std::fprintf(stderr, "[TT-TRACE] RAC device->device update (capture-safe)\n");
 
-  MeshDevice& device = SharedMeshDevice();
   // Build the sharded input from the device k/v shadow using ttnn::copy
   // (capture-safe) into the pre-built sharded_zero.
   auto build_input = [&](const ttnn::Tensor& src) -> ttnn::Tensor {
     // src: [T*nkv, d] TILE bf16 (T==1 -> [nkv, d]).
-    // Copy the nkv rows into the sharded_zero (pre-built [1,1,nkv_pad,d]).
+    // Strategy: reshape src to [1,1,nkv,d] TILE, then copy into the
+    // sharded_zero's [1,1,nkv,d] top slice. The padding heads stay
+    // zero (from the warm-built sharded_zero). No zeros/concat needed.
     try {
       ttnn::Tensor reshaped = src.reshape(ttnn::Shape(
           {1u, 1u, static_cast<uint32_t>(nkv), static_cast<uint32_t>(d)}));
-      const uint32_t pad_heads = nkv_pad - static_cast<uint32_t>(nkv);
-      if (pad_heads > 0) {
-        ttnn::Tensor zeros_tail = ttnn::zeros(
-            ttnn::Shape({1u, 1u, pad_heads, static_cast<uint32_t>(d)}),
-            ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, std::ref(device));
-        ttnn::Tensor padded = ttnn::concat(
-            std::vector<ttnn::Tensor>{reshaped, zeros_tail}, 2);
-        ttnn::copy(padded, rac_entry.sharded_zero);
-      } else {
-        ttnn::copy(reshaped, rac_entry.sharded_zero);
-      }
-    } catch (...) {
-      // Layout mismatch — fall back to zeros (stale KV).
+      // Slice the sharded buffer to get the target [1,1,nkv,d] region.
+      ttnn::Tensor target = ttnn::slice(
+          rac_entry.sharded_zero,
+          ttsl::SmallVector<uint32_t>{0, 0, 0, 0},
+          ttsl::SmallVector<uint32_t>{1u, 1u, static_cast<uint32_t>(nkv), static_cast<uint32_t>(d)},
+          ttsl::SmallVector<uint32_t>{1, 1, 1, 1});
+      ttnn::copy(reshaped, target);
+    } catch (const std::exception& e) {
+      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+        std::fprintf(stderr, "[TT-TRACE] RAC build_input copy FAILED: %s\n", e.what());
     }
     return rac_entry.sharded_zero;
   };

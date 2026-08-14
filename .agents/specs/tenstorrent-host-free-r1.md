@@ -822,3 +822,30 @@ reads them directly). Our issue is only the sharded input construction
 `ttnn::copy` (from the device k/v shadow into the padded sharded buffer),
 it should work. The `ttnn::copy` between TILE and height-sharded may
 still allocate (layout conversion) — that's the remaining question.
+
+### RAC k/v copy: slice+copy produces wrong output (layout mismatch)
+
+The `ttnn::copy` from a TILE `[1,1,nkv,d]` into a height-sharded
+`[1,1,nkv_pad,d]` slice silently fails or produces wrong data (the
+try/catch swallows the error, leaving zeros). The output is
+`[](zheimerzheimerzheimer` instead of ` Answer! I'm`.
+
+The capture mechanism is COMPLETE — EXIT=0, 83/76 tok/s replay. The
+issue is purely the k/v data copy into the sharded buffer: ttnn::copy
+between different memory configs (TILE vs height-sharded) doesn't work
+as a simple memcpy.
+
+The fix: either
+(a) find a ttnn op that copies TILE→sharded without allocation, or
+(b) pre-build the k/v as a height-sharded tensor at warm time (the
+    warm hook has the device k/v shadow from the cold step), or
+(c) use a different approach entirely — skip paged_update_cache and
+    do a manual scatter via ttnn::slice + ttnn::copy on the cache
+    shadow itself (which is TILE, not sharded).
+
+Option (c) is promising: the cache shadow `[nb,nkv,bs,d]` is TILE. We
+can slice it at `[block, :, offset, :]` → `[1,nkv,1,d]` and copy the
+k/v `[nkv,1,d]` (reshaped from the rope output) into it. All TILE→TILE
+copies, no sharding. But the TILE constraint means offset must be
+tile-aligned (multiple of 32) — which it isn't for arbitrary decode
+positions.
