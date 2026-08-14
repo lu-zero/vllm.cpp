@@ -849,3 +849,53 @@ k/v `[nkv,1,d]` (reshaped from the rope output) into it. All TILE→TILE
 copies, no sharding. But the TILE constraint means offset must be
 tile-aligned (multiple of 32) — which it isn't for arbitrary decode
 positions.
+
+## Session checkpoint (2026-08-15)
+
+### Complete state
+
+**CAPTURE WORKS** — measured 83 tok/s replay on real Blackhole P150
+(12x over the 7.3 tok/s eager baseline). EXIT=0, default path inert
+(23/23, 831/831).
+
+### What works (all env-gated, inert by default)
+- R1: RmsNorm/RoPE threshold flip
+- R2: Backend::Copy device→device (CopyDeviceDeviceIfCapture)
+- R3: Program-cache warm (enable_program_cache + eager warm)
+- R3b: Backend::Memset/Zero device fill (persistent zero cache)
+- 5a: ttnn::zeros → persistent zero cache (capture-safe fill)
+- 5b: Rope cos/sin → persistent cache + bf16 round-trip + driver warm
+- 5c: RAC → paged_update_cache IS capture-safe (in-place); k/v copy
+     needs fix (TILE→sharded layout mismatch → wrong output)
+- 5d: PA KV shadow → cached shadow skip (bypass EnsurePagedKvTtnn's
+     contiguous check on KvSlice's strided view)
+- 5e: PA metadata (page_table + cur_pos) → persistent device tensors
+     + driver warm (WarmPaMeta)
+- 5f: sdpa_decode → compiled on cold step (all 28 layers), program-cache
+     hit on capture step
+
+### What's left
+1. RAC k/v copy correctness — tnn::copy TILE→sharded produces wrong data.
+   Fix: "RAC before replay" — do the KV write at the driver Refresh slot
+   (before BeginCapture/ReplayGraph) using the previous step's rope output
+   shadow. The captured graph skips RAC; the driver does it outside capture.
+2. 64-token steady-state tok/s measurement (the 83 tok/s is a 4-token smoke).
+3. Correctness gate vs the Qwen3-0.6B TT golden (verify output matches).
+4. Fresh review of the complete change.
+
+### Performance summary
+| config | warm tok/s | note |
+|--------|-----------|------|
+| Qwen3-0.6B default hybrid (64 tok) | 7.13 / 7.23 | eager baseline |
+| Qwen3-0.6B all-device eager (64 tok) | 6.68 / 6.80 | capture prerequisite cost ~6% |
+| Qwen3-0.6B capture replay (4 tok) | 83 / 76 | ~12x speedup (smoke; 64-tok pending) |
+| Mistral-7B-v0.3 (32 tok) | 4.26 | first Mistral number |
+
+### PRs
+| PR | Row | Status |
+|----|-----|--------|
+| #431 | MISTRAL | MERGED |
+| #694 | HOST-FREE | draft, all work on this branch |
+| #393 | RESIDUAL-GOLDEN | merged |
+| #541 | TRACE-RUNNER | closed (superseded by #694) |
+| #805 (issue) | MAIN-RED | filed (MUSIC3 extern C bug) |
