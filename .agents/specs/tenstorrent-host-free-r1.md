@@ -494,3 +494,25 @@ against fixed slot addresses refreshed per step.
 
 Default-path safety re-verified after all rope changes: 23/23 cases,
 830/830 assertions.
+
+### Post-rebase benchmark confirmation (2026-08-14, rebased tree)
+
+Rebased onto main (47 commits; picked up the MISTRAL row landing via the
+bot and the windows C4456 fixes). One MAIN-RED found while rebuilding:
+MUSIC3 W6 (aa3643b6) placed a C++ helper returning a C++ reference inside
+`extern "C"` in src/capi/vllm_c.cpp — clang rejects it (every clang build
+is broken on that commit; MSVC/Windows was lax). Applied the minimal local
+fix (hoist the helper out of the extern-C block) to unblock; reported
+upstream.
+
+Benchmark re-run on the rebased tree (64 tokens, batch 1, 3 reps):
+
+| config | warm tok/s |
+|--------|-----------|
+| default hybrid | **7.13 / 7.23** (clean EXIT=0) |
+| all-device eager (rope-cache additions included) | **6.68 / 6.80** |
+
+Consistent with the pre-rebase 7.30/7.31 and 6.87/6.92 (within run noise);
+the rope-cos/sin-cache additions cost ~0.1-0.2 tok/s eager, the price of
+capture-safety on that path. Default-path suite on the rebased tree:
+23/23 cases, 831/831 assertions (main's merged tests grew the count).

@@ -485,6 +485,22 @@ std::string OrEmpty(const char* s) { return s == nullptr ? std::string() : std::
 
 }  // namespace
 
+namespace {
+
+// The process-global registry, populated ONCE. A half-populated registry would
+// make detection depend on which entry point ran first, which is the
+// never-guess guarantee defeated by construction.
+vllm::multimodal::SpeechRegistry& SpeechRegistry() {
+  static vllm::multimodal::SpeechRegistry& registry = [] () -> vllm::multimodal::SpeechRegistry& {
+    vllm::multimodal::SpeechRegistry& global = vllm::multimodal::GlobalSpeechRegistry();
+    vllm::models::music3::RegisterBuiltinSpeechFamilies(global);
+    return global;
+  }();
+  return registry;
+}
+
+}  // namespace
+
 extern "C" {
 
 VLLM_API vllm_model_params vllm_model_params_default(void) {
@@ -1664,21 +1680,6 @@ struct vllm_speech_engine {
   std::mutex mutex;
 };
 
-namespace {
-
-// The process-global registry, populated ONCE. A half-populated registry would
-// make detection depend on which entry point ran first, which is the
-// never-guess guarantee defeated by construction.
-vllm::multimodal::SpeechRegistry& SpeechRegistry() {
-  static vllm::multimodal::SpeechRegistry& registry = [] () -> vllm::multimodal::SpeechRegistry& {
-    vllm::multimodal::SpeechRegistry& global = vllm::multimodal::GlobalSpeechRegistry();
-    vllm::models::music3::RegisterBuiltinSpeechFamilies(global);
-    return global;
-  }();
-  return registry;
-}
-
-}  // namespace
 
 VLLM_API vllm_speech_model_params vllm_speech_model_params_default(void) {
   vllm_speech_model_params p;
