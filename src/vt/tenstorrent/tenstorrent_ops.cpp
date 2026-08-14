@@ -1713,6 +1713,21 @@ void QkvSplitKernel(Queue&, Tensor& q_out, Tensor& k_out, Tensor& v_out, const T
 // (cpu_cache.cpp ReshapeAndCacheKernel). Stride-driven so unbind-style
 // [num_blocks,2,bs,H,D] views work; slot < 0 is a padded-token skip.
 // Host-staged pure element copy for F32.
+// ---- ITEM 5 (PA): persistent page_table + cur_pos device tensors -------------
+namespace {
+struct PaMetaEntry {
+  ttnn::Tensor page_table;  // int32 [B, max_blocks] device
+  ttnn::Tensor cur_pos;     // int32 [B] device
+  std::vector<int32_t> pt_host;
+  std::vector<int32_t> cp_host;
+};
+std::mutex& PaMetaMutex() { static std::mutex m; return m; }
+std::map<std::pair<int64_t, int64_t>, PaMetaEntry>& PaMetaCache() {
+  static std::map<std::pair<int64_t, int64_t>, PaMetaEntry> c;
+  return c;
+}
+}  // namespace
+
 // ---- ITEM 5 (RAC): persistent update-idx / page-table device tensors -------
 // Refreshed by WarmRacIdx (driver Refresh slot, outside capture) so the
 // captured paged_update_cache replays against stable addresses. Keyed by the
@@ -2005,6 +2020,8 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
   if (args.kv_cache_dtype != Fp8KVCacheDataType::kAuto) return false;
   if (query.rank != 3 || out.rank != 3 || k_cache.rank != 4 || v_cache.rank != 4) return false;
   if (!query.IsContiguous() || !out.IsContiguous()) return false;
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr, "[TT-TRACE] TryPADecode entered cap=%d\n", (int)tt_capture_active());
 
   const int64_t total_q = query.shape[0];
   const int64_t hq = query.shape[1];
@@ -2051,6 +2068,9 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
   if (static_cast<int64_t>(used_nb) > k_cache.shape[0]) return false;
 
   try {
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] PA reached EnsurePagedKvTtnn cap=%d used_nb=%u\n", (int)tt_capture_active(), used_nb);
+
     MeshDevice& device = SharedMeshDevice();
     if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
       std::fprintf(stderr, "[TT-TRACE] PA EnsurePagedKvTtnn k used_nb=%u\n", used_nb);
@@ -2097,7 +2117,11 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
         ttnn::Tensor dev_q2d = EnsureDevice2D(q_flat, device);
         dev_q = ttnn::reshape(dev_q2d, ttnn::Shape({1u, Bu, hu, du}));
         q_from_device = true;
-      } catch (const std::exception&) {
+        if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+          std::fprintf(stderr, "[TT-TRACE] PA q_from_device OK cap=%d\n", (int)tt_capture_active());
+      } catch (const std::exception& e) {
+        if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+          std::fprintf(stderr, "[TT-TRACE] PA q_from_device FAILED: %s\n", e.what());
         q_from_device = false;
       }
     }
@@ -2120,21 +2144,36 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
                          ttnn::Layout::TILE),
           &device);
     }
-    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
-      std::fprintf(stderr, "[TT-UP] TryPagedAttentionDeviceDecode from_vector WRITE during capture\n");
-    ttnn::Tensor dev_pt = ttnn::Tensor::from_vector<int32_t>(
-        pt, SpecOf(tt::tt_metal::Shape({Bu, static_cast<uint32_t>(max_blocks)}),
-                   ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
-        &device);
-
-    // cur_pos [B] = seq_len - 1
-    std::vector<int32_t> cpos(static_cast<size_t>(num_reqs));
-    for (int64_t r = 0; r < num_reqs; ++r) cpos[static_cast<size_t>(r)] = slens[r] - 1;
-    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
-      std::fprintf(stderr, "[TT-UP] TryPagedAttentionDeviceDecode from_vector WRITE during capture\n");
-    ttnn::Tensor dev_pos = ttnn::Tensor::from_vector<int32_t>(
-        cpos, SpecOf(tt::tt_metal::Shape({Bu}), ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
-        &device);
+    ttnn::Tensor dev_pt, dev_pos;
+    if (tt_capture_active()) {
+      // Use persistent PA metadata (warmed at the Refresh slot).
+      std::lock_guard<std::mutex> g(PaMetaMutex());
+      const auto pkey = std::make_pair(static_cast<int64_t>(num_reqs),
+                                       static_cast<int64_t>(max_blocks));
+      auto it = PaMetaCache().find(pkey);
+      const int32_t expect_cp = slens[0] - 1;
+      if (it == PaMetaCache().end() ||
+          (it->second.cp_host.size() >= 1 && it->second.cp_host[0] != expect_cp)) {
+        VT_CHECK(false, "tenstorrent: PA meta not warmed for this step");
+      }
+      dev_pt = it->second.page_table;
+      dev_pos = it->second.cur_pos;
+      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+        std::fprintf(stderr, "[TT-TRACE] PA using cached meta (pt+cp)\n");
+    } else {
+      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+        std::fprintf(stderr, "[TT-UP] TryPagedAttentionDeviceDecode from_vector WRITE during capture\n");
+      dev_pt = ttnn::Tensor::from_vector<int32_t>(
+          pt, SpecOf(tt::tt_metal::Shape({Bu, static_cast<uint32_t>(max_blocks)}),
+                     ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
+          &device);
+      // cur_pos [B] = seq_len - 1
+      std::vector<int32_t> cpos(static_cast<size_t>(num_reqs));
+      for (int64_t r = 0; r < num_reqs; ++r) cpos[static_cast<size_t>(r)] = slens[r] - 1;
+      dev_pos = ttnn::Tensor::from_vector<int32_t>(
+          cpos, SpecOf(tt::tt_metal::Shape({Bu}), ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
+          &device);
+    }
 
     const auto grid = device.compute_with_storage_grid_size();
     ttnn::operations::transformer::SDPAProgramConfig prog{
@@ -2145,6 +2184,8 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
         /*exp_approx_mode=*/false,
         /*max_cores_per_head_batch=*/16};
 
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] PA calling sdpa_decode cap=%d\n", (int)tt_capture_active());
     ttnn::Tensor dev_out = ttnn::transformer::paged_scaled_dot_product_attention_decode(
         dev_q, dev_k, dev_v, dev_pt,
         /*is_causal=*/true,
@@ -3177,5 +3218,41 @@ void WarmRacIdx(const void* /*slot_mapping_owner*/, const int64_t* slots,
   // eager ForwardLayers runs TryReshapeAndCacheDeviceDecode (host_free is
   // set, capturing is false) which calls paged_update_cache in the correct
   // CQ context, compiling the program.
+}
+
+void WarmPaMeta(const int32_t* block_table, int64_t num_reqs, int64_t max_blocks,
+                int64_t bt_row_stride, int64_t bt_col_stride,
+                const int32_t* seq_lens) {
+  if (std::getenv("VT_TT_HOST_FREE_DECODE") == nullptr) return;
+  if (num_reqs < 1) return;
+  MeshDevice& device = SharedMeshDevice();
+  std::vector<int32_t> pt(static_cast<size_t>(num_reqs * max_blocks));
+  int32_t max_phys = -1;
+  for (int64_t r = 0; r < num_reqs; ++r) {
+    for (int64_t c = 0; c < max_blocks; ++c) {
+      const int32_t id = block_table[r * bt_row_stride + c * bt_col_stride];
+      pt[static_cast<size_t>(r * max_blocks + c)] = id;
+      if (id > max_phys) max_phys = id;
+    }
+  }
+  std::vector<int32_t> cpos(static_cast<size_t>(num_reqs));
+  for (int64_t r = 0; r < num_reqs; ++r) cpos[static_cast<size_t>(r)] = seq_lens[r] - 1;
+  ttnn::Tensor dev_pt = ttnn::Tensor::from_vector<int32_t>(
+      pt, SpecOf(tt::tt_metal::Shape({static_cast<uint32_t>(num_reqs),
+                static_cast<uint32_t>(max_blocks)}),
+                ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR), &device);
+  ttnn::Tensor dev_cp = ttnn::Tensor::from_vector<int32_t>(
+      cpos, SpecOf(tt::tt_metal::Shape({static_cast<uint32_t>(num_reqs)}),
+                   ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR), &device);
+  std::lock_guard<std::mutex> g(PaMetaMutex());
+  PaMetaEntry e;
+  e.page_table = std::move(dev_pt);
+  e.cur_pos = std::move(dev_cp);
+  e.pt_host = pt;
+  e.cp_host = cpos;
+  PaMetaCache()[std::make_pair(num_reqs, max_blocks)] = std::move(e);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr, "[TT-TRACE] WarmPaMeta n=%lld mb=%lld cp0=%d\n",
+                 (long long)num_reqs, (long long)max_blocks, (int)cpos[0]);
 }
 }  // namespace vt::tenstorrent

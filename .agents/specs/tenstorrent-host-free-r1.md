@@ -736,3 +736,22 @@ Remaining sites after PA metadata:
 
 Each is the same persistent-buffer + driver-warm pattern. The path is
 proven (RAC skip + PA shadow skip both work); it's mechanical repetition.
+
+### Item 5: PA — metadata warm works; sdpa_decode not compiled (cold bail)
+
+PA metadata warm (WarmPaMeta) works: `PA using cached meta (pt+cp)` fires
+during capture. But `sdpa_decode` hits `Cannot load new binaries during
+trace capture` — it was never compiled during the cold step because the
+cold step's PA device path bails before `sdpa_decode`.
+
+The cold step's PA enters `TryPagedAttentionDeviceDecode` (28 times,
+verified via `PA reached EnsurePagedKvTtnn cap=0 used_nb=2`), but
+`PA q_from_device OK cap=0` NEVER prints — meaning the cold step's
+`EnsureDevice2D(query)` either throws (caught by the try/catch) or the
+`identity_q` check fails. No `PA q_from_device FAILED` print either.
+
+Root cause TBD: either the query's device shadow doesn't exist during
+the cold step's PA (rope didn't commit it, or the pointer differs), or
+`EnsureDevice2D` throws an exception that the outer try/catch swallows.
+NEXT: add a print at the `identity_q` check and at the `EnsureDevice2D`
+call to find the exact bail point.
