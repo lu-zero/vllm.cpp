@@ -374,3 +374,37 @@ ensure the captured ops read those device tensors without any internal
 from_vector/to_vector. That is the real host-free forward -- a bounded
 architecture port of the plugin's design, not a new subsystem and not an
 upstream tt-metal fix.
+
+### Steady-state perf baselines (2026-08-14, real Blackhole P150)
+
+Qwen3-0.6B, `vllm-cli --prompt "Hello" --max-tokens 64 --repeat 3`:
+
+| config | warm tok/s (runs 2/3) | ms/tok |
+|--------|----------------------|--------|
+| default hybrid | **7.30 / 7.31** | ~137 |
+| all-device eager (`VT_TT_HOST_FREE_DECODE=1` + `VLLM_CPP_QWEN3_DENSE_DECODE_GRAPH=0`) | **6.87 / 6.92** | ~145 |
+
+Two corrections to the earlier smoke numbers, both measured:
+
+1. **The 4-token smoke (12.5 tok/s) is NOT steady state.** At 64 tokens the
+   same config sustains 7.3 tok/s — per-token cost grows with context (PA
+   decode over a growing KV), so the handoff's ~12.3 and our 12.5 both
+   over-report. The honest reference for capture work is 7.3.
+2. **The all-device eager cost at steady state is ~0.4 tok/s (~6%), not the
+   ~1.8 tok/s (~14%) the 4-token smoke suggested.** This materially improves
+   the capture break-even: capture only needs to recover ~6% of eager time
+   to beat the hybrid baseline at 64-token scale — a much lower bar than
+   the spike's 14% framing assumed.
+
+(The `DECODE_GRAPH=0` opt-out is required for the all-device run: with the
+flag on, `support_static_graph_mode()` flips true and the decode-graph
+framework would otherwise attempt capture and abort on item 5.)
+
+Mistral-7B-v0.3 reference on the same box: 4.26 tok/s warm at 32 tokens
+(recorded in tenstorrent-mistral.md).
+
+**What is still NOT measurable until item 5 lands: capture/replay tok/s.**
+Capture cannot complete (the enqueue_write fatal fires mid-forward), so the
+replay number — the actual payoff — remains open. The numbers above bound
+it: replay must exceed 7.3 (the hybrid eager baseline) to be a win, and
+starts from a 6.9 eager floor on the all-device path.
