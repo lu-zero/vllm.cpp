@@ -608,18 +608,9 @@ ForwardLogits Qwen3DenseDecodeGraph::Step(
     // the PADDED slot mapping the captured ReshapeAndCache will see. The
     // kernel keys its cache on si.slot_mapping's host buffer; si builds from
     // attn_meta (pam here) so this is the same buffer content.
-    vt::tenstorrent::WarmRacIdx(
-        pam.slot_mapping.data(), pam.slot_mapping.data(),
-        static_cast<int64_t>(pam.slot_mapping.size()),
-        attn_kv.empty() ? 32 : attn_kv[0].block_size);
-    // ITEM 5: prime the paged-KV device shadow for the first layer so RAC
-    // (which runs before PA) finds the ttnn tensor already populated.
-    // ITEM 5: prime paged-KV device shadows for EVERY layer (each layer has
-    // its own attn_kv[l].data; only priming layer 0 leaves layers 1..N-1
-    // without a shadow, bailing the device RAC on every layer but the first).
+    // ITEM 5: prime paged-KV device shadows for EVERY layer (MUST run before
+    // WarmRacIdx, which builds the persistent sharded input from the shadows).
     for (const auto& kv : attn_kv) {
-      // Prime enough blocks to cover the highest slot this step will write.
-      // The slot's block = slot / block_size; need nb >= block + 1.
       const int64_t max_slot = pam.slot_mapping.empty() ? 0
           : *std::max_element(pam.slot_mapping.begin(), pam.slot_mapping.end());
       const int64_t used = (max_slot < 0) ? 1
@@ -631,6 +622,10 @@ ForwardLogits Qwen3DenseDecodeGraph::Step(
           base, base + half, kv.num_blocks, kv.block_size,
           kv.num_kv_heads, kv.head_size, used);
     }
+    vt::tenstorrent::WarmRacIdx(
+        pam.slot_mapping.data(), pam.slot_mapping.data(),
+        static_cast<int64_t>(pam.slot_mapping.size()),
+        attn_kv.empty() ? 32 : attn_kv[0].block_size);
   }
   s.fa_cols = cols;
   if (cols_changed && s.graph != nullptr) {

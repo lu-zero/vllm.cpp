@@ -667,3 +667,23 @@ NEXT: debug the sharded_zero lifetime/shape, or take the simpler approach
 (b) — replace `paged_update_cache` with a manual `ttnn::copy` into a
 pre-sliced cache region (simpler op, no sharding requirement, proven
 capture-safe by the R2 copy fix).
+
+### Item 5: sharded_zero crash FIXED; Writes still from build_padded
+
+Fixed the segfault: the warm order was wrong — `WarmRacIdx` ran BEFORE
+`WarmPagedKvShadow`, so the shadow loop found 0 entries and the
+sharded_zero was default-constructed (empty). Swapped the order in the
+driver: shadows first, then RAC idx. No more segfault.
+
+But the `Writes are not supported` fatal persists. `paged_update_cache`
+is in-place (confirmed: create_output_tensors returns cache_tensor).
+The writes come from `build_padded`'s helper ops — specifically
+`ttnn::copy(reshaped, sharded_zero)` where reshaped is TILE and
+sharded_zero is height-sharded. The copy between different memory configs
+triggers an implicit layout conversion (a write/allocation).
+
+NEXT: approach (b) — replace `paged_update_cache` + the sharded input
+with a manual `ttnn::copy` into a pre-sliced cache region. The cache
+shadow is a persistent ttnn tensor; slicing it and copying the k/v rows
+into the slice is all-capture-safe (proven by R2's device->device copy).
+No sharding requirement, no paged_update_cache, no layout conversion.
