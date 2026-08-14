@@ -84,7 +84,10 @@ instrumentation under `VT_TT_TRACE_DEBUG`).
 
 ## Work breakdown
 
-(Three independent sub-problems, R1-R4; each a claimable row-sized unit.)
+Numbering below is the POST-INVESTIGATION truth (the pre-investigation plan
+numbered R2=QkvSplit/RAC device and R3=PA metadata; the bisection showed the
+copy/memset/allocation blockers fire FIRST, so those two original items are
+now queued behind item 5 rather than being R2/R3).
 
 Each is independently gateable; none blocks another except the capture row,
 which wants all three.
@@ -198,3 +201,49 @@ known after R1-R3, which is the cost of answering it.
   delivered device-resident ops (useful for future prefill capture) but no
   decode win. That's an honest outcome, not a failure — it's the
   measurement the trace-runner spike owed and couldn't make.
+
+
+### Landed (this branch, measured on P150)
+
+- R1 threshold flip (RmsNorm residual + PreferDeviceRope all-device under
+  the flag).
+- R2 `CopyDeviceDeviceIfCapture` (ttnn::empty + ttnn::copy device->device).
+- R3 program-cache warm (`enable_program_cache` + eager-warm of the copy ops).
+- R3b `MemsetDeviceIfCapture` (ttnn::zeros into the existing shadow).
+
+### Open (item 5 — the payoff port)
+
+Persistent device input tensors in the decode-graph slot + populate before
+capture/replay via `ttnn::copy_to_device` (never inside capture). Ported
+from the tt-metal vLLM plugin (see Port map).
+
+### Queued behind item 5 (from the original plan; may or may not be needed)
+
+Device-resident QkvSplit + ReshapeAndCache variants, and PA decode with
+device-resident metadata. The bisection has not reached these (the
+enqueue_write fatal fires first); keep or drop them per what item 5's probe
+surfaces.
+
+### Known constraints of the investigation code (env-gated, carried forward)
+
+Recorded from review; all are flag-gated-only and acceptable for an
+investigation row but MUST be addressed by the item-5 port:
+
+1. `CopyDeviceDeviceIfCapture` ignores `bytes` — a partial/interior Copy
+   between two same-sized shadowed slots clones the WHOLE src shadow.
+2. It does not update `dev_rows`/`dev_cols`, so a consumer view matching
+   the logical shape but not the recorded shadow shape can fall into an
+   EnsureHost re-upload (a readback during capture — defeating R2).
+3. The equal-BYTE check does not pin dtype/shape (a same-byte bf16/f32
+   reinterpret is possible).
+4. `enable_program_cache()` fires inside the copy helper; if the captured
+   region never takes that path it is never enabled. Belongs in
+   TraceBeginCapture (or platform init) for the port.
+5. The `tt_capture_active()` clear is not exception-safe (a throwing
+   end_trace_capture leaves it stuck true, flipping eager Copy/Memset).
+   The inertness guard test catches the stuck-true case; the port should
+   make the clear RAII.
+6. TOCTOU on SlotMutex around the ttnn calls (re-acquire without
+   revalidating the slot).
+7. `d->device = std::move(cloned)` drops the prior dst shadow mid-capture
+   (a dealloc during a live trace).

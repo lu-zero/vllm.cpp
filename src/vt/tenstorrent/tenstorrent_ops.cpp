@@ -2623,11 +2623,11 @@ bool MemsetDeviceIfCapture(void* p, int value) {
       dev = *s->device;
     }
   }
-  MeshDevice& device = SharedMeshDevice();
   if (!dev.has_value()) {
     // No shadow yet: DBuf::Zero on a brand-new buffer with no device tensor.
     return false;  // fall back to host memset; the buffer is host-only for now
   }
+  MeshDevice& device = SharedMeshDevice();
   const ttnn::Tensor& shadow = *dev;
   if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
     std::fprintf(stderr, "[TT-TRACE] device zero-fill (capture-safe)\n");
