@@ -715,3 +715,24 @@ same as the plugin's per-step copy_host_to_device_tensor pattern. This means
 splitting the captured region: RAC runs before capture, PA+forward runs
 inside capture. That's a driver-level change (the captured region starts
 after EmbedInto + RAC, not at ForwardLayers).
+
+### Item 5: PA — KV shadow skip works; next = page_table + cur_pos uploads
+
+Fixed PA's KV shadow re-upload: during capture, skip EnsurePagedKvTtnn and
+use the cached shadow directly (it was primed by WarmPagedKvShadow at the
+Refresh slot). `PA using cached KV shadows (k_nb=2 v_nb=2)` prints,
+`PA KV shadows OK, building page_table` prints.
+
+Next fatal: BOTH Writes (:760) and Reads (:807) — the from_vector uploads
+for dev_pt (page_table) and dev_pos (cur_pos) at PA lines 2104/2114.
+Same pattern as rope: per-step data (block_table, seq_lens) that needs
+persistent device tensors warmed at the Refresh slot.
+
+Remaining sites after PA metadata:
+1. PA page_table upload (from_vector, line 2104) — persistent device tensor
+2. PA cur_pos upload (from_vector, line 2114) — persistent device tensor
+3. PA sdpa_decode output (to_vector at line 2164+) — device→device commit
+4. Logits (lm_head output)
+
+Each is the same persistent-buffer + driver-warm pattern. The path is
+proven (RAC skip + PA shadow skip both work); it's mechanical repetition.

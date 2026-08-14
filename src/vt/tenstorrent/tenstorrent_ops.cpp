@@ -1828,12 +1828,11 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
   // copy_host_to_device_tensor pattern.
   const bool capturing = tt_capture_active();
   if (capturing) {
-    std::fprintf(stderr, "[TT-TRACE] RAC skip during capture (approach b probe)\n");
-    // Mark the device shadow stale so PA re-uploads (which will also fatal
-    // during capture — but that tells us PA is the next site).
-    std::lock_guard<std::mutex> g(PagedKvMutex());
-    PagedKvShadows()[reinterpret_cast<uintptr_t>(k_cache.data)].device_current = false;
-    PagedKvShadows()[reinterpret_cast<uintptr_t>(v_cache.data)].device_current = false;
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] RAC skip during capture (approach b)\n");
+    // Don't mark the shadow stale — the KV cache hasn't been updated (RAC
+    // is skipped), so the shadow is still valid. PA's EnsurePagedKvTtnn
+    // will return the cached shadow without re-uploading.
     return true;  // skip the host path too
   }
 
@@ -2053,8 +2052,29 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
 
   try {
     MeshDevice& device = SharedMeshDevice();
-    ttnn::Tensor dev_k = EnsurePagedKvTtnn(k_cache, device, used_nb);
-    ttnn::Tensor dev_v = EnsurePagedKvTtnn(v_cache, device, used_nb);
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+      std::fprintf(stderr, "[TT-TRACE] PA EnsurePagedKvTtnn k used_nb=%u\n", used_nb);
+    // During capture: use the existing shadow as-is (the cold step primed it;
+    // re-uploading via EnsurePagedKvTtnn would to_vector/enqueue_write).
+    ttnn::Tensor dev_k, dev_v;
+    if (tt_capture_active()) {
+      std::lock_guard<std::mutex> g(PagedKvMutex());
+      auto& sk = PagedKvShadows()[reinterpret_cast<uintptr_t>(k_cache.data)];
+      auto& sv = PagedKvShadows()[reinterpret_cast<uintptr_t>(v_cache.data)];
+      if (!sk.device_current || !sk.device.has_value() ||
+          !sv.device_current || !sv.device.has_value())
+        throw std::runtime_error("PA: no KV shadow during capture");
+      dev_k = *sk.device;
+      dev_v = *sv.device;
+      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+        std::fprintf(stderr, "[TT-TRACE] PA using cached KV shadows (k_nb=%u v_nb=%u)\n",
+                     sk.nb, sv.nb);
+    } else {
+      dev_k = EnsurePagedKvTtnn(k_cache, device, used_nb);
+      dev_v = EnsurePagedKvTtnn(v_cache, device, used_nb);
+    }
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+      std::fprintf(stderr, "[TT-TRACE] PA KV shadows OK, building page_table\n");
 
     const uint32_t Bu = static_cast<uint32_t>(num_reqs);
     const uint32_t hu = static_cast<uint32_t>(hq);
