@@ -580,3 +580,38 @@ After the shadow exists, the remaining RAC path (device→device
 content already matches (verified), the k/v shadows exist (post-rope
 `CommitDevice2D`), and the paged_update_cache signature accepts all
 device tensors.
+
+### Item 5: RAC device branch EXECUTES; paged_update_cache warm hangs
+
+The shadow priming (WarmPagedKvShadow) works — both k and v shadows exist
+(`k=1 v=1`). The RAC device branch (`TryReshapeAndCacheDeviceDecode`) fires
+during capture: `[TT-TRACE] RAC device->device update (capture-safe)`.
+But `paged_update_cache` is not program-cache-warm (the eager forward's RAC
+bailed to host because the shadow didn't exist yet), and the capture call
+hits `Writes are not supported` (new binary load during capture).
+
+Attempted to warm `paged_update_cache` from `WarmRacIdx` with a dummy
+input of the correct geometry (`[1,1,nkv_pad,d]` = `[1,1,32,128]`).
+The warm call HANGS — `paged_update_cache` appears to deadlock when called
+from the warm-hook context (outside the regular forward flow). This may be
+a ttnn device-state issue (the mesh device's CQ is in a state that doesn't
+support the op outside a forward step) or a geometry mismatch in the
+warm-call's page_table/idx tensors vs what paged_update_cache expects.
+
+NEXT: investigate why the warm `paged_update_cache` hangs. Options:
+(a) call it from within the eager forward (not the warm hook) by making the
+    eager RAC step also take the device branch (prime the shadow BEFORE the
+    eager forward, not after it — move WarmPagedKvShadow before the eager
+    step in the driver flow);
+(b) use a simpler ttnn op (e.g. just `ttnn::copy`) as a warm substitute
+    that compiles the same program path;
+(c) move the shadow priming into the eager forward itself (call
+    EnsurePagedKvTtnn at the top of the eager PA, not just the capture PA).
+
+Option (a) is the most promising: the eager forward already runs the full
+op chain; if the shadow exists at eager time, the eager RAC takes the
+device branch, which warms `paged_update_cache` naturally (same context,
+same CQ state). The issue is the ordering: the framework runs the eager
+step BEFORE the Refresh slot (where the warm hooks fire). Moving the shadow
+priming to BEFORE the eager step (at slot creation, not Refresh) would fix
+the ordering.

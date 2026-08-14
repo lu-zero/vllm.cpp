@@ -3035,6 +3035,28 @@ void WarmRopeCosSin(const int32_t* positions, int64_t tokens, int64_t hq,
   }
 }
 
+void WarmPagedKvShadow(void* k_cache_data, void* v_cache_data,
+                      int64_t num_blocks, int64_t block_size,
+                      int64_t num_kv_heads, int64_t head_size,
+                      int64_t used_blocks) {
+  if (std::getenv("VT_TT_HOST_FREE_DECODE") == nullptr) return;
+  if (num_blocks < 1 || block_size < 1 || used_blocks < 1) return;
+  MeshDevice& device = SharedMeshDevice();
+  auto warm_one = [&](void* data) {
+    Tensor cache = Tensor::Contiguous(
+        data, DType::kBF16, Device{DeviceType::kTENSTORRENT, 0},
+        {num_blocks, block_size, num_kv_heads, head_size});
+    const uint32_t used = static_cast<uint32_t>(
+        std::min(used_blocks, num_blocks));
+    EnsurePagedKvTtnn(cache, device, used);
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] WarmPagedKvShadow ptr=%p nb=%lld used=%u\n",
+                   data, (long long)num_blocks, used);
+  };
+  warm_one(k_cache_data);
+  warm_one(v_cache_data);
+}
+
 void WarmRacIdx(const void* /*slot_mapping_owner*/, const int64_t* slots,
                 int64_t num_slots, int64_t block_size) {
   if (std::getenv("VT_TT_HOST_FREE_DECODE") == nullptr) return;
@@ -3066,5 +3088,36 @@ void WarmRacIdx(const void* /*slot_mapping_owner*/, const int64_t* slots,
   e.page_table = std::move(pt);
   e.idx_host = idxv;
   RacIdxCache()[std::make_pair(num_slots, block_size)] = std::move(e);
+  // Warm the paged_update_cache program for this shape (outside capture).
+  // The driver calls WarmPagedKvShadow BEFORE WarmRacIdx, so the paged-KV
+  // shadows exist by now. Run a dummy paged_update_cache to compile the
+  // program; the result is discarded (overwritten by the real call during
+  // capture).
+  {
+    std::lock_guard<std::mutex> g(RacIdxMutex());
+    auto& e2 = RacIdxCache()[std::make_pair(num_slots, block_size)];
+    // Find the paged-KV shadows keyed by... we don't have k_cache.data here.
+    // Use the first shadow in the map as a warm dummy (any shadow of the
+    // right geometry works for program-cache compilation).
+    try {
+      std::lock_guard<std::mutex> pg(PagedKvMutex());
+      for (auto& [ptr, shadow] : PagedKvShadows()) {
+        if (shadow.device.has_value() && shadow.device_current) {
+          const uint32_t nkv_pad = std::max(32u, ((shadow.nkv + 31u) / 32u) * 32u);
+          ttnn::Tensor dummy_in = ttnn::zeros(
+              ttnn::Shape({1u, 1u, nkv_pad, shadow.d}),
+              ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, std::ref(device));
+          ttnn::experimental::paged_update_cache(
+              *shadow.device, dummy_in, /*update_idxs=*/{}, e2.update_idxs,
+              /*share_cache=*/false, e2.page_table, /*batch_offset=*/0,
+              /*compute_kernel_config=*/std::nullopt, /*mesh_coords=*/std::nullopt);
+          break;
+        }
+      }
+    } catch (...) {
+      // Warm failure is non-fatal; the capture will fail loudly if the
+      // program isn't cached.
+    }
+  }
 }
 }  // namespace vt::tenstorrent

@@ -612,6 +612,22 @@ ForwardLogits Qwen3DenseDecodeGraph::Step(
         pam.slot_mapping.data(), pam.slot_mapping.data(),
         static_cast<int64_t>(pam.slot_mapping.size()),
         attn_kv.empty() ? 32 : attn_kv[0].block_size);
+    // ITEM 5: prime the paged-KV device shadow for the first layer so RAC
+    // (which runs before PA) finds the ttnn tensor already populated.
+    if (!attn_kv.empty()) {
+      const auto& kv0 = attn_kv[0];
+      const int64_t used = pam.max_seq_len > 0
+          ? (pam.max_seq_len + kv0.block_size - 1) / kv0.block_size
+          : 1;
+      // k_cache and v_cache are KvSlice views (different offsets into kv0.data);
+      // prime both pointers so both PagedKvShadows entries exist.
+      const size_t half = static_cast<size_t>(kv0.block_size * kv0.num_kv_heads *
+                                               kv0.head_size) * vt::SizeOf(kv0.dtype);
+      char* base = static_cast<char*>(kv0.data);
+      vt::tenstorrent::WarmPagedKvShadow(
+          base, base + half, kv0.num_blocks, kv0.block_size,
+          kv0.num_kv_heads, kv0.head_size, used);
+    }
   }
   s.fa_cols = cols;
   if (cols_changed && s.graph != nullptr) {

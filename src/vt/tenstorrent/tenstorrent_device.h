@@ -69,6 +69,15 @@ bool MemsetDeviceIfCapture(void* p, int value);
 // (Plain-field args keep this header free of vt/ops.h; llama3 rope scaling
 // is NOT supported on the warm path — TT host-free decode is Qwen3/Mistral
 // plain-rope only, matching the current allowlist.)
+// ITEM 5 (RAC): eagerly create the paged-KV device shadow (ttnn tensor) for
+// the given k_cache / v_cache host buffers during warmup, so the captured
+// RAC + PA find the shadow without an in-region upload. No-op unless
+// VT_TT_HOST_FREE_DECODE. Takes raw host ptrs + geometry (no ttnn types).
+void WarmPagedKvShadow(void* k_cache_data, void* v_cache_data,
+                      int64_t num_blocks, int64_t block_size,
+                      int64_t num_kv_heads, int64_t head_size,
+                      int64_t used_blocks);
+
 // ITEM 5 (RAC): stage the persistent device update-idx / page-table tensors
 // for THIS slot mapping, outside capture (driver Refresh slot). No-op unless
 // VT_TT_HOST_FREE_DECODE. slot_mapping_owner is the host buffer the captured
