@@ -119,6 +119,53 @@ bool& tt_capture_active() {
 }
 }  // namespace
 
+namespace {
+std::mutex& ZeroCacheMutex() {
+  static std::mutex m;
+  return m;
+}
+std::map<std::string, ttnn::Tensor>& ZeroCache() {
+  static std::map<std::string, ttnn::Tensor> c;
+  return c;
+}
+std::string ZeroCacheKey(const ttnn::Shape& shape, ttnn::DataType dt,
+                         ttnn::Layout lt) {
+  std::string k;
+  for (auto d : shape.view()) k += std::to_string(d) + "x";
+  k += std::to_string(static_cast<int>(dt)) + "x" +
+       std::to_string(static_cast<int>(lt));
+  return k;
+}
+}  // namespace
+
+ttnn::Tensor ZeroCacheGet(const ttnn::Tensor& like, MeshDevice& device) {
+  const std::string key = ZeroCacheKey(like.logical_shape(), like.dtype(),
+                                       like.layout());
+  std::lock_guard<std::mutex> g(ZeroCacheMutex());
+  auto& c = ZeroCache();
+  auto it = c.find(key);
+  if (it == c.end()) {
+    VT_CHECK(!tt_capture_active(),
+             "tenstorrent: zero-cache miss during capture — warm the "
+             "host-free path eagerly (VT_TT_HOST_FREE_DECODE warmup) first");
+    it = c.emplace(key, ttnn::zeros(like.logical_shape(), like.dtype(),
+                                     like.layout(), std::ref(device)))
+             .first;
+  }
+  return it->second;
+}
+
+void ZeroCachePrime(const ttnn::Shape& shape, ttnn::DataType dt,
+                    ttnn::Layout lt, MeshDevice& device) {
+  const std::string key = ZeroCacheKey(shape, dt, lt);
+  std::lock_guard<std::mutex> g(ZeroCacheMutex());
+  auto& c = ZeroCache();
+  if (c.find(key) == c.end()) {
+    c.emplace(key, ttnn::zeros(shape, dt, lt, std::ref(device)));
+  }
+}
+
+
 struct BufferSlot {
   void* host = nullptr;
   size_t bytes = 0;
@@ -224,7 +271,12 @@ std::vector<float> ToHostF32(const Tensor& t) {
 }
 
 ttnn::Tensor UploadRows(const float* data, uint32_t rows, uint32_t cols, MeshDevice& device) {
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-UP] UploadRows ptr=%p rows=%u cols=%u\n",
+                 static_cast<const void*>(data), rows, cols);
   std::vector<float> host(data, data + static_cast<size_t>(rows) * cols);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-UP] UploadRows from_vector WRITE during capture\n");
   return ttnn::Tensor::from_vector<float>(host, TileSpecOf(rows, cols), &device);
 }
 
@@ -262,6 +314,12 @@ ttnn::Tensor EnsureDevice2D(const Tensor& t, MeshDevice& device) {
   EnsureHost(t);
   const auto host = ToHostF32(t);
   ttnn::Tensor dev = UploadRows(host.data(), rows, cols, device);
+  if (std::getenv("VT_TT_HOST_FREE_DECODE") != nullptr) {
+    // Prime the persistent-zero cache for this spec during the eager warmup
+    // (capture-safe zeroing replays ttnn::copy(zero, dst) — see MemsetDevice).
+    ZeroCachePrime(ttnn::Shape({rows, cols}), ttnn::DataType::BFLOAT16,
+                   ttnn::Layout::TILE, device);
+  }
   std::lock_guard<std::mutex> g(SlotMutex());
   BufferSlot* s = FindSlot(t.data);
   if (s != nullptr) {
@@ -415,6 +473,8 @@ bool TryDevicePagedFill(ttnn::Tensor& cache_dev, MeshDevice& device,
         std::memcpy(dst, src, static_cast<size_t>(d) * sizeof(float));
       }
     }
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+      std::fprintf(stderr, "[TT-UP] TryDevicePagedFill from_vector WRITE during capture\n");
     ttnn::Tensor xt = ttnn::Tensor::from_vector<float>(
         x, SpecOf(tt::tt_metal::Shape({1u, nkv, T_pad, d}), ttnn::DataType::BFLOAT16,
                   ttnn::Layout::TILE),
@@ -426,6 +486,8 @@ bool TryDevicePagedFill(ttnn::Tensor& cache_dev, MeshDevice& device,
       const uint32_t tok_i = std::min(j * bs, T - 1u);
       pt[static_cast<size_t>(j)] = static_cast<int32_t>(blocks[static_cast<size_t>(tok_i)]);
     }
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+      std::fprintf(stderr, "[TT-UP] TryDevicePagedFill from_vector WRITE during capture\n");
     ttnn::Tensor page_table = ttnn::Tensor::from_vector<int32_t>(
         pt, SpecOf(tt::tt_metal::Shape({1u, n_logical}), ttnn::DataType::INT32,
                    ttnn::Layout::ROW_MAJOR),
@@ -453,6 +515,8 @@ ttnn::Tensor MakeHeightShardedUpdateInput(MeshDevice& device, const float* toks,
                   static_cast<size_t>(d) * sizeof(float));
     }
   }
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-UP] MakeHeightShardedUpdateInput from_vector WRITE during capture\n");
   ttnn::Tensor xt = ttnn::Tensor::from_vector<float>(
       x, SpecOf(tt::tt_metal::Shape({1u, C, nkv_pad, d}), ttnn::DataType::BFLOAT16,
                 ttnn::Layout::TILE),
@@ -493,6 +557,8 @@ bool TryDevicePagedUpdateBatch(ttnn::Tensor& cache_dev, MeshDevice& device,
         pt[static_cast<size_t>(b)] = static_cast<int32_t>(phys_blocks[static_cast<size_t>(base + b)]);
         update_idxs[static_cast<size_t>(b)] = offsets[static_cast<size_t>(base + b)];
       }
+      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+        std::fprintf(stderr, "[TT-UP] TryDevicePagedUpdateBatch from_vector WRITE during capture\n");
       ttnn::Tensor page_table = ttnn::Tensor::from_vector<int32_t>(
           pt, SpecOf(tt::tt_metal::Shape({C, 1u}), ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
           &device);
@@ -535,6 +601,8 @@ bool TryDevicePagedFusedUpdateBatch(ttnn::Tensor& k_dev, ttnn::Tensor& v_dev, Me
         pt[static_cast<size_t>(b)] = static_cast<int32_t>(phys_blocks[static_cast<size_t>(base + b)]);
         update_idxs[static_cast<size_t>(b)] = offsets[static_cast<size_t>(base + b)];
       }
+      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+        std::fprintf(stderr, "[TT-UP] TryDevicePagedFusedUpdateBatch from_vector WRITE during capture\n");
       ttnn::Tensor page_table = ttnn::Tensor::from_vector<int32_t>(
           pt, SpecOf(tt::tt_metal::Shape({C, 1u}), ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
           &device);
@@ -720,6 +788,8 @@ ttnn::Tensor EnsurePagedKvTtnn(const Tensor& cache_nhd, MeshDevice& device, uint
 
   const auto spec = SpecOf(tt::tt_metal::Shape({used_nb, nkv, bs, d}), ttnn::DataType::BFLOAT16,
                            ttnn::Layout::TILE);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-UP] EnsurePagedKvTtnn from_vector WRITE during capture\n");
   ttnn::Tensor dev = ttnn::Tensor::from_vector<float>(upload, spec, &device);
 
   std::lock_guard<std::mutex> g(PagedKvMutex());
@@ -860,6 +930,8 @@ void AddKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
     for (uint32_t r = 0; r < rows; ++r)
       for (uint32_t c = 0; c < d; ++c)
         replicated[static_cast<size_t>(r) * d + c] = LoadElemF32(b, c);
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+      std::fprintf(stderr, "[TT-UP] AddKernel from_vector WRITE during capture\n");
     dev_b = ttnn::Tensor::from_vector<float>(replicated, TileSpecOf(rows, d), &device);
   } else {
     dev_b = EnsureDevice2D(b, device);
@@ -920,6 +992,8 @@ ttnn::Tensor EnsureEmbedTableDevice(const Tensor& table, MeshDevice& device) {
   }
   EnsureHost(table);
   std::vector<float> host_table = ToHostF32(table);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-UP] EnsureEmbedTableDevice from_vector WRITE during capture\n");
   ttnn::Tensor dev_table = ttnn::Tensor::from_vector<float>(
       host_table,
       SpecOf(tt::tt_metal::Shape({vocab, h}), ttnn::DataType::BFLOAT16, ttnn::Layout::ROW_MAJOR),
@@ -974,6 +1048,8 @@ void EmbeddingKernel(Queue&, Tensor& out, const Tensor& table, const Tensor& ids
     }
   }
   MeshDevice& device = SharedMeshDevice();
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-UP] EmbeddingKernel from_vector WRITE during capture\n");
   ttnn::Tensor dev_ids = ttnn::Tensor::from_vector<uint32_t>(
       host_ids, SpecOf(tt::tt_metal::Shape({t}), ttnn::DataType::UINT32, ttnn::Layout::ROW_MAJOR),
       &device);
@@ -1007,6 +1083,8 @@ ttnn::Tensor EnsureAffine1D(const Tensor& t, uint32_t d, MeshDevice& device) {
   EnsureHost(t);
   std::vector<float> host(d);
   for (uint32_t i = 0; i < d; ++i) host[i] = LoadElemF32(t, i);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-UP] EnsureAffine1D from_vector WRITE during capture\n");
   ttnn::Tensor dev = ttnn::Tensor::from_vector<float>(
       host, SpecOf(tt::tt_metal::Shape({1, d}), ttnn::DataType::BFLOAT16, ttnn::Layout::TILE),
       &device);
@@ -1758,11 +1836,15 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
           }
         }
       }
+      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+        std::fprintf(stderr, "[TT-UP] TryPagedAttentionDeviceDecode from_vector WRITE during capture\n");
       dev_q = ttnn::Tensor::from_vector<float>(
           q_host, SpecOf(tt::tt_metal::Shape({1u, Bu, hu, du}), ttnn::DataType::BFLOAT16,
                          ttnn::Layout::TILE),
           &device);
     }
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+      std::fprintf(stderr, "[TT-UP] TryPagedAttentionDeviceDecode from_vector WRITE during capture\n");
     ttnn::Tensor dev_pt = ttnn::Tensor::from_vector<int32_t>(
         pt, SpecOf(tt::tt_metal::Shape({Bu, static_cast<uint32_t>(max_blocks)}),
                    ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
@@ -1771,6 +1853,8 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
     // cur_pos [B] = seq_len - 1
     std::vector<int32_t> cpos(static_cast<size_t>(num_reqs));
     for (int64_t r = 0; r < num_reqs; ++r) cpos[static_cast<size_t>(r)] = slens[r] - 1;
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+      std::fprintf(stderr, "[TT-UP] TryPagedAttentionDeviceDecode from_vector WRITE during capture\n");
     ttnn::Tensor dev_pos = ttnn::Tensor::from_vector<int32_t>(
         cpos, SpecOf(tt::tt_metal::Shape({Bu}), ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
         &device);
@@ -1953,6 +2037,8 @@ bool TryPagedAttentionDevicePrefill(Tensor& out, const Tensor& query, const Tens
       const int64_t need_kv = chunk_start0 + q_pad;
       if (max_blocks * block_size < need_kv) return false;
 
+      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+        std::fprintf(stderr, "[TT-UP] TryPagedAttentionDevicePrefill from_vector WRITE during capture\n");
       ttnn::Tensor dev_pt = ttnn::Tensor::from_vector<int32_t>(
           pt, SpecOf(tt::tt_metal::Shape({1u, static_cast<uint32_t>(max_blocks)}),
                      ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
@@ -1972,6 +2058,8 @@ bool TryPagedAttentionDevicePrefill(Tensor& out, const Tensor& query, const Tens
             }
           }
         }
+        if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+          std::fprintf(stderr, "[TT-UP] TryPagedAttentionDevicePrefill from_vector WRITE during capture\n");
         ttnn::Tensor dev_q = ttnn::Tensor::from_vector<float>(
             q_host,
             SpecOf(tt::tt_metal::Shape({1u, hu, static_cast<uint32_t>(kChunk), du}),
@@ -2554,6 +2642,11 @@ void EnsureHostBytes(void* host) {
   }
 }
 
+// ITEM 5: persistent zero tensors, created OUTSIDE capture (ttnn::zeros
+// host-fills + to_device()s = an enqueue_write, illegal during trace capture).
+// EnsureDevice2D primes the cache during the eager warmup so the captured
+// res.Zero finds its entry and replays a warm device->device ttnn::copy.
+
 // HOST-FREE-FORWARD R2: device->device copy when capturing, so Backend::Copy
 // does not to_vector inside the captured region. Both dst and src must carry a
 // current device shadow of equal byte size; dst's shadow becomes a copy of src.
@@ -2629,15 +2722,22 @@ bool MemsetDeviceIfCapture(void* p, int value) {
   }
   MeshDevice& device = SharedMeshDevice();
   const ttnn::Tensor& shadow = *dev;
+  // ITEM 5: ttnn::zeros/full is NOT capture-safe — full_impl host-fills and
+  // to_device()s (creation.cpp:52-71), i.e. an enqueue_write that ttnn trace
+  // fatals on. The plugin pattern instead: keep PERSISTENT zero tensors
+  // (created outside capture, at warmup) and ttnn::copy one onto the target —
+  // a device->device program that is captured/replayed like any other warm op.
+  ttnn::Tensor zero_src = ZeroCacheGet(shadow, device);
   if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
     std::fprintf(stderr, "[TT-TRACE] device zero-fill (capture-safe)\n");
-  ttnn::Tensor z = ttnn::zeros(shadow.logical_shape(), shadow.dtype(), shadow.layout(),
-                               std::ref(device));
+  // Copy the persistent zero onto the shadow IN PLACE (keeps the shadow's
+  // device address stable — the whole point of persistent buffers).
+  ttnn::Tensor z = ttnn::copy(zero_src, shadow);
+  (void)z;
   {
     std::lock_guard<std::mutex> g(SlotMutex());
     BufferSlot* s = FindSlot(p);
     if (s == nullptr) return false;
-    s->device = std::move(z);
     s->device_current = true;
     s->host_current = false;
   }

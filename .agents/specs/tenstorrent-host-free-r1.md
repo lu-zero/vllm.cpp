@@ -408,3 +408,50 @@ Capture cannot complete (the enqueue_write fatal fires mid-forward), so the
 replay number — the actual payoff — remains open. The numbers above bound
 it: replay must exceed 7.3 (the hybrid eager baseline) to be a win, and
 starts from a 6.9 eager floor on the all-device path.
+
+### Item 5 progress (2026-08-14): two sites fixed; frontier now mid-layer-0, at rope cos/sin
+
+Instrumented all 16 `from_vector` sites (capture-gated `[TT-UP]` prints,
+incl. ptr+shape on UploadRows) and iterated the bisection. Two real item-5
+fixes landed:
+
+1. **ttnn::zeros is NOT capture-safe** (creation.cpp `full_impl` host-fills
+   + `to_device()` = an enqueue_write) — my own R3b helper was an offender.
+   Fixed the plugin way: a persistent ZERO TENSOR CACHE (keyed by
+   shape/dtype/layout) created OUTSIDE capture, primed during the eager
+   warmup by `EnsureDevice2D`, and applied in-region by
+   `ttnn::copy(zero, shadow)` — a device->device program that is captured
+   and replayed. Cache-miss during capture is a hard VT_CHECK (must warm
+   first), which is exactly what forced the priming fix.
+2. **QkvSplit's device path was already correct** (ttnn::slice +
+   CommitDevice2D) — the earlier suspicion was wrong; with MatmulBT's
+   shadow it fires and hands q/k/v shadows downstream.
+
+**Measured frontier after both fixes** — capture now runs DEEP into
+layer 0 and dies at a precisely-identified site:
+
+```
+BeginCapture -> device-copy -> zero-fill -> [6 EnsureHostBytes readbacks
+= the weight DBuf copies, handled by R2] -> CastBf16 -> RmsNorm ->
+MatmulBT -> QkvSplit -> RmsNorm(q-norm) -> RmsNorm(k-norm)
+-> [TT-UP] UploadRows ptr=... rows=16 cols=64   <- THE blocker
+-> TT_FATAL: Writes are not supported during trace capture
+```
+
+`[16, 64]` is the **RoPE cos/sin table** (Hq=16, rot/2=64): host-computed
+by `BuildCosSinFromPositions` inside `RopeNeoxKernel` and uploaded
+in-region. This is the cos/sin sub-blocker the R1 spec predicted, and it
+is the plugin's "per-step input" case: the fix is a PERSISTENT device
+cos/sin buffer populated before capture/replay (positions change per step,
+so the decode-graph driver must copy_to_device the step's rows BEFORE
+ReplayGraph — the same pattern as CUDA's SizeSlot::Refresh async-copy).
+
+**Remaining sites after rope (not yet reached by the bisection, expected
+from the readback map):** ReshapeAndCache's KV writes (host-staged),
+PagedAttention's metadata uploads, the lm_head/logits path. Each is the
+same pattern; the rope fix establishes the template.
+
+Status: item 5 is now a SCOPED multi-site port (rope cos/sin + RAC + PA
+metadata + logits), with two sites landed and the third precisely
+characterized. Not complete; the replay-tok/s payoff measurement remains
+blocked behind the remaining sites.
