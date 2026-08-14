@@ -516,3 +516,43 @@ Consistent with the pre-rebase 7.30/7.31 and 6.87/6.92 (within run noise);
 the rope-cos/sin-cache additions cost ~0.1-0.2 tok/s eager, the price of
 capture-safety on that path. Default-path suite on the rebased tree:
 23/23 cases, 831/831 assertions (main's merged tests grew the count).
+
+### Item 5 frontier: ReshapeAndCache analysis complete (2026-08-14)
+
+The readback: `ReshapeAndCacheKernel`'s first act is `EnsureHost(k)` — the
+rope output carries a device shadow, so the download (a to_vector) fires
+inside capture. Even on a shadow hit, the device push re-uploads: every
+existing device path (`TryDevicePagedFill/UpdateBatch/FusedUpdateBatch`)
+builds its input AND page table via `from_vector` (enqueue_write, also
+fatal). The host NHD cache is the RAC/LMCache source of truth; the ttnn
+shadow is a mirror patched from host floats.
+
+**The capture-safe RAC design (next implementation step):**
+
+1. Device-resident k/v input: the rope output shadow [T*H, D] bf16 TILE
+   must feed `paged_update_cache` directly. Layout gap ([T*H,D] flat vs
+   the sharded [C, nkv*d] input MakeHeightShardedUpdateInput builds today)
+   resolved ON DEVICE via capturable reshape/permute ops.
+2. Persistent PAGE-TABLE device tensor, per-step refreshed outside capture
+   (the driver Refresh slot — same pattern as WarmRopeCosSin; the padded
+   block table already lives in the SizeSlot host buffer, so the refresh
+   source exists).
+3. Persistent UPDATE-IDX device tensor likewise (paged_update_cache takes
+   update_idxs_tensor — a device tensor — natively).
+4. The host NHD mirror patch moves OUT of the captured region: done at the
+   per-step refresh point from the same k/v tokens, before capture, so the
+   LMCache contract (host NHD = source of truth) is preserved.
+
+Replay semantics note: each replay re-writes the same KV slots the capture
+baked in. That is only correct if the slot indices come from a
+per-step-refreshed device tensor — the same reason CUDA's graph refreshes
+slot_mapping per step. The design above has that property (2/3).
+
+`ttnn::experimental::paged_update_cache`'s signature confirms feasibility:
+it accepts a device `input_tensor`, a device `update_idxs_tensor`, and a
+device `page_table` — all three can be persistent/refreshed, no host
+floats needed in-region.
+
+This is the largest single remaining piece (bigger than rope: on-device
+layout conversion + two new refreshed buffers + moving the mirror patch).
+After RAC: PA metadata (same refresh pattern), then logits.
