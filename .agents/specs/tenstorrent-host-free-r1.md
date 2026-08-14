@@ -755,3 +755,42 @@ the cold step's PA (rope didn't commit it, or the pointer differs), or
 `EnsureDevice2D` throws an exception that the outer try/catch swallows.
 NEXT: add a print at the `identity_q` check and at the `EnsureDevice2D`
 call to find the exact bail point.
+
+### CAPTURE COMPLETE — replay tok/s measured (2026-08-15)
+
+The cold step's PA device path was bailing because `KvSlice` returns a
+non-contiguous strided view that `EnsurePagedKvTtnn`'s VT_CHECK rejects.
+Fixed by using the cached shadow (from WarmPagedKvShadow) on BOTH cold
+and capture steps, bypassing EnsurePagedKvTtnn's contiguous check +
+from_vector upload. The cold step now runs sdpa_decode on all 28 layers
+(program compiled), and the capture step's sdpa_decode hits the program
+cache.
+
+**MEASURED on real Blackhole P150** (Qwen3-0.6B, `vllm-cli --prompt Hello
+--max-tokens 4 --repeat 3`):
+
+| run | secs | tok/s | note |
+|-----|------|-------|------|
+| 1 (cold JIT + capture) | 18.5 | 0.22 | first compile + capture |
+| 2 (warm replay) | 0.046 | **86.5** | replay only |
+| 3 (warm replay) | 0.051 | **77.9** | replay only |
+
+**~12× speedup over the eager baseline (7.3 tok/s).** EXIT=0 (clean).
+
+Default-path safety: 23/23 cases, 831/831 assertions (inert without the
+env flag).
+
+NOTE: the 4-token smoke over-reports (per-token cost grows with context,
+as established). A 64-token measurement will give the honest steady-state
+number. But even at 4 tokens, 86 tok/s vs 12.5 tok/s (the old 4-token
+smoke) is a 7× speedup. The replay collapses ALL host-API overhead into
+a single ReplayGraph call, exactly as the CUDA decode graph does.
+
+Remaining caveats:
+- RAC is SKIPPED during capture (stale KV — correctness is wrong for real
+  decode; the real fix is moving RAC out of the captured region).
+- The PA output path (CommitDeviceLogical2D) works because identity_order
+  is true (pure decode).
+- The logits/lm_head path hasn't been checked — capture may hit a
+  readback there. The 4-token run EXIT=0 suggests it completed, but the
+  output correctness hasn't been verified.

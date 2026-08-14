@@ -2074,24 +2074,31 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
     MeshDevice& device = SharedMeshDevice();
     if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
       std::fprintf(stderr, "[TT-TRACE] PA EnsurePagedKvTtnn k used_nb=%u\n", used_nb);
-    // During capture: use the existing shadow as-is (the cold step primed it;
-    // re-uploading via EnsurePagedKvTtnn would to_vector/enqueue_write).
+    // Use the cached shadow when it exists (primed by WarmPagedKvShadow).
+    // This skips EnsurePagedKvTtnn's from_vector upload AND its contiguous
+    // check (KvSlice returns a non-contiguous strided view that the VT_CHECK
+    // rejects). Needed on BOTH cold and capture steps so sdpa_decode compiles.
     ttnn::Tensor dev_k, dev_v;
-    if (tt_capture_active()) {
+    {
       std::lock_guard<std::mutex> g(PagedKvMutex());
       auto& sk = PagedKvShadows()[reinterpret_cast<uintptr_t>(k_cache.data)];
       auto& sv = PagedKvShadows()[reinterpret_cast<uintptr_t>(v_cache.data)];
-      if (!sk.device_current || !sk.device.has_value() ||
-          !sv.device_current || !sv.device.has_value())
+      if (sk.device_current && sk.device.has_value() && sk.nb >= used_nb &&
+          sv.device_current && sv.device.has_value() && sv.nb >= used_nb) {
+        dev_k = *sk.device;
+        dev_v = *sv.device;
+        if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+          std::fprintf(stderr, "[TT-TRACE] PA using cached KV shadows (k_nb=%u v_nb=%u) cap=%d\n",
+                       sk.nb, sv.nb, (int)tt_capture_active());
+      } else if (tt_capture_active()) {
         throw std::runtime_error("PA: no KV shadow during capture");
-      dev_k = *sk.device;
-      dev_v = *sv.device;
-      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
-        std::fprintf(stderr, "[TT-TRACE] PA using cached KV shadows (k_nb=%u v_nb=%u)\n",
-                     sk.nb, sv.nb);
-    } else {
-      dev_k = EnsurePagedKvTtnn(k_cache, device, used_nb);
-      dev_v = EnsurePagedKvTtnn(v_cache, device, used_nb);
+      } else {
+        // Cold step without shadow: fall through to EnsurePagedKvTtnn
+        // (may fail on non-contiguous KvSlice; that's OK — the host path runs).
+        g.~lock_guard();  // release before EnsurePagedKvTtnn
+        dev_k = EnsurePagedKvTtnn(k_cache, device, used_nb);
+        dev_v = EnsurePagedKvTtnn(v_cache, device, used_nb);
+      }
     }
     if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
       std::fprintf(stderr, "[TT-TRACE] PA KV shadows OK, building page_table\n");
@@ -2102,6 +2109,10 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
 
     // Q: [1, B, H, D]. Prefer reshape of a resident [B*H, D] / [B, H*D] shadow
     // (post device rope) so we never download then re-upload.
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] PA before identity_q cap=%d total_q=%lld num_reqs=%lld qsl0=%d qsl1=%d\n",
+                   (int)tt_capture_active(), (long long)total_q, (long long)num_reqs,
+                   qsl[0], num_reqs > 0 ? qsl[1] : -1);
     bool identity_q = true;
     for (int64_t r = 0; r < num_reqs; ++r) {
       if (qsl[r] != r) {
@@ -2239,7 +2250,9 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
     }
     CommitHost(out);
     return true;
-  } catch (const std::exception&) {
+  } catch (const std::exception& e) {
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] PA device decode FAILED: %s\n", e.what());
     // Fall back to host oracle (shape/grid/dtype edge cases).
     return false;
   }
