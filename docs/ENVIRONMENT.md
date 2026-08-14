@@ -28,6 +28,7 @@ These change how the engine runs and have no CLI flag (or complement one).
 | `VT_SERVER_MAX_PROMPT_CHARS` | `200000` characters | Rejects chat-completion prompts larger than this many characters. Set `0` to disable the prompt-size guard |
 | `VT_SERVER_SSE_PING_S` | 15 | Seconds between SSE comment keepalives (`:\n\n`) on silent streams; `<=0` disables. |
 | `VT_SERVER_MAX_NEW_TOKENS` | `4096` | Clamps the requested generation length to this many new tokens. Set `0` to disable the cap |
+| `VT_TT_HOST_FREE_DECODE` | unset (host-hybrid decode) | Experimental Tenstorrent-only decode-capture mode: forces the residual-RMS + RoPE device paths at decode shapes, enables `support_static_graph_mode()` so the shared dense decode-graph framework attempts capture, routes `Backend::Copy`/`Memset` to device->device/zero variants, and warms the persistent rope cos/sin tables per step. Incomplete (capture aborts at ReshapeAndCache); enable only for the host-free investigation. Default decode output is byte-identical without it |
 | `VT_BENCH_PRETOKENIZE` | `1` (on) | Makes `vllm-bench` encode every prompt before its benchmark clock and admit token IDs, matching the pinned vLLM comparison frontend. Exact `0` restores timed string admission for same-binary A/B; unset, `1`, and invalid spellings keep the safe default-on behavior |
 | `VT_VULKAN_DEVICE` | first suitable device | Forces the Vulkan physical device index. Required on a multi-GPU host to pin the intended device |
 | `VT_KV_CACHE_F32` | off (native KV dtype) | Forces the KV cache to fp32. A precision/diagnostic lever, at the cost of double the KV memory |
@@ -155,6 +156,7 @@ Read-only observability; none change output.
 |---|---|---|
 | `VT_DFLASH_GRAPH_STATS` | unset | Print DFlash draft-step CUDA-graph capture/replay counts to stderr |
 | `VT_OP_PROVIDER_STATS` | off | Print per-op provider (which backend served each op) statistics |
+| `VT_TT_TRACE_DEBUG` | unset | `=1` prints the Tenstorrent capture bisection traces to stderr: op entries (`[TT-OP]`), host readbacks (`to_vector`/`EnsureHostBytes`), device->device copies/zero-fills, and rope cos/sin cache lookups — all gated to fire only while a mesh-trace capture is active. Read-only diagnostics for the host-free decode investigation; byte-identical output when unset |
 | `VT_OP_PROVIDER_DISABLE` | (none) | Comma-separated provider names to disable, forcing fallback (diagnostic) |
 | `VT_SERVER_PREFILL_PROGRESS` | off | `=1` prints chunked-prefill progress to stderr, rate-limited to roughly 2 Hz per request. `=0` explicitly disables it even when `VT_SERVER_VERBOSE=1` |
 | `VT_GDN_VALIDATE` | off | Run the GDN validation/cross-check path (slower; for kernel debugging) |
