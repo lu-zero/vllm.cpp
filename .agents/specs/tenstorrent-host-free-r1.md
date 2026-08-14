@@ -794,3 +794,31 @@ Remaining caveats:
 - The logits/lm_head path hasn't been checked — capture may hit a
   readback there. The 4-token run EXIT=0 suggests it completed, but the
   output correctness hasn't been verified.
+
+### RAC in-capture: paged_update_cache IS capture-safe; k/v copy needs warm
+
+RAC now runs INSIDE the captured region via `paged_update_cache` (in-place,
+capture-safe). The sharded input uses the pre-built `sharded_zero` from
+WarmRacIdx. Capture completes: EXIT=0, 83/77 tok/s replay.
+
+The k/v copy into the sharded buffer (`build_input`) currently fails during
+capture because `ttnn::zeros` + `ttnn::concat` are writes (caught by the
+try/catch, falls back to zeros = stale KV). The fix: pre-build the padded
+k/v tensor at warm time (same persistent-cache pattern as rope cos/sin).
+The warm hook already has the k/v device shadows from the cold step; it
+can build the padded sharded input and store it in the RacIdxEntry, then
+the captured `build_input` uses `ttnn::copy` (capture-safe) to refresh it.
+
+NOTE: the k/v data changes per step (it's the rope output for the current
+token), so the warm must happen at the Refresh slot — but the k/v aren't
+available at Refresh (they're computed inside ForwardLayers). This is the
+fundamental circular dependency: RAC needs the k/v from the current step's
+forward, which is inside the captured region.
+
+The plugin solves this by capturing the k/v write as part of the graph
+(the k/v are device-resident from the rope, and the paged_update_cache
+reads them directly). Our issue is only the sharded input construction
+(zeros + concat). If we can pre-allocate the padded tensor and use only
+`ttnn::copy` (from the device k/v shadow into the padded sharded buffer),
+it should work. The `ttnn::copy` between TILE and height-sharded may
+still allocate (layout conversion) — that's the remaining question.
