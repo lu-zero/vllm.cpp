@@ -236,3 +236,23 @@ before the crash. Same property the Qwen3 TT gate has.
   (≤500 milli-nats vs vLLM's own teacher-forced argmax given the TT prefix),
   just with a TT-appropriate anchor. Reusing the CUDA anchor would fail
   spuriously at genuine bf16 near-ties where TT and CUDA legitimately differ.
+
+### First perf number (2026-08-14, real Blackhole P150)
+
+`vllm-cli --prompt "Hello" --max-tokens 32 --repeat 2 --device auto`:
+
+| run | secs | tok/s |
+|-----|------|-------|
+| 1 (cold JIT for the 7B shape set) | 182.6 | 0.18 |
+| 2 (warm) | 7.5 | **4.26** |
+
+**Mistral-7B-v0.3 warm decode: 4.26 tok/s** — the first perf number for this
+row (the 16/16 gate was correctness-only). No perf claim beyond this single
+measurement: one prompt, 32 tokens, batch 1. EXIT=0 (clean — the teardown
+segfault did not fire on this run).
+
+Context for the number: Qwen3-0.6B measures 7.3 tok/s warm at 64 tokens on
+the same box (see tenstorrent-host-free-r1.md), so 7B at 4.26 tok/s is in
+the plausible band for ~12x the parameters at the same hybrid thresholds.
+No optimization has been done for Mistral specifically; the forward rides
+the Qwen3-dense op set with the untied-lm_head kMatmul.
