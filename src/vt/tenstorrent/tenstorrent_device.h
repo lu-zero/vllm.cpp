@@ -69,6 +69,13 @@ bool MemsetDeviceIfCapture(void* p, int value);
 // (Plain-field args keep this header free of vt/ops.h; llama3 rope scaling
 // is NOT supported on the warm path — TT host-free decode is Qwen3/Mistral
 // plain-rope only, matching the current allowlist.)
+// ITEM 5 (RAC): stage the persistent device update-idx / page-table tensors
+// for THIS slot mapping, outside capture (driver Refresh slot). No-op unless
+// VT_TT_HOST_FREE_DECODE. slot_mapping_owner is the host buffer the captured
+// ReshapeAndCache will see as its slot_mapping (keyed identity).
+void WarmRacIdx(const void* slot_mapping_owner, const int64_t* slots,
+                int64_t num_slots, int64_t block_size);
+
 void WarmRopeCosSin(const int32_t* positions, int64_t tokens, int64_t hq,
                     int64_t hk, int64_t rot, double base);
 

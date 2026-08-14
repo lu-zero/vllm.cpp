@@ -604,6 +604,14 @@ ForwardLogits Qwen3DenseDecodeGraph::Step(
         impl_->config.num_attention_heads,
         impl_->config.num_key_value_heads, impl_->config.rotary_dim,
         static_cast<double>(impl_->config.rope_theta));
+    // ITEM 5 (RAC): stage the persistent device idx/page-table tensors for
+    // the PADDED slot mapping the captured ReshapeAndCache will see. The
+    // kernel keys its cache on si.slot_mapping's host buffer; si builds from
+    // attn_meta (pam here) so this is the same buffer content.
+    vt::tenstorrent::WarmRacIdx(
+        pam.slot_mapping.data(), pam.slot_mapping.data(),
+        static_cast<int64_t>(pam.slot_mapping.size()),
+        attn_kv.empty() ? 32 : attn_kv[0].block_size);
   }
   s.fa_cols = cols;
   if (cols_changed && s.graph != nullptr) {

@@ -556,3 +556,27 @@ floats needed in-region.
 This is the largest single remaining piece (bigger than rope: on-device
 layout conversion + two new refreshed buffers + moving the mirror patch).
 After RAC: PA metadata (same refresh pattern), then logits.
+
+### Item 5: RAC progress (2026-08-14)
+
+Implemented `TryReshapeAndCacheDeviceDecode` + `WarmRacIdx` driver warm hook
++ shape-keyed idx cache (same content-refresh pattern as rope). The warm
+hook fires correctly (slot0=32 warmup, slot0=33 capture step), the content
+check matches, but the device branch bails because the **paged-KV device
+shadow is empty** (`k=0 v=0`) — it was never created.
+
+Root cause: the paged-KV shadow is created by `EnsurePagedKvTtnn` (inside
+`TryPagedAttentionDeviceDecode`), but PA's device path doesn't run during
+the eager warmup (its preconditions aren't met on the non-capture path).
+So by capture time the shadow was never populated.
+
+Fix needed: eagerly create the paged-KV shadow during the warm hook (call
+`EnsurePagedKvTtnn` from `WarmRacIdx`, or prime it from the KV cache
+metadata the driver has via `attn_kv`). This is the same "prime outside
+capture" pattern as the zero cache and rope cos/sin.
+
+After the shadow exists, the remaining RAC path (device→device
+`paged_update_cache` with persistent idx tensors) should work — the idx
+content already matches (verified), the k/v shadows exist (post-rope
+`CommitDevice2D`), and the paged_update_cache signature accepts all
+device tensors.
