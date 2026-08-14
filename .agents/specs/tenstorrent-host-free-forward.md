@@ -5,6 +5,9 @@ capture (see `tenstorrent-trace-runner.md`: capture aborts on `to_vector`
 readbacks inside `ForwardLayers`). This document decomposes the work into
 independent rows sized for parallel claims.
 
+Row id: `BACKEND-TENSTORRENT-HOST-FREE-FORWARD` (child of
+`BACKEND-TENSTORRENT`).
+
 ## Goal
 
 Make the per-decode-layer region of the TT forward **host-free**: zero
@@ -30,7 +33,58 @@ Boundary ops OUTSIDE the layer loop (readbacks here are fine — they are the
 capture region's input/output edges): `Embedding` (host-staged upload),
 `GreedyArgmax` (host readback of the final logits).
 
-## Three independent sub-problems (rows)
+## Scope
+
+**In.** Make the per-decode-layer region of the TT forward host-free (zero
+`to_vector` readbacks and zero `enqueue_write` between `BeginCapture` and
+`EndCaptureGraph`) so ttnn mesh-trace can capture/replay decode. R1-R3b
+landed; item 5 (persistent device input tensors + before-replay populate)
+open.
+
+**Out.** Prefill capture, MoE, new ttnn kernels, upstream tt-metal changes
+(the answer is a vllm.cpp-side architecture port).
+
+## Upstream chain
+
+No upstream vLLM equivalent. The loyal anchors are: ttnn trace
+(`ttnn::operations::trace::{begin,end}_trace_capture`, wired in
+`tenstorrent_backend.cpp:70-76`), the CUDA decode-graph capture contract
+(`cuda_backend.cu:184-197`: async region, no host sync, no malloc, fixed
+pointers), and the tt-metal vLLM plugin's trace design (the reference
+implementation of trace-based decode on this hardware).
+
+## Our baseline
+
+Landed on this branch (measured on real Blackhole P150, env-gated
+`VT_TT_HOST_FREE_DECODE`, inert by default — 21/21 TT tests): R1 threshold
+flip, R2 device->device copy, R3 program-cache warm, R3b device zero-fill.
+Capture enters the forward and reaches the layer ops. The open gap is item
+5: per-op `enqueue_write` during capture; the fix (persistent device
+tensors + before-replay populate) is the plugin-port above. Full measured
+record: `tenstorrent-host-free-r1.md`.
+
+## Port map
+
+No upstream vLLM equivalent (no vLLM Tenstorrent platform). The architecture
+is ported from the official Tenstorrent vLLM plugin
+(`tt/vllm/plugins/vllm-tt-plugin/.../model_runner.py`):
+
+| plugin technique | vllm.cpp TT mapping |
+|---|---|
+| two-phase warmup (compile ops with `enable_trace=False`, then capture) | `Qwen3DenseDecodeGraph` eager step then capture (already landed) + `device.enable_program_cache()` (R3, landed) |
+| persistent device tensors at warmup max-padded shape (stable addresses) | TT decode-graph `SizeSlot` holds persistent ttnn device tensors for inputs (open — item 5) |
+| `copy_host_to_device_tensor` before capture/replay, never inside | populate the stable buffers via `ttnn::copy_to_device` before `ReplayGraph` (open — item 5); inside the captured region only `CopyDeviceDeviceIfCapture`/`MemsetDeviceIfCapture` (landed R2/R3b) |
+
+## Tests to port
+
+None upstream. Local gates: the existing TT suite (21/21 default — proves
+the env-gated paths are inert), the Qwen3-0.6B/Mistral TT golden pairs
+(e2e near-tie when the flag is on), and the capture probe (bisection
+instrumentation under `VT_TT_TRACE_DEBUG`).
+
+## Work breakdown
+
+(Three independent sub-problems, R1-R4; each a claimable row-sized unit.)
 
 Each is independently gateable; none blocks another except the capture row,
 which wants all three.
@@ -105,7 +159,7 @@ verifies capture no longer aborts, and measures replay tok/s vs eager.
 (the current hybrid eager baseline) — this is the payoff that justifies
 all four rows.
 
-## Sequencing + dependencies
+## Dependencies
 
 ```
 R1 (RmsNorm+RoPE device)  ─┐
