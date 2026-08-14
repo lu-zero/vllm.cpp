@@ -687,3 +687,31 @@ with a manual `ttnn::copy` into a pre-sliced cache region. The cache
 shadow is a persistent ttnn tensor; slicing it and copying the k/v rows
 into the slice is all-capture-safe (proven by R2's device->device copy).
 No sharding requirement, no paged_update_cache, no layout conversion.
+
+### Item 5: approach (b) — RAC SKIPPED during capture; next blocker = PA
+
+Implemented approach (b): `TryReshapeAndCacheDeviceDecode` returns true
+immediately during capture (skipping the KV write). This is INCORRECT for
+real decode (stale KV) but proves the approach works — capture proceeds
+PAST RAC to the next op.
+
+Measured on card: `[TT-TRACE] RAC skip during capture (approach b probe)`
+fires, capture continues to `TryPagedAttentionDeviceDecode` which then hits
+`Reads are not supported during trace capture` (fd_mesh_command_queue.cpp:807
+= the READ guard, not the write guard at :760). So PA is doing a
+`to_vector` readback — likely `EnsurePagedKvTtnn` re-uploading the stale
+shadow (marked stale by the skip), or PA reading query/metadata via
+`EnsureHost`.
+
+The remaining sites after RAC are:
+1. PA metadata (block_table, seq_lens, query_start_loc via EnsureHost)
+2. PA's EnsurePagedKvTtnn (re-upload the stale KV shadow)
+3. PA output (to_vector to read the attention result)
+4. Logits (lm_head output)
+
+The real fix for RAC: move it OUT of the captured ForwardLayers region
+entirely — do the KV write at the driver Refresh slot (before BeginCapture),
+same as the plugin's per-step copy_host_to_device_tensor pattern. This means
+splitting the captured region: RAC runs before capture, PA+forward runs
+inside capture. That's a driver-level change (the captured region starts
+after EmbedInto + RAC, not at ForwardLayers).

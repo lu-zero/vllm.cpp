@@ -1819,47 +1819,53 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
     pt = it->second.page_table;
   }
 
+  // APPROACH (b): skip the device RAC during capture. The captured region
+  // will not update the KV cache; PA reads whatever the shadow already holds.
+  // This is INCORRECT for real decode (stale KV) but lets us probe what the
+  // NEXT blocker after RAC is (PA metadata, logits). The real fix: move RAC
+  // out of the captured ForwardLayers region entirely — do it at the driver
+  // Refresh slot (before BeginCapture), same as the plugin's per-step
+  // copy_host_to_device_tensor pattern.
+  const bool capturing = tt_capture_active();
+  if (capturing) {
+    std::fprintf(stderr, "[TT-TRACE] RAC skip during capture (approach b probe)\n");
+    // Mark the device shadow stale so PA re-uploads (which will also fatal
+    // during capture — but that tells us PA is the next site).
+    std::lock_guard<std::mutex> g(PagedKvMutex());
+    PagedKvShadows()[reinterpret_cast<uintptr_t>(k_cache.data)].device_current = false;
+    PagedKvShadows()[reinterpret_cast<uintptr_t>(v_cache.data)].device_current = false;
+    return true;  // skip the host path too
+  }
+
+  // Eager (non-capture) path: use paged_update_cache (safe outside capture).
   MeshDevice& device = SharedMeshDevice();
   const uint32_t nkv_pad = std::max(32u, ((static_cast<uint32_t>(nkv) + 31u) / 32u) * 32u);
 
-  // Build the padded [1,1,nkv_pad,d] input ON DEVICE from the k/v shadows:
-  // rows [0,nkv) hold the token, [nkv,nkv_pad) stay zero (persistent zero
-  // buffer via the zero-cache, or first-build outside capture).
-  auto build_padded = [&](const ttnn::Tensor& src, const RacIdxEntry& idx_entry) -> ttnn::Tensor {
-    // src: [T*nkv, d] TILE bf16; T==1 -> [nkv, d].
+  // Build padded input from device k/v shadow (outside capture, safe).
+  auto build_padded = [&](const ttnn::Tensor& src) -> ttnn::Tensor {
     ttnn::Tensor rows = ttnn::slice(src, ttsl::SmallVector<uint32_t>{0, 0},
                                     ttsl::SmallVector<uint32_t>{static_cast<uint32_t>(nkv), static_cast<uint32_t>(d)},
                                     ttsl::SmallVector<uint32_t>{1, 1});
-    // Persistent zero [nkv_pad, d]; rows copied into the top slice.
-    ttnn::Tensor padded = ZeroCacheGet(
-        ttnn::zeros(ttnn::Shape({nkv_pad, static_cast<uint32_t>(d)}),
-                    ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, std::ref(device)),
-        device);
+    ttnn::Tensor padded = ttnn::zeros(
+        ttnn::Shape({nkv_pad, static_cast<uint32_t>(d)}),
+        ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, std::ref(device));
     ttnn::Tensor top = ttnn::slice(padded, ttsl::SmallVector<uint32_t>{0, 0},
                                    ttsl::SmallVector<uint32_t>{static_cast<uint32_t>(nkv), static_cast<uint32_t>(d)},
                                    ttsl::SmallVector<uint32_t>{1, 1});
-    ttnn::Tensor filled = ttnn::copy(rows, top);
-    padded = ttnn::concat(std::vector<ttnn::Tensor>{filled, ttnn::slice(
-        padded, ttsl::SmallVector<uint32_t>{static_cast<uint32_t>(nkv), 0},
-        ttsl::SmallVector<uint32_t>{nkv_pad, static_cast<uint32_t>(d)},
-        ttsl::SmallVector<uint32_t>{1, 1})}, 0);
+    ttnn::copy(rows, top);
     ttnn::Tensor reshaped = padded.reshape(ttnn::Shape({1u, 1u, nkv_pad, static_cast<uint32_t>(d)}));
-    // Use the persistent sharded zero from the warm cache; copy the padded
-    // content into it (device->device, capture-safe) and return that.
-    ttnn::Tensor result = ttnn::copy(reshaped, idx_entry.sharded_zero);
-    return result;
+    const auto grid = device.compute_with_storage_grid_size();
+    const tt::tt_metal::CoreRangeSet core_set =
+        tt::tt_metal::num_cores_to_corerangeset(1u, grid, true);
+    tt::tt_metal::ShardSpec ss(core_set, {nkv_pad, static_cast<uint32_t>(d)},
+                               tt::tt_metal::ShardOrientation::ROW_MAJOR);
+    tt::tt_metal::MemoryConfig sm(tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED,
+                                 tt::tt_metal::BufferType::L1, ss);
+    return ttnn::to_memory_config(reshaped, sm);
   };
 
-  const RacIdxEntry& it2 = [&] {
-    std::lock_guard<std::mutex> g(RacIdxMutex());
-    return RacIdxCache().at(std::make_pair(num_slots, static_cast<int64_t>(bs)));
-  }();
-  const bool capturing = tt_capture_active();
-  if (capturing)
-    std::fprintf(stderr, "[TT-TRACE] RAC device->device update (capture-safe)\n");
-
-  ttnn::Tensor k_in = build_padded(*k_dev, it2);
-  ttnn::Tensor v_in = build_padded(*v_dev, it2);
+  ttnn::Tensor k_in = build_padded(*k_dev);
+  ttnn::Tensor v_in = build_padded(*v_dev);
   ttnn::Tensor new_kc = ttnn::experimental::paged_update_cache(
       *kc_dev, k_in, /*update_idxs=*/{}, idx, /*share_cache=*/false, pt,
       /*batch_offset=*/0, /*compute_kernel_config=*/std::nullopt,
@@ -3069,9 +3075,14 @@ void WarmPagedKvShadow(void* k_cache_data, void* v_cache_data,
     const uint32_t used = static_cast<uint32_t>(
         std::min(used_blocks, num_blocks));
     EnsurePagedKvTtnn(cache, device, used);
-    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
-      std::fprintf(stderr, "[TT-TRACE] WarmPagedKvShadow ptr=%p nb=%lld used=%u\n",
-                   data, (long long)num_blocks, used);
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr) {
+      std::lock_guard<std::mutex> pg(PagedKvMutex());
+      auto& sh = PagedKvShadows();
+      std::fprintf(stderr, "[TT-TRACE] WarmPagedKvShadow ptr=%p nb=%lld used=%u shadows=%zu dev=%d\n",
+                   data, (long long)num_blocks, used, sh.size(),
+                   sh.count(reinterpret_cast<uintptr_t>(data)) ?
+                       (int)sh[reinterpret_cast<uintptr_t>(data)].device.has_value() : -1);
+    }
   };
   warm_one(k_cache_data);
   warm_one(v_cache_data);
@@ -3114,7 +3125,13 @@ void WarmRacIdx(const void* /*slot_mapping_owner*/, const int64_t* slots,
   // available paged-KV shadow's geometry (same nkv/d as the cache).
   {
     std::lock_guard<std::mutex> pg(PagedKvMutex());
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] WarmRacIdx shadow loop: %zu shadows\n",
+                   PagedKvShadows().size());
     for (auto& [ptr, shadow] : PagedKvShadows()) {
+      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+        std::fprintf(stderr, "[TT-TRACE] shadow ptr=%p nkv=%u d=%u dc=%d\n",
+                     (void*)ptr, shadow.nkv, shadow.d, shadow.device_current);
       if (shadow.nkv > 0 && shadow.d > 0) {
         const uint32_t np = std::max(32u, ((shadow.nkv + 31u) / 32u) * 32u);
         ttnn::Tensor z = ttnn::zeros(
