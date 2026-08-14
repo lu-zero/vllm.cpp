@@ -615,3 +615,34 @@ same CQ state). The issue is the ordering: the framework runs the eager
 step BEFORE the Refresh slot (where the warm hooks fire). Moving the shadow
 priming to BEFORE the eager step (at slot creation, not Refresh) would fix
 the ordering.
+
+### Item 5: RAC — `paged_update_cache` is NOT capture-safe (internal allocation)
+
+After fixing:
+- shadow priming for all layers (not just layer 0)
+- used=block+1 (off-by-one in block coverage)
+- idx tensor dtype INT32 (not UINT32 — ttnn requirement)
+- input sharding (paged_update_cache requires height-sharded input)
+
+The RAC device branch now EXECUTES on both cold and capture steps
+(`RAC device->device update (capture-safe)` fires). But `paged_update_cache`
+itself triggers `Writes are not supported during trace capture` — the op
+does an internal allocation (result tensor) that is an `enqueue_write`.
+
+This is NOT a program-cache issue (the cold step compiled the program).
+`ttnn::experimental::paged_update_cache` allocates a new output tensor
+even when the program is cached — that allocation is a device write,
+forbidden during capture.
+
+This is a ttnn API limitation: the op is not capture-safe by design.
+The plugin's approach (persistent device tensors + before-replay populate)
+works for ops that take pre-allocated outputs, but `paged_update_cache`
+returns a new tensor. The fix would be either:
+(a) an upstream ttnn change to support in-place update (pass output tensor)
+(b) pre-allocate the result and use a different capture-safe scatter op
+(c) capture only the ops AFTER RAC (skip RAC from the captured region,
+    do it before replay) — but RAC mutates the KV cache, which PA reads
+    inside the captured region, so it can't be moved out.
+
+Option (a) is the cleanest (an upstream issue/PR to ttnn). This is the
+genuine gate — not a vllm.cpp code issue but a ttnn API limitation.

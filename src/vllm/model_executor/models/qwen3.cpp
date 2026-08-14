@@ -614,19 +614,22 @@ ForwardLogits Qwen3DenseDecodeGraph::Step(
         attn_kv.empty() ? 32 : attn_kv[0].block_size);
     // ITEM 5: prime the paged-KV device shadow for the first layer so RAC
     // (which runs before PA) finds the ttnn tensor already populated.
-    if (!attn_kv.empty()) {
-      const auto& kv0 = attn_kv[0];
-      const int64_t used = pam.max_seq_len > 0
-          ? (pam.max_seq_len + kv0.block_size - 1) / kv0.block_size
-          : 1;
-      // k_cache and v_cache are KvSlice views (different offsets into kv0.data);
-      // prime both pointers so both PagedKvShadows entries exist.
-      const size_t half = static_cast<size_t>(kv0.block_size * kv0.num_kv_heads *
-                                               kv0.head_size) * vt::SizeOf(kv0.dtype);
-      char* base = static_cast<char*>(kv0.data);
+    // ITEM 5: prime paged-KV device shadows for EVERY layer (each layer has
+    // its own attn_kv[l].data; only priming layer 0 leaves layers 1..N-1
+    // without a shadow, bailing the device RAC on every layer but the first).
+    for (const auto& kv : attn_kv) {
+      // Prime enough blocks to cover the highest slot this step will write.
+      // The slot's block = slot / block_size; need nb >= block + 1.
+      const int64_t max_slot = pam.slot_mapping.empty() ? 0
+          : *std::max_element(pam.slot_mapping.begin(), pam.slot_mapping.end());
+      const int64_t used = (max_slot < 0) ? 1
+          : std::max<int64_t>(1, max_slot / kv.block_size + 1);
+      const size_t half = static_cast<size_t>(kv.block_size * kv.num_kv_heads *
+                                               kv.head_size) * vt::SizeOf(kv.dtype);
+      char* base = static_cast<char*>(kv.data);
       vt::tenstorrent::WarmPagedKvShadow(
-          base, base + half, kv0.num_blocks, kv0.block_size,
-          kv0.num_kv_heads, kv0.head_size, used);
+          base, base + half, kv.num_blocks, kv.block_size,
+          kv.num_kv_heads, kv.head_size, used);
     }
   }
   s.fa_cols = cols;

@@ -1722,7 +1722,7 @@ namespace {
 struct RacIdxEntry {
   ttnn::Tensor update_idxs;  // uint32 [C] device
   ttnn::Tensor page_table;   // int32 [C,1] device
-  std::vector<uint32_t> idx_host;  // content identity for reuse check
+  std::vector<int32_t> idx_host;  // content identity for reuse check
 };
 std::mutex& RacIdxMutex() { static std::mutex m; return m; }
 // Keyed by (num_slots, block_size) shape — idx tensors depend on slot values + block_size.
@@ -1740,6 +1740,9 @@ std::map<std::pair<int64_t, int64_t>, RacIdxEntry>& RacIdxCache() {
 bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
                                     Tensor& k_cache, Tensor& v_cache,
                                     const Tensor& slot_mapping) {
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr, "[TT-TRACE] TryRACDevice called capturing=%d\n",
+                 (int)tt_capture_active());
   const int64_t T = k.shape[0];
   const int64_t nkv = k.shape[1];
   const int64_t d = k.shape[2];
@@ -1755,6 +1758,10 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
     std::lock_guard<std::mutex> g(SlotMutex());
     BufferSlot* sk = FindSlot(k.data);
     BufferSlot* sv = FindSlot(v.data);
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] RAC kv shadow k_ptr=%p sk=%p dc=%d val=%d | v_ptr=%p sv=%p dc=%d val=%d\n",
+                   k.data, (void*)sk, sk?sk->device_current:0, sk?(int)sk->device.has_value():0,
+                   v.data, (void*)sv, sv?sv->device_current:0, sv?(int)sv->device.has_value():0);
     if (sk == nullptr || !sk->device_current || !sk->device.has_value()) return false;
     if (sv == nullptr || !sv->device_current || !sv->device.has_value()) return false;
     k_dev = sk->device;
@@ -1763,6 +1770,9 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
 
   // Paged-KV shadows must exist and cover the target block.
   const int64_t slot = slot_mapping.Ptr<int64_t>()[0];
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr, "[TT-TRACE] RAC slot=%lld cap=%d\n",
+                 (long long)slot, (int)tt_capture_active());
   if (slot < 0) return true;  // nothing to write; treat as handled
   const uint32_t block = static_cast<uint32_t>(slot / bs);
   const uint32_t offset = static_cast<uint32_t>(slot % bs);
@@ -1792,10 +1802,11 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
     const auto key = std::make_pair(num_slots, static_cast<int64_t>(bs));
     auto it = RacIdxCache().find(key);
     const int64_t slot0 = slot_mapping.Ptr<int64_t>()[0];
-    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
-      std::fprintf(stderr, "[TT-TRACE] RAC kernel slot0=%lld expect_idx=%u\n",
-                   (long long)slot0, (slot0 < 0) ? 0u : static_cast<uint32_t>(slot0 % bs));
-    const uint32_t expect_idx = (slot0 < 0) ? 0u : static_cast<uint32_t>(slot0 % bs);
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] RAC idx-check slot0=%lld cap=%d key=(%lld,%lld)\n",
+                   (long long)slot0, (int)tt_capture_active(),
+                   (long long)num_slots, (long long)bs);
+    const int32_t expect_idx = (slot0 < 0) ? 0 : static_cast<int32_t>(slot0 % bs);
     if (it == RacIdxCache().end() ||
         (it->second.idx_host.size() >= 1 && it->second.idx_host[0] != expect_idx)) {
       VT_CHECK(!tt_capture_active(),
@@ -1831,7 +1842,16 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
         padded, ttsl::SmallVector<uint32_t>{static_cast<uint32_t>(nkv), 0},
         ttsl::SmallVector<uint32_t>{nkv_pad, static_cast<uint32_t>(d)},
         ttsl::SmallVector<uint32_t>{1, 1})}, 0);
-    return padded.reshape(ttnn::Shape({1u, 1u, nkv_pad, static_cast<uint32_t>(d)}));
+    ttnn::Tensor reshaped = padded.reshape(ttnn::Shape({1u, 1u, nkv_pad, static_cast<uint32_t>(d)}));
+    // paged_update_cache requires a HEIGHT-SHARDED input (one shard per core).
+    const auto grid = device.compute_with_storage_grid_size();
+    const tt::tt_metal::CoreRangeSet core_set =
+        tt::tt_metal::num_cores_to_corerangeset(1u, grid, /*row_wise=*/true);
+    tt::tt_metal::ShardSpec shard_spec(core_set, {nkv_pad, static_cast<uint32_t>(d)},
+                                       tt::tt_metal::ShardOrientation::ROW_MAJOR);
+    tt::tt_metal::MemoryConfig sharded_mem(tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED,
+                                           tt::tt_metal::BufferType::L1, shard_spec);
+    return ttnn::to_memory_config(reshaped, sharded_mem);
   };
 
   const bool capturing = tt_capture_active();
@@ -3066,21 +3086,21 @@ void WarmRacIdx(const void* /*slot_mapping_owner*/, const int64_t* slots,
   if (num_slots < 1) return;
   MeshDevice& device = SharedMeshDevice();
   std::vector<int32_t> ptv;
-  std::vector<uint32_t> idxv;
+  std::vector<int32_t> idxv;
   ptv.reserve(num_slots); idxv.reserve(num_slots);
   for (int64_t t = 0; t < num_slots; ++t) {
     const int64_t slot = slots[t];
     if (slot < 0) { ptv.push_back(0); idxv.push_back(0); continue; }
     ptv.push_back(static_cast<int32_t>(slot / block_size));
-    idxv.push_back(static_cast<uint32_t>(slot % block_size));
+    idxv.push_back(static_cast<int32_t>(slot % block_size));
   }
   ttnn::Tensor pt = ttnn::Tensor::from_vector<int32_t>(
       ptv, SpecOf(tt::tt_metal::Shape({static_cast<uint32_t>(num_slots), 1u}),
                   ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
       &device);
-  ttnn::Tensor idx = ttnn::Tensor::from_vector<uint32_t>(
+  ttnn::Tensor idx = ttnn::Tensor::from_vector<int32_t>(
       idxv, SpecOf(tt::tt_metal::Shape({static_cast<uint32_t>(num_slots)}),
-                   ttnn::DataType::UINT32, ttnn::Layout::ROW_MAJOR),
+                    ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
       &device);
   std::lock_guard<std::mutex> g(RacIdxMutex());
   RacIdxEntry e;
@@ -3088,36 +3108,10 @@ void WarmRacIdx(const void* /*slot_mapping_owner*/, const int64_t* slots,
   e.page_table = std::move(pt);
   e.idx_host = idxv;
   RacIdxCache()[std::make_pair(num_slots, block_size)] = std::move(e);
-  // Warm the paged_update_cache program for this shape (outside capture).
-  // The driver calls WarmPagedKvShadow BEFORE WarmRacIdx, so the paged-KV
-  // shadows exist by now. Run a dummy paged_update_cache to compile the
-  // program; the result is discarded (overwritten by the real call during
-  // capture).
-  {
-    std::lock_guard<std::mutex> g(RacIdxMutex());
-    auto& e2 = RacIdxCache()[std::make_pair(num_slots, block_size)];
-    // Find the paged-KV shadows keyed by... we don't have k_cache.data here.
-    // Use the first shadow in the map as a warm dummy (any shadow of the
-    // right geometry works for program-cache compilation).
-    try {
-      std::lock_guard<std::mutex> pg(PagedKvMutex());
-      for (auto& [ptr, shadow] : PagedKvShadows()) {
-        if (shadow.device.has_value() && shadow.device_current) {
-          const uint32_t nkv_pad = std::max(32u, ((shadow.nkv + 31u) / 32u) * 32u);
-          ttnn::Tensor dummy_in = ttnn::zeros(
-              ttnn::Shape({1u, 1u, nkv_pad, shadow.d}),
-              ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, std::ref(device));
-          ttnn::experimental::paged_update_cache(
-              *shadow.device, dummy_in, /*update_idxs=*/{}, e2.update_idxs,
-              /*share_cache=*/false, e2.page_table, /*batch_offset=*/0,
-              /*compute_kernel_config=*/std::nullopt, /*mesh_coords=*/std::nullopt);
-          break;
-        }
-      }
-    } catch (...) {
-      // Warm failure is non-fatal; the capture will fail loudly if the
-      // program isn't cached.
-    }
-  }
+  // paged_update_cache is warmed naturally: WarmPagedKvShadow (called by
+  // the driver BEFORE WarmRacIdx) primes the shadows, and the cold step's
+  // eager ForwardLayers runs TryReshapeAndCacheDeviceDecode (host_free is
+  // set, capturing is false) which calls paged_update_cache in the correct
+  // CQ context, compiling the program.
 }
 }  // namespace vt::tenstorrent
