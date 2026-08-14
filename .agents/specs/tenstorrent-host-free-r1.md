@@ -455,3 +455,42 @@ Status: item 5 is now a SCOPED multi-site port (rope cos/sin + RAC + PA
 metadata + logits), with two sites landed and the third precisely
 characterized. Not complete; the replay-tok/s payoff measurement remains
 blocked behind the remaining sites.
+
+### Item 5: rope cos/sin SOLVED (2026-08-14, measured on card)
+
+The rope blocker took three fixes working together:
+
+1. **Persistent cos/sin cache** keyed by (tokens*heads, rot/2), entries
+   created/refreshed OUTSIDE capture, replayed in-region via the captured
+   program (no per-call upload). Content-identity checked against the exact
+   bytes the kernel will use — a stale table is a hard VT_CHECK during
+   capture, never silent corruption.
+2. **Driver warm hook** `WarmRopeCosSin(positions, ...)` called from the
+   decode-graph driver's Refresh slot (qwen3.cpp, right after
+   SizeSlot::Refresh) — THE per-step populate point, the exact plugin
+   SizeSlot::Refresh analogue. Crucially it warms the UNPADDED T-row
+   positions (what si.positions/rope sees), not the padded ppos — the
+   first attempt used ppos and always missed.
+3. **Byte-exact content**: the captured rope path (RopeFromCache, the
+   default VT_QWEN3_ROPE_CACHE route) reads cos/sin from the per-step bf16
+   CACHE table (RopeCosSinCacheKernel's StoreElemF32 rounds f32->bf16), so
+   the warm content must round-trip through bf16 (BF16ToF32(F32ToBF16(v)))
+   — f32 warm content never matches (cos(1)=0.540302 f32 vs 0.539062 bf16).
+
+Measured: rope cache **HIT for both q (16x64) and k (8x64)** during
+capture (`content_eq=1`), capture proceeds PAST rope. Also discovered en
+route: the dense decode path routes rope through RopeFromCacheKernel (not
+RopeNeoxKernel) by default — the first debug print in the wrong kernel
+never fired, which is what exposed it.
+
+**New frontier: ReshapeAndCache** — the next fatal is a to_vector readback
+inside RAC (the KV-write path), right after rope in layer 0. This is the
+"queued" RAC item from the original plan, now live. After RAC: PA metadata,
+then the logits path. RAC is the most delicate remaining site: KV writes
+inside a captured+replayed region also raise a REPLAY-SEMANTICS question
+(every replay re-appends the same KV row) that must be answered alongside
+the mechanical fix — the CUDA graph solves this by capturing the append
+against fixed slot addresses refreshed per step.
+
+Default-path safety re-verified after all rope changes: 23/23 cases,
+830/830 assertions.

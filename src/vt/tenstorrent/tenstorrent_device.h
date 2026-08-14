@@ -61,6 +61,17 @@ bool CopyDeviceDeviceIfCapture(void* dst, const void* src);
 // buffer to already carry a current device shadow.
 bool MemsetDeviceIfCapture(void* p, int value);
 
+// ITEM 5 (rope): driver-side warm hook — populate the persistent device
+// cos/sin tensors for the step's positions BEFORE BeginCapture (the
+// SizeSlot::Refresh slot), so the captured rope cache-HITs. No-op unless
+// VT_TT_HOST_FREE_DECODE is set. vt::RopeArgs is declared in vt/ops.h
+// (included by every TU that needs the args); this header stays ttnn-free.
+// (Plain-field args keep this header free of vt/ops.h; llama3 rope scaling
+// is NOT supported on the warm path — TT host-free decode is Qwen3/Mistral
+// plain-rope only, matching the current allowlist.)
+void WarmRopeCosSin(const int32_t* positions, int64_t tokens, int64_t hq,
+                    int64_t hk, int64_t rot, double base);
+
 // ---- ttnn mesh-trace capture (Backend graph-capture mapping) --------------
 // Maps vt::Backend::{BeginCapture,EndCapture,Replay} onto
 // ttnn::operations::trace::{begin,end,execute}_trace_capture. Implemented in

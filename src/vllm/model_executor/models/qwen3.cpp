@@ -55,6 +55,7 @@
 #include "vllm/platforms/interface.h"
 #include "vt/backend.h"
 #include "vt/ops.h"
+#include "vt/tenstorrent/tenstorrent_device.h"  // WarmRopeCosSin (item-5 TT-only)
 #include "vt/recipes.h"
 
 namespace vllm {
@@ -593,6 +594,17 @@ ForwardLogits Qwen3DenseDecodeGraph::Step(
   // re-warm/re-capture.
   const bool cols_changed = (s.fa_cols != -1 && s.fa_cols != cols);
   s.Refresh(ptok, ppos, pam);
+  // HOST-FREE-FORWARD item 5 (TT only): populate the persistent device
+  // rope cos/sin tensors for THIS step's UNPADDED positions (the same T-row
+  // `positions` vector the captured RopeNeox reads via StepInputs), outside
+  // capture, so the captured rope cache-HITs on content. Not ppos.
+  if (d.q.device.type == vt::DeviceType::kTENSTORRENT) {
+    vt::tenstorrent::WarmRopeCosSin(
+        positions.data(), static_cast<int64_t>(positions.size()),
+        impl_->config.num_attention_heads,
+        impl_->config.num_key_value_heads, impl_->config.rotary_dim,
+        static_cast<double>(impl_->config.rope_theta));
+  }
   s.fa_cols = cols;
   if (cols_changed && s.graph != nullptr) {
     b.DestroyGraph(s.graph);

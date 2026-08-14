@@ -119,6 +119,32 @@ bool& tt_capture_active() {
 }
 }  // namespace
 
+// ITEM 5 (rope): persistent device cos/sin (expanded per head), built OUTSIDE
+// capture and ttnn::copy'd in-region — the UploadRows in RopeApplyDeviceNeox
+// was the enqueue_write that killed capture at mid-layer-0. The cache is
+// keyed by (tokens*heads, half) + the exact host cos/sin CONTENT: if the
+// step's positions changed the table, we must NOT silently reuse a stale
+// cached tensor — during capture that is a hard error (the driver must warm
+// the new table first, the SizeSlot::Refresh pattern).
+namespace {
+std::mutex& RopeCSMutex() {
+  static std::mutex m;
+  return m;
+}
+struct RopeCSEntry {
+  ttnn::Tensor cos;
+  ttnn::Tensor sin;
+  std::vector<float> cos_host;  // content identity for the reuse check
+};
+std::map<std::string, RopeCSEntry>& RopeCSCache() {
+  static std::map<std::string, RopeCSEntry> c;
+  return c;
+}
+std::string RopeCSKey(uint32_t th, uint32_t half) {
+  return std::to_string(th) + "x" + std::to_string(half);
+}
+}  // namespace
+
 namespace {
 std::mutex& ZeroCacheMutex() {
   static std::mutex m;
@@ -1351,8 +1377,46 @@ void RopeApplyDeviceNeox(Tensor& x3, const float* cos_t, const float* sin_t,
   const uint32_t halfu = static_cast<uint32_t>(half);
   const uint32_t rotu = static_cast<uint32_t>(rot);
   const uint32_t du = static_cast<uint32_t>(d);
-  ttnn::Tensor dev_cos = UploadRows(cos_exp.data(), thu, halfu, device);
-  ttnn::Tensor dev_sin = UploadRows(sin_exp.data(), thu, halfu, device);
+  // ITEM 5: persistent cos/sin — build outside capture, copy in-region.
+  const std::string rk = RopeCSKey(thu, halfu);
+  ttnn::Tensor dev_cos, dev_sin;
+  bool cache_hit = false;
+  {
+    std::lock_guard<std::mutex> g(RopeCSMutex());
+    auto it = RopeCSCache().find(rk);
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+      std::fprintf(stderr,
+                   "[TT-TRACE] rope lookup key=%s found=%d content_eq=%d "
+                   "(want first=%f n=%zu)\n",
+                   rk.c_str(), it != RopeCSCache().end(),
+                   it != RopeCSCache().end() && it->second.cos_host == cos_exp,
+                   cos_exp.empty() ? -1.0f : cos_exp.front(), cos_exp.size());
+    if (it != RopeCSCache().end() && it->second.cos_host == cos_exp) {
+      dev_cos = it->second.cos;
+      dev_sin = it->second.sin;
+      cache_hit = true;
+    }
+  }
+  if (!cache_hit) {
+    VT_CHECK(!tt_capture_active(),
+             "tenstorrent: rope cos/sin cache miss during capture — the "
+             "table changed (positions moved); the decode-graph driver must "
+             "call WarmRopeCosSin for the step's positions BEFORE BeginCapture "
+             "(the SizeSlot::Refresh pattern)");
+    dev_cos = UploadRows(cos_exp.data(), thu, halfu, device);
+    dev_sin = UploadRows(sin_exp.data(), thu, halfu, device);
+    std::lock_guard<std::mutex> g(RopeCSMutex());
+    RopeCSEntry e;
+    e.cos = dev_cos;
+    e.sin = dev_sin;
+    e.cos_host = cos_exp;
+    RopeCSCache()[rk] = std::move(e);
+  }
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-TRACE] rope cos/sin cache %s during capture "
+                 "(key th=%u half=%u first=%f)\n",
+                 cache_hit ? "HIT" : "MISS", thu, halfu,
+                 cos_exp.empty() ? -1.0f : cos_exp.front());
 
   // x1 = x[..., :half], x2h = x[..., half:rot]  (NeoX half-split)
   ttnn::Tensor x1 = ttnn::slice(dev_x, ttsl::SmallVector<uint32_t>{0, 0},
@@ -1480,6 +1544,12 @@ void RopeNeoxKernel(Queue&, Tensor& qs, Tensor& ks, const Tensor& pos, const Rop
   std::vector<float> cos_t, sin_t;
   BuildCosSinFromPositions(pos, t, args.rotary_dim, static_cast<double>(args.base), args, cos_t,
                            sin_t);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-TRACE] rope kernel pos0=%d t=%lld hq=%lld cos_first=%f\n",
+                 (int)(pos.dtype == DType::kI32 ? pos.Ptr<int32_t>()[0]
+                                                : static_cast<int32_t>(pos.Ptr<int64_t>()[0])),
+                 (long long)t, (long long)hq,
+                 cos_t.empty() ? -1.0f : cos_t.front());
   if (PreferDeviceRope(t, hq)) {
     MeshDevice& device = SharedMeshDevice();
     RopeApplyDeviceNeox(qs, cos_t.data(), sin_t.data(), t, hq, d, args.rotary_dim, device);
@@ -2744,4 +2814,63 @@ bool MemsetDeviceIfCapture(void* p, int value) {
   return true;
 }
 
+
+// ITEM 5 (rope): driver-side warm hook. The decode-graph driver calls this
+// for the step's (padded) positions BEFORE BeginCapture — the exact
+// SizeSlot::Refresh slot in qwen3.cpp — so the persistent cos/sin tensors
+// are populated outside capture and the captured rope cache-HITs on content.
+// hq/hk select the expanded layouts to warm; base/args must match RopeNeox.
+void WarmRopeCosSin(const int32_t* positions, int64_t tokens, int64_t hq,
+                    int64_t hk, int64_t rot, double base) {
+  if (std::getenv("VT_TT_HOST_FREE_DECODE") == nullptr) return;
+  MeshDevice& device = SharedMeshDevice();
+  std::vector<float> cos_t, sin_t;
+  Tensor pos = Tensor::Contiguous(const_cast<int32_t*>(positions), DType::kI32,
+                                  Device{DeviceType::kTENSTORRENT, 0}, {tokens});
+  const RopeArgs no_scale{};  // plain rope only on the warm path
+  BuildCosSinFromPositions(pos, tokens, rot, base, no_scale, cos_t, sin_t);
+  // Byte-exact with what the captured rope reads: the per-step cos|sin CACHE
+  // stores f32-built values into a BF16 tensor (RopeCosSinCacheKernel's
+  // StoreElemF32 rounds), and the rope-side gather reads them back. Round the
+  // warm content through the same bf16 round-trip so the content-HIT
+  // comparison is exact.
+  for (auto& v : cos_t) v = BF16ToF32(F32ToBF16(v));
+  for (auto& v : sin_t) v = BF16ToF32(F32ToBF16(v));
+  auto warm_one = [&](int64_t heads) {
+    std::vector<float> ce, se;
+    ExpandCosSinPerHead(cos_t.data(), sin_t.data(), tokens, heads, rot / 2, ce, se);
+    const uint32_t thu = static_cast<uint32_t>(tokens * heads);
+    const uint32_t halfu = static_cast<uint32_t>(rot / 2);
+    std::lock_guard<std::mutex> g(RopeCSMutex());
+    auto& c = RopeCSCache();
+    const std::string k = RopeCSKey(thu, halfu);
+    auto it = c.find(k);
+    if (it == c.end() || it->second.cos_host != ce) {
+      // Populate OR refresh: the step's positions moved, so the persistent
+      // tensor's CONTENT must be updated (same address, new rows) — the
+      // SizeSlot::Refresh semantics. Legal here: the driver calls this
+      // outside capture. During capture the rope lookup then content-HITs.
+      RopeCSEntry e;
+      e.cos = UploadRows(ce.data(), thu, halfu, device);
+      e.sin = UploadRows(se.data(), thu, halfu, device);
+      e.cos_host = ce;
+      c[k] = std::move(e);
+    }
+  };
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr, "[TT-TRACE] WarmRopeCosSin tokens=%lld hq=%lld hk=%lld"
+                 " rot=%lld first_pos=%d cos_first=%f\n",
+                 (long long)tokens, (long long)hq, (long long)hk,
+                 (long long)rot, (int)positions[0],
+                 cos_t.empty() ? -1.0f : cos_t.front());
+  warm_one(hq);
+  warm_one(hk);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr) {
+    std::lock_guard<std::mutex> g(RopeCSMutex());
+    for (auto& [k, e] : RopeCSCache())
+      std::fprintf(stderr, "[TT-TRACE] warm stored key=%s first=%f n=%zu\n",
+                   k.c_str(), e.cos_host.empty() ? -1.0f : e.cos_host.front(),
+                   e.cos_host.size());
+  }
+}
 }  // namespace vt::tenstorrent
