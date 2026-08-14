@@ -768,12 +768,23 @@ add_library(vllm STATIC
   src/vllm/model_executor/models/minimax_h3_audio_vae.cpp
   src/vllm/model_executor/models/vocoder1d.cpp
   src/vllm/model_executor/models/minimax_music3_loader.cpp
+  src/vllm/model_executor/models/minimax_music3_ar.cpp
   src/vllm/model_executor/models/gpt2.cpp
   src/vllm/multimodal/speech_engine.cpp
   src/vllm/model_executor/models/indextts2.cpp
   src/vllm/model_executor/models/campplus.cpp
   src/vllm/model_executor/models/w2vbert.cpp
+  src/vllm/model_executor/models/w2v_fbank.cpp
   src/vllm/model_executor/models/fvq.cpp
+  src/vllm/model_executor/models/codec_encoder.cpp
+  src/vllm/model_executor/models/wavenet.cpp
+  src/vllm/model_executor/models/dit_tail.cpp
+  src/vllm/model_executor/models/dit_skip.cpp
+  src/vllm/model_executor/models/dit_front.cpp
+  src/vllm/model_executor/models/dit_stack.cpp
+  src/vllm/model_executor/models/bigvgan.cpp
+  src/vllm/model_executor/models/indextts2_s2mel_loader.cpp
+  src/vllm/model_executor/models/indextts2_talker_loader.cpp
   src/vllm/model_executor/models/vocos.cpp
   src/vllm/model_executor/models/lenreg.cpp
   src/vllm/model_executor/models/cfm.cpp

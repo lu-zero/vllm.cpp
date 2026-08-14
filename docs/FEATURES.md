@@ -27,7 +27,7 @@ are our reading of their documented behavior, not measurements.
 | Correctness gate | token-exact vs vLLM | reference | own | own |
 | Architectures | 38 registered, 27 gated | 130+ | 100+ | 100+ |
 | Downloadable server binaries | ✅ v0.0.2: eight indexed archives with checksums, provenance, manifests, and SBOMs. Windows ZIP downloads do not exist; native CPU/Vulkan lanes await hosted runtime, dry-run, prerelease, and authenticated audit gates | ✅ wheels/containers | ✅ wheels/containers | ✅ host-specific binaries |
-| Native Windows builds | ◐ CPU/Vulkan: `/MT /W4 /WX`, central `NOMINMAX`, UTF-8, aligned allocation, runtime ISA dispatch. Local closure includes the float-domain DeepSeek probe; hosted compile/runtime/release pending | ✅ | ✅ | ✅ |
+| Native Windows builds | ◐ CPU/Vulkan: `/MT /W4 /WX`, central `NOMINMAX`, UTF-8, aligned allocation, C++20 `std::numbers` pi, runtime ISA dispatch. Local closure includes the float-domain DeepSeek probe; hosted compile/runtime/release pending | ✅ | ✅ | ✅ |
 
 ## Serving and scheduling
 
@@ -80,7 +80,8 @@ are our reading of their documented behavior, not measurements.
 | Merged fp8 projection folds per-column alpha in the GEMM epilogue | ◐ `VT_FP8_ALPHA_VEC_EPILOGUE`, CUDA only, default off, ungated; refuses split-K under a bf16-D equivalence claim (`claims_splitk1_premise`, default off) | n/a | n/a | n/a |
 | `vt::MulColVecF32` carries a bf16 store width | ✅ f32 arm byte-identical; bf16 arm rounds once; CPU + CUDA | n/a | ☐ | ☐ |
 | bf16 / fp16 | ✅ | ✅ | ✅ | ✅ |
-| Safetensors direct load, no conversion | ✅ | ✅ | ✅ | ☐ |
+| Safetensors direct load, no conversion | ✅ a payload offset carries no alignment guarantee, so reads of the mapping go byte-wise ([#674](https://github.com/mudler/vllm.cpp/issues/674) VAE loader; [#627](https://github.com/mudler/vllm.cpp/issues/627) the rest) | ✅ | ✅ | ☐ |
+| Safetensors direct load, no conversion | ✅ at ANY tensor byte offset: the format aligns nothing, so the `*_weights.cpp` loaders never form a typed pointer into the mapping (#627). `voxtral.cpp`, `qwen3_vl.cpp`, `qwen3_5_mtp.cpp` still do and are OWED | ✅ | ✅ | ☐ |
 | Weights uploaded straight from the file mapping (no host copy first) | ◐ verbatim tensors only (37.8% of 27B BF16); arbitrary-offset reads are defined, including Laguna graph staging. Merged/transposed and merged FP4 weights still copy | ✅ | ✅ | ✅ mmap |
 
 ## Model coverage
@@ -111,6 +112,7 @@ speed-pending, which [BENCHMARKS.md](BENCHMARKS.md) tracks.
 |---|---|---|---|
 | `Qwen3_5ForConditionalGeneration` | Qwen3.6-27B NVFP4 (`unsloth` @`890bdef7`, `nvidia` @`0893e160`); Qwen3.5-4B BF16 | 27B strict 235/235 text + 32/32 image/video; 4B cached 3/3 | `unsloth` 27B at/above vLLM, `nvidia` ModelOpt 0.85x; 4B throughput 1.021x. Loads BF16, FP8 and NVFP4 (CT + ModelOpt naming); a `modelopt_mixed` FP8 tower stays NATIVE (#164), GDN `in_proj_qkvz` merged. CUDA/CPU only |
 | `Qwen3_5MoeForConditionalGeneration` | Qwen3.6-35B-A3B (NVFP4, GDN MoE) | strict 315/315 text vs vLLM 0.25.0 | gate model: 0.93x to 1.03x grid |
+| `Qwen3_5ForCausalLM`, `Qwen3_5MoeForCausalLM` | none: no text-only Qwen3.5 checkpoint fits this hardware | **NO RUN GATE, OWED.** Dispatch/config/namespace gated on `test_qwen3_8_text_only.cpp`; NO token claim. MoE reads ONLY per-expert NVFP4: the published stacked/bf16 layout is unimplemented, OWED, refused by name | not measured |
 | `Qwen3ForCausalLM` | Qwen3 dense 0.6B/1.7B/4B/32B, NVFP4A16 | near-tie strict 16/16 vs vLLM 0.25.0 | c1 every-axis parity, c8 decode residual |
 | `Qwen3MoeForCausalLM` | Qwen3-Coder-30B-A3B | strict 6/6 vs vLLM 0.25.0 | 11/16 grid cells at or above graphed vLLM |
 | `Qwen3VLForConditionalGeneration` | Qwen3-VL-4B-Instruct (image + video) | image strict 32/32, video near-tie vs vLLM 0.25.0 | vision tower 0.57x vs vLLM encode; umbrella pending |
@@ -162,7 +164,7 @@ in `ltx2_text_encoder.cpp` is the call that would have to change.
 | Whisper audio encoder | openai/whisper-small; whisper-large-v3 (Voxtral cfg) | encoder tower 77/77; large-v3 tower 203/203 | pending |
 | MiniMax-H3 DiT (`MiniMaxH3DiTModel`, vllm-omni lane) | MiniMax-H3 (33.1B video+audio) | portable 79/79; all three modalities COHERENT on Q4_K_M (§8.20); PRUNED ckpts run, Q8_0 seam 0.9941 (§8.21); ref2va grid was NVFP4 quant error, §8.9 REFUTED; GGUF/NVFP4/bf16 shards stream | FP4/Marlin landed; speed pending; no bf16 render yet. Render from the Q4_K_M GGUF, not the NVFP4 arm. Krea 2 text-to-image (roadmap C11) is scoped to reuse these DiT seams |
 | LTX-2.5 DiT (`LTX2VideoTransformer3DModel`, Lightricks lane) | LTX-2.5 (21.00B video+audio) | `SPIKE`. DiT, VAEs+ENCODERS, conditioning, pipeline, quant loaders gated at reduced dims. Prompt-side AdaLN ported, host+device. Typed prompt to Gemma-4 to cross-attn, FIXTURE-gated. A prompted render is OWED | Family `ltx-2.5`, `ltx2-gen`. ~29 GB NVFP4/GB10, FP8 ~44 GB, +~24 GB tower. FP8/torchao/1st-party NVFP4 load; `keyframes_abs_pos_embedding` alone needs `allow_unported`. DiffVAE, LoRA, image cond refused. Speed PENDING |
-| MiniMax-Music3 (`MiniMaxMusic3ForConditionalGeneration`, diffusers lane) | MiniMax-Music3 (8.6B Qwen3 LLM + 0.646B RVQ decoder + 2.4B fp32 DiT + DAC Flow-VAE); diffusers arm, ~28.5 GB | `ACTIVE`. Oracle gateable with 13 per-stage goldens (#708); modular loader gated 1413/1413 on the real 27 GB checkpoint, all 1012 tensors accounted (#714). Output 44100 Hz stereo. No stage runs yet: W2-W7 owed | Not measured. The denominator will be SGLang-Omni in its production configuration (both CUDA graphs, compiled DIT and DAV, batched seeded sampling) |
+| MiniMax-Music3 (`MiniMaxMusic3ForConditionalGeneration`, diffusers lane) | MiniMax-Music3 (8.6B Qwen3 LLM + 0.646B RVQ decoder + 2.4B fp32 DiT + DAC Flow-VAE); diffusers arm, ~28.5 GB | `ACTIVE`. Loader gated 1413/1413 on the real checkpoint (#714); W2/W3 AR half computes and is gated vs the real bf16 weights. No greedy path upstream, so the token-exact gate is withdrawn. W4-W7 owed | Not measured. The denominator will be SGLang-Omni in its production configuration (both CUDA graphs, compiled DIT and DAV, batched seeded sampling) |
 | MTP speculator | Qwen3.6-27B, Qwen3.6-35B-A3B | token-identical to vLLM `mtp` at c1 | ~4% faster c1; +16% output tput (MoE) |
 | DFlash block-diffusion | Qwen3 (DFlash draft) | near-tie e2e 27/27 vs vLLM | 2.9x over spec-off, 1.003x vs vLLM DFlash-on |
 | DeepSeek-V4 MTP | DeepSeek-V4-Flash (nextn head) | lossless 5/5; real-model weight-blocked | pending |
@@ -176,6 +178,7 @@ Enumerated in `.agents/model-matrix.md`, not registered, no runnable GB10 gate:
 | `DeepseekV3ForCausalLM`, `DeepseekV32ForCausalLM` | DeepSeek-V3 / V3.2 | 671B, ~642 GiB fp8 vs 119 GiB unified; V3.2 also DSA-indexer dep-blocked |
 | `GlmMoeDsaForCausalLM` | GLM-5 (DSA) | ~1404 GiB bf16; dep-blocked (GLM-5.x is DeepSeek-V3.2 verbatim) |
 | `MiniMaxM2ForCausalLM` | MiniMax-M2 | ~230B, ~428 GiB bf16, ~4x over the unified pool |
+| `Dots3NoteForCausalLM`, `Dots3NoteMTPModel` | dots3-note (280B-A16B multimodal MoE) | ~576 GB bf16 / ~290 GB fp8 vs a 119-122 GiB ceiling on every host, no smaller checkpoint; also beyond-pin (vLLM `main` only). Scoped ([spec](../.agents/specs/dots3-note.md), #699) |
 
 27 of the 32 registered text-generation architectures carry a passing
 correctness gate today; the rest are honestly marked scaffold or blocked above.
@@ -194,8 +197,8 @@ on the committed fixture); reranking/classify models are not yet registered.
 | Video | ✅ correctness-gated | ✅ | ✅ | ☐ |
 | Audio | ✅ correctness-gated | ✅ | ◐ | ◐ |
 | Video+audio GENERATION (MiniMax-H3 DiT, LTX-2.5 DiT) | ◐ H3: all three modalities COHERENT on Q4_K_M (t2va, fl2va, ref2va; §8.20); the NVFP4 arm carries the patch grid; GGUF/NVFP4/bf16 loaders, pruned too (§8.21). LTX-2.5: a second lane, `SPIKE`, gated at reduced dims | ✅ H3 (vllm-omni, BF16-only, no quantized arm); LTX-2.5 only through the generic diffusers adapter, no native recipe ([vllm-omni#6066](https://github.com/vllm-project/vllm-omni/issues/6066)) | ☐ | ☐ |
-| Speech / audio GENERATION (TTS, vLLM-Omni lane) | ☐ not started. Eight architectures inventoried in `.agents/model-matrix.md`: six from the recipes sweep (#610) plus IndexTTS-2.5 (#634). Inventoried is not supported; all block on the absent `vllm-omni` pin (#633) | ✅ (vllm-omni: MOSS-TTS, Qwen3-TTS, Higgs Audio v3, Voxtral TTS, IndexTTS-2.5) | not assessed | not assessed |
-| MUSIC generation (MiniMax-Music3) | ☐ not generating. The W1 checkpoint LOADER has landed ([spec](../.agents/specs/minimax-music3.md), #672); no stage runs yet. Lyrics plus a structured description in, a multi-minute stereo song out | ☐ absent from the pin, from vLLM `main` and from `vllm-omni` alike | ◐ served by SGLang-Omni, a third repository, which loads the NATIVE checkpoint layout | ☐ |
+| Speech / audio GENERATION (TTS, vLLM-Omni lane) | ◐ IndexTTS-2.5 only: the reference path now runs waveform to semantic codes; S2Mel DiT complete; BigVGAN ported. No render, no route (#634) | ✅ (vllm-omni: MOSS-TTS, Qwen3-TTS, Higgs Audio v3, Voxtral TTS, IndexTTS-2.5) | not assessed | not assessed |
+| MUSIC generation (MiniMax-Music3) | ☐ not generating. W1 loader + W2/W3 AR half landed ([spec](../.agents/specs/minimax-music3.md), #672); the language-model forward and every acoustic stage are not. Lyrics + a structured description in, a stereo song out | ☐ absent from the pin, from vLLM `main` and from `vllm-omni` alike | ◐ served by SGLang-Omni, a third repository, which loads the NATIVE checkpoint layout | ☐ |
 | Multimodal over the OpenAI server | ◐ image request path wired, forward pending | ✅ | ✅ | ◐ |
 
 Image, video and audio are correct through the CLI and library. Over the HTTP
@@ -203,9 +206,9 @@ API the image **request** path is wired end to end (`ROAD-V1-MM` W1-W3): the
 production server attaches the seam at `server_main.cpp:826`. Two residuals keep
 it from ✅: the model runner has no mm-forward consuming `Request.mm_features`,
 and no image codec is vendored (raw RGB only). Video, audio and multi-image over
-HTTP are not started. Audio **in** is gated; audio **out** does not exist: we
-ship no TTS or speech-generation path on any surface, which is why that row is
-the only ☐ in our column here.
+HTTP are not started. Audio **in** is gated; audio **out** reaches no surface:
+the IndexTTS-2.5 ◐ reads "assembled, never run", so asking for speech today
+gets a refusal naming what is missing.
 
 ## Speculative decoding
 

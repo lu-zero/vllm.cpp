@@ -115,6 +115,16 @@ vllm_cpp_add_test(test_indextts2_family vllm/models/test_indextts2_family.cpp)
 vllm_cpp_add_test(test_campplus vllm/models/test_campplus.cpp)
 vllm_cpp_add_test(test_w2vbert vllm/models/test_w2vbert.cpp)
 vllm_cpp_add_test(test_fvq vllm/models/test_fvq.cpp)
+vllm_cpp_add_test(test_codec_encoder vllm/models/test_codec_encoder.cpp)
+vllm_cpp_add_test(test_w2v_fbank vllm/models/test_w2v_fbank.cpp)
+vllm_cpp_add_test(test_wavenet vllm/models/test_wavenet.cpp)
+vllm_cpp_add_test(test_dit_tail vllm/models/test_dit_tail.cpp)
+vllm_cpp_add_test(test_dit_skip vllm/models/test_dit_skip.cpp)
+vllm_cpp_add_test(test_dit_front vllm/models/test_dit_front.cpp)
+vllm_cpp_add_test(test_dit_stack vllm/models/test_dit_stack.cpp)
+vllm_cpp_add_test(test_bigvgan vllm/models/test_bigvgan.cpp)
+vllm_cpp_add_test(test_indextts2_s2mel_loader vllm/models/test_indextts2_s2mel_loader.cpp)
+vllm_cpp_add_test(test_indextts2_talker_loader vllm/models/test_indextts2_talker_loader.cpp)
 vllm_cpp_add_test(test_vocos vllm/models/test_vocos.cpp)
 vllm_cpp_add_test(test_lenreg vllm/models/test_lenreg.cpp)
 vllm_cpp_add_test(test_cfm vllm/models/test_cfm.cpp)
@@ -128,6 +138,13 @@ target_include_directories(test_cfm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/mod
 target_include_directories(test_lenreg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
 target_include_directories(test_vocos PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
 target_include_directories(test_fvq PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
+target_include_directories(test_codec_encoder PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
+target_include_directories(test_w2v_fbank PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
+target_include_directories(test_wavenet PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
+target_include_directories(test_dit_tail PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
+target_include_directories(test_dit_front PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
+target_include_directories(test_dit_stack PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
+target_include_directories(test_bigvgan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
 target_include_directories(test_w2vbert PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
 target_include_directories(test_campplus PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
 vllm_cpp_add_test(test_gpt2 vllm/models/test_gpt2.cpp)
@@ -139,6 +156,24 @@ vllm_cpp_add_test(test_minimax_h3 vllm/models/test_minimax_h3.cpp)
 vllm_cpp_add_test(test_minimax_music3_loader vllm/models/test_minimax_music3_loader.cpp)
 target_include_directories(test_minimax_music3_loader PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
+# MiniMax-Music3 W2+W3 (#672): the AUTOREGRESSIVE half — prompt assembly, the
+# semantic CFG logit pipeline, the learned 8-layer condition mix and the RVQ
+# depth decoder — against goldens produced by EXECUTING upstream's own classes at
+# reduced dimensions in float32 (minimax_music3_ar_goldens.inc, no weight bytes).
+# The full-scale bf16 companion is tests/parity/test_minimax_music3_ar_real.cpp.
+vllm_cpp_add_test(test_minimax_music3_ar vllm/models/test_minimax_music3_ar.cpp)
+target_include_directories(test_minimax_music3_ar PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/vllm/models)
+# The FULL-SCALE companion: the REAL bf16 checkpoint driven on the REAL inputs,
+# against the committed oracle capture (frame_hiddens / condition_chunk0 /
+# rvq_codes). Checkpoint-gated on MUSIC3_CHECKPOINT or CHECKPOINT_ROOT; every
+# case emits a loud SKIP when the 28.5 GB asset is absent, so CI still compiles,
+# links and runs it.
+vllm_cpp_add_test(test_minimax_music3_ar_real parity/test_minimax_music3_ar_real.cpp)
+target_compile_definitions(test_minimax_music3_ar_real PRIVATE
+  MUSIC3_GOLDENS_DIR="${CMAKE_SOURCE_DIR}/tests/parity/goldens/minimax_music3_oracle")
+target_include_directories(test_minimax_music3_ar_real PRIVATE
+  ${CMAKE_SOURCE_DIR}/tests/parity)
 # ARCH-ONE-SURFACE ROW 2 fold gate: the video seam == the replicated pre-fold
 # pipeline == the goldens the PRE-fold minimax-h3-gen binary rendered at the
 # branch base (frames + WAV byte-identical, mux argv pinned).
@@ -247,6 +282,12 @@ foreach(_gateup_lever VT_DENSE_MARLIN_GATEUP VT_NVFP4_MARLIN VT_MOE_FUSED_W13)
     PROPERTIES ENVIRONMENT "${_gateup_lever}=0")
 endforeach()
 vllm_cpp_add_test(test_qwen35_plain_weights vllm/models/test_qwen35_plain_weights.cpp)
+vllm_cpp_add_test(test_qwen3_8_text_only vllm/models/test_qwen3_8_text_only.cpp)
+# The PUBLISHED `Qwen/Qwen3.8-2.4T-A95B` config.json, committed VERBATIM, so the
+# config-resolution case reads the real document (nested `rope_parameters`, 92
+# `layer_types`, transformers-4.57.3 `dtype`) instead of a paraphrase of it.
+target_compile_definitions(test_qwen3_8_text_only PRIVATE
+  QWEN3_8_CONFIG_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/vllm/models/fixtures/qwen3_8_2_4t_a95b/config.json")
 # POOL-DEVICE-KEY (#516, .agents/specs/pool-device-key.md): the shared scratch
 # pool's free list must be keyed by DEVICE as well as size class, or a block
 # allocated through one backend is handed to a DBuf running on another —
