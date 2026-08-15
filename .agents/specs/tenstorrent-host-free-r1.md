@@ -923,3 +923,35 @@ The k/v shadow from the rope is available INSIDE the captured region
 (rope runs before RAC). The copy into the sharded buffer is the TILE→
 sharded issue — needs testing whether ttnn::copy with an explicit
 output memory config works without allocating.
+
+### In-region RAC: every input-construction path is a write
+
+Tried during capture:
+1. `to_memory_config(padded, sharded)` → Writes fatal (sharding allocates)
+2. `ttnn::copy(padded_tile, sharded_zero)` → Writes fatal (copy between
+   different memory configs allocates or enqueues a write)
+
+The fundamental constraint: ANY tensor shape/layout construction during
+capture is a write (enqueue_write). The sharded input that
+paged_update_cache requires cannot be built during capture from a TILE
+source.
+
+The only remaining approaches:
+(a) Pre-build the sharded input at the warm hook with the CORRECT rope
+    output data — but the data isn't known at warm time (it's computed
+    during the forward).
+(b) Have the rope output go DIRECTLY into the sharded layout (rope's
+    output tensor IS the sharded buffer). This requires modifying the
+    rope's output allocation.
+(c) Accept the one-step lag (FlushPendingRac) — output is wrong but the
+    capture+replay mechanism works (86 tok/s).
+(d) Skip RAC during capture + do the KV write at Refresh with the
+    correct k/v — same one-step lag.
+(e) Patch ttnn to allow writes during capture (the tt-metal issue #13690
+    fix only relaxed the allocator, not the write guard).
+
+Option (b) is the most promising but requires restructuring the rope
+output. Options (c)/(d) give wrong output. Option (e) is upstream.
+
+STATUS: capture+replay WORKS (86 tok/s, 12x speedup) with stale KV.
+Correct KV inside the captured region requires one of the above.

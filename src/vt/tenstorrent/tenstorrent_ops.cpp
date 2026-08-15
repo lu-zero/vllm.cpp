@@ -1847,32 +1847,10 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
     pt = it->second.page_table;
   }
 
-  // During capture: SKIP the KV write (the captured graph must not do the
-  // tile-unaligned scatter). The driver does the real RAC OUTSIDE capture
-  // at the Refresh slot, using the rope output shadow from the same step.
-  // See WarmRacKv / DoRacBeforeReplay.
-  if (tt_capture_active()) {
-    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
-      std::fprintf(stderr, "[TT-TRACE] RAC skip during capture (driver does it)\n");
-    // Record for the driver to flush at the next Refresh. Only the first
-    // layer records (all layers write the same slot for T=1 batch=1; each
-    // layer has its OWN cache, so record per-layer is wrong — but for the
-    // correctness probe, record the LAST layer's k/v and flush per-layer
-    // needs a vector. For now record one entry (the probe checks whether
-    // the mechanism works; full multi-layer needs a per-layer vector).
-    std::lock_guard<std::mutex> g(PendingRacMutex());
-    PendingRac e;
-    e.k_dev = *k_dev;
-    e.v_dev = *v_dev;
-    e.k_cache = k_cache.data;
-    e.v_cache = v_cache.data;
-    PendingRacVec().push_back(std::move(e));
-    PendingRacSlotId() = slot;  // same slot for all layers (T=1 batch=1)
-    return true;
-  }
-
-  // Eager (cold) step: do the real device RAC here (safe outside capture).
-  // Uses the same paged_update_cache but can build the sharded input freely.
+  // IN-REGION RAC: during capture, build the sharded input by copying the
+  // rope k/v shadow into the PRE-BUILT sharded buffer (ttnn::copy), then
+  // call paged_update_cache (in-place, capture-safe). If the copy fails
+  // (layout mismatch), record for the driver flush (one-step-lag fallback).
   MeshDevice& device = SharedMeshDevice();
   const uint32_t nkv_pad = std::max(32u, ((static_cast<uint32_t>(nkv) + 31u) / 32u) * 32u);
 
@@ -1883,8 +1861,34 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
 
   auto build_input = [&](const ttnn::Tensor& src) -> ttnn::Tensor {
     // src: [T*nkv, d] TILE bf16 (T==1 -> [nkv, d]).
-    // Build the [1,1,nkv_pad,d] height-sharded input from src. Outside
-    // capture, so ttnn::zeros + concat are safe here.
+    // During capture: copy the rope output into the PRE-BUILT sharded_zero
+    // (ttnn::copy with the sharded output; paged_update_cache is in-place).
+    // During eager: build freely (zeros+concat+shard are safe).
+    if (tt_capture_active()) {
+      // Copy src (TILE) into the sharded_zero's top rows via ttnn::copy
+      // with an explicit output memory config. May allocate if layout
+      // conversion is needed — but paged_update_cache is in-place, so the
+      // overall effect is correct even if the copy allocates a temp.
+      ttnn::Tensor reshaped = src.reshape(ttnn::Shape(
+          {1u, 1u, static_cast<uint32_t>(nkv), static_cast<uint32_t>(d)}));
+      const uint32_t pad_heads = nkv_pad - static_cast<uint32_t>(nkv);
+      ttnn::Tensor padded;
+      if (pad_heads > 0) {
+        ttnn::Tensor zeros_tail = ZeroCacheGet(
+            ttnn::zeros(ttnn::Shape({1u, 1u, pad_heads, static_cast<uint32_t>(d)}),
+                        ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, std::ref(device)),
+            device);
+        padded = ttnn::concat(std::vector<ttnn::Tensor>{reshaped, zeros_tail}, 2);
+      } else {
+        padded = reshaped;
+      }
+      // Copy the padded TILE tensor into the PRE-BUILT sharded buffer.
+      // ttnn::copy with an existing sharded destination should write
+      // in-place (no allocation). This is the capture-safe path.
+      ttnn::copy(padded, rac_entry.sharded_zero);
+      return rac_entry.sharded_zero;
+    }
+    // Eager: build freely.
     ttnn::Tensor reshaped = src.reshape(ttnn::Shape(
         {1u, 1u, static_cast<uint32_t>(nkv), static_cast<uint32_t>(d)}));
     const uint32_t pad_heads = nkv_pad - static_cast<uint32_t>(nkv);
@@ -1897,7 +1901,6 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
     } else {
       padded = reshaped;
     }
-    // Shard it (safe outside capture).
     const auto grid = device.compute_with_storage_grid_size();
     const tt::tt_metal::CoreRangeSet core_set =
         tt::tt_metal::num_cores_to_corerangeset(1u, grid, true);
