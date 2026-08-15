@@ -982,3 +982,36 @@ The patches are valuable as PROOF that in-region RAC works (all 28
 layers' sdpa_decode ran during capture, only warnings), but they're too
 dangerous for production. The upstream proposal should be a narrowly
 scoped "capture-safe writes" API rather than blanket guard relaxations.
+
+### trace_region_size spike: CONCLUSIVE (2026-08-15)
+
+**The plugin's key device parameter, found and applied:**
+`ttnn::open_mesh_device(device_id, l1_small_size, trace_region_size=50MB)`
+(worker.py:710 — the plugin sets 50000000 when trace_mode is on). Our device
+creation now passes it. Effect: the trace buffer gets a dedicated DRAM
+region, so the "Trace buffer overlaps with DRAM activity" FATAL is gone.
+
+**Then tested the full in-region RAC (slice+copy only, no zeros/concat/
+to_memory_config during capture):**
+1. Write fatal GONE (view ops + ttnn::copy don't host-write)
+2. Program-cache-miss fatal appears (slice+copy program not warmed)
+3. Unified eager+capture paths (same slice+copy ops) → program warms
+4. Result: allocator WARNING "Allocating device buffers is unsafe due to
+   the existence of an active trace" — then DEVICE HANG (240s timeout,
+   tt-smi -r also hangs)
+
+**CONCLUSION: even with trace_region_size, allocating during an active
+trace CORRUPTS the trace buffer and hangs the device.** The ttnn::copy
+between TILE and height-sharded memory configs allocates a conversion
+temp — that allocation lands in the trace region and corrupts it. The
+warning is ttnn telling us exactly this.
+
+The plugin avoids it by NEVER allocating during capture: everything is
+pre-allocated at warmup; per-step data goes through
+copy_host_to_device_tensor BEFORE capture/replay only.
+
+**The spike answer: in-region RAC needs a capture-safe device->device
+copy between memory configs, which ttnn does not provide today. The
+upstream ask is precisely that API (or a copy_into_sharded variant of
+ttnn::copy).** Until then, the working configuration is skip+flush RAC
+(one-step lag, 86 tok/s) + trace_region_size=50MB.
