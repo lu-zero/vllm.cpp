@@ -899,3 +899,27 @@ positions.
 | #393 | RESIDUAL-GOLDEN | merged |
 | #541 | TRACE-RUNNER | closed (superseded by #694) |
 | #805 (issue) | MAIN-RED | filed (MUSIC3 extern C bug) |
+
+### RAC flush approach: one-step lag (PA reads stale KV)
+
+The FlushPendingRac approach works mechanically (per-layer flush fires,
+86 tok/s) but produces wrong output because of a ONE-STEP LAG: the KV
+write for token N happens at the Refresh of step N+1, but PA at step
+N+1 needs token N+1's KV (written by RAC during the captured forward of
+step N+1, which is skipped). PA always reads one token behind.
+
+The CUDA decode graph handles this correctly: the captured graph
+INCLUDES RAC (the KV write happens BEFORE PA within the same captured
+forward). Our TT capture skips RAC, so PA never sees the current token.
+
+The correct fix: RAC must be inside the captured region. The blocker
+was the sharded input construction (zeros+concat+to_memory_config are
+writes during capture). The solution: build the sharded input at the
+WARM hook from the k/v device shadow, and during capture only do
+ttnn::copy (capture-safe) from the rope output into the pre-built
+sharded buffer + paged_update_cache (in-place, capture-safe).
+
+The k/v shadow from the rope is available INSIDE the captured region
+(rope runs before RAC). The copy into the sharded buffer is the TILE→
+sharded issue — needs testing whether ttnn::copy with an explicit
+output memory config works without allocating.

@@ -626,6 +626,18 @@ ForwardLogits Qwen3DenseDecodeGraph::Step(
         pam.slot_mapping.data(), pam.slot_mapping.data(),
         static_cast<int64_t>(pam.slot_mapping.size()),
         attn_kv.empty() ? 32 : attn_kv[0].block_size);
+    // ITEM 5 (RAC): flush the pending KV write from the previous step's
+    // capture (outside capture; the plugin's before-replay populate pattern).
+    vt::tenstorrent::FlushPendingRac();
+    // ITEM 5 (PA): warm persistent page_table + cur_pos device tensors.
+    if (!pam.block_table_tensor.empty() && !pam.seq_lens.empty()) {
+      vt::tenstorrent::WarmPaMeta(
+          pam.block_table_tensor.data(),
+          static_cast<int64_t>(pam.num_reqs),
+          static_cast<int64_t>(pam.block_table_num_cols),
+          static_cast<int64_t>(pam.block_table_num_cols), 1,
+          pam.seq_lens.data());
+    }
   }
   s.fa_cols = cols;
   if (cols_changed && s.graph != nullptr) {

@@ -84,6 +84,14 @@ void WarmPagedKvShadow(void* k_cache_data, void* v_cache_data,
 // ReshapeAndCache will see as its slot_mapping (keyed identity).
 void WarmRacIdx(const void* slot_mapping_owner, const int64_t* slots,
                 int64_t num_slots, int64_t block_size);
+// ITEM 5 (RAC): flush the pending KV write recorded during capture.
+// Called by the driver at the Refresh slot (outside capture).
+void FlushPendingRac();
+
+// ITEM 5 (PA): warm persistent page_table + cur_pos device tensors.
+void WarmPaMeta(const int32_t* block_table, int64_t num_reqs, int64_t max_blocks,
+                int64_t bt_row_stride, int64_t bt_col_stride,
+                const int32_t* seq_lens);
 
 void WarmRopeCosSin(const int32_t* positions, int64_t tokens, int64_t hq,
                     int64_t hk, int64_t rot, double base);
