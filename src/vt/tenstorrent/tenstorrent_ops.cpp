@@ -1847,10 +1847,24 @@ bool TryReshapeAndCacheDeviceDecode(const Tensor& k, const Tensor& v,
     pt = it->second.page_table;
   }
 
-  // IN-REGION RAC: during capture, build the sharded input by copying the
-  // rope k/v shadow into the PRE-BUILT sharded buffer (ttnn::copy), then
-  // call paged_update_cache (in-place, capture-safe). If the copy fails
-  // (layout mismatch), record for the driver flush (one-step-lag fallback).
+  // During capture: skip the KV write (to_memory_config triggers the DRAM
+  // overlap fatal). The driver flushes the pending k/v at the Refresh slot.
+  // One-step lag (PA reads previous step's KV), but capture+replay works.
+  if (tt_capture_active()) {
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] RAC skip during capture (flush at refresh)\n");
+    std::lock_guard<std::mutex> g(PendingRacMutex());
+    PendingRac e;
+    e.k_dev = *k_dev;
+    e.v_dev = *v_dev;
+    e.k_cache = k_cache.data;
+    e.v_cache = v_cache.data;
+    PendingRacVec().push_back(std::move(e));
+    PendingRacSlotId() = slot;
+    return true;
+  }
+
+  // Eager (cold) step: do the real device RAC here (safe outside capture).
   MeshDevice& device = SharedMeshDevice();
   const uint32_t nkv_pad = std::max(32u, ((static_cast<uint32_t>(nkv) + 31u) / 32u) * 32u);
 
@@ -3258,6 +3272,14 @@ void WarmRacIdx(const void* /*slot_mapping_owner*/, const int64_t* slots,
             tt::tt_metal::TensorMemoryLayout::HEIGHT_SHARDED,
             tt::tt_metal::BufferType::L1, ss);
         e.sharded_zero = ttnn::to_memory_config(reshaped, sm);
+        // Also prime the zero cache for the padding-heads shape that
+        // build_input's capture branch uses (ZeroCacheGet on
+        // [1,1,pad_heads,d] TILE bf16).
+        const uint32_t ph = np - shadow.nkv;
+        if (ph > 0) {
+          ZeroCachePrime(ttnn::Shape({1u, 1u, ph, shadow.d}),
+                         ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, device);
+        }
         break;
       }
     }

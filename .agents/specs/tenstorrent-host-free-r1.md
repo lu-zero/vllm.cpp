@@ -955,3 +955,30 @@ output. Options (c)/(d) give wrong output. Option (e) is upstream.
 
 STATUS: capture+replay WORKS (86 tok/s, 12x speedup) with stale KV.
 Correct KV inside the captured region requires one of the above.
+
+### Post-recovery verification (2026-08-15, after tt-umd update + device reset)
+
+The tt-metal patch experiments corrupted device state (needed a tt-umd
+update + PCI reset to recover). All tt-metal patches REVERTED — the
+build is clean upstream tt-metal. The vllm.cpp side retains the working
+skip+flush RAC (86 tok/s).
+
+Verified on the recovered device:
+- Default (no flag): " Answer! I'm" correct, 12.4 tok/s, EXIT=0
+- Capture (VT_TT_HOST_FREE_DECODE=1): 87.3/82.2 tok/s replay, EXIT=0,
+  output wrong (the known one-step-lag KV issue)
+
+### tt-metal patch experiment: conclusion
+
+The 4 patches (write guard → warning, program-cache miss → warning,
+binary-commit → warning, DRAM overlap → warning) DID let the capture
+run through all 28 layers including in-region RAC — no fatals. But:
+1. The DRAM-overlap relaxation corrupted allocator state
+2. The corruption survived tt-smi -r, required a PCI-level reset
+3. The corruption may have permanently damaged the device state
+   (needed the tt-umd update to fully recover)
+
+The patches are valuable as PROOF that in-region RAC works (all 28
+layers' sdpa_decode ran during capture, only warnings), but they're too
+dangerous for production. The upstream proposal should be a narrowly
+scoped "capture-safe writes" API rather than blanket guard relaxations.
