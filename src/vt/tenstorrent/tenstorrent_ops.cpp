@@ -3810,8 +3810,8 @@ void WarmRacIdx(const void* /*slot_mapping_owner*/, const int64_t* slots,
     // Refuse rather than freeze the write index and emit fluent wrong tokens.
     VT_CHECK(!r2_steady || aliased,
              "tenstorrent: WarmRacIdx allocated a standalone update_idxs after "
-             "capture — plus_one will not advance it. Recapture, or seed "
-             "DecodePos per cache entry (#1105).");
+             "capture — plus_one will not advance it. Seed DecodePos per "
+             "cache entry; recapture does NOT clear this (#1105).");
     if (!aliased) {
       e.update_idxs = ttnn::Tensor::from_vector<int32_t>(
           idxv, SpecOf(tt::tt_metal::Shape({static_cast<uint32_t>(num_slots)}),
@@ -3956,8 +3956,8 @@ void WarmPaMeta(const int32_t* block_table, int64_t num_reqs, int64_t max_blocks
     // Refuse rather than freeze KV length and emit fluent wrong tokens.
     VT_CHECK(!r2_steady || aliased,
              "tenstorrent: WarmPaMeta allocated a standalone cur_pos after "
-             "capture — plus_one will not advance it. Recapture, or seed "
-             "DecodePos per cache entry (#1105).");
+             "capture — plus_one will not advance it. Seed DecodePos per "
+             "cache entry; recapture does NOT clear this (#1105).");
     if (!aliased) {
       e.cur_pos = ttnn::Tensor::from_vector<int32_t>(
           cpos, SpecOf(tt::tt_metal::Shape({static_cast<uint32_t>(num_reqs)}),
@@ -4002,8 +4002,8 @@ void WarmDecodePos(const int32_t* seq_lens, int64_t num_reqs) {
     auto it = DecodePosCache().find(num_reqs);
     VT_CHECK(it != DecodePosCache().end() && it->second.allocated,
              "tenstorrent: WarmDecodePos after capture for a num_reqs that "
-             "was never seeded — cur_pos would freeze. Recapture, or seed "
-             "DecodePos per cache entry (#1105).");
+             "was never seeded — cur_pos would freeze. Seed DecodePos per "
+             "cache entry; recapture does NOT clear this (#1105).");
     return;
   }
   MeshDevice& device = SharedMeshDevice();

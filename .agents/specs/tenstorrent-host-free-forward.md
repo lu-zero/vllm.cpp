@@ -251,6 +251,23 @@ investigation row but MUST be addressed by the item-5 port:
 
 ## Owed
 
+- **`DecodePosCache` is keyed on bare `num_reqs`, with no engine, queue or device
+  identity, and is never cleared.** Two engine instances in one process at the same
+  padded batch size therefore share one `cur_pos` device tensor: the second engine's
+  first `WarmDecodePos` finds the first engine's entry, returns early, and both
+  `WarmRacIdx` / `WarmPaMeta` aliases bind to a buffer another engine is advancing.
+  That is silently wrong rather than a refusal, and it is a candidate explanation for
+  `test_qwen3_paged_engine` still timing out under the flag. Owned by
+  [#1105](https://github.com/mudler/vllm.cpp/issues/1105).
+- **`VT_TT_RECAPTURE_EVERY` lags `cur_pos` by one per recapture cycle.**
+  `GraphCapturesCounter` is only ever `fetch_add`ed (`tenstorrent_ops.cpp:3225`, called
+  once from `:3297`); nothing resets it, and `DestroyGraph` does not. So the
+  recapture-triggered eager step re-seeds nothing and skips every `copy_to_device`,
+  and the following capture step captures a `cur_pos` one behind. The eager PA
+  consistency check at `:2410-2412` cannot see it: it compares `e.cp_host[0]` against
+  the same `seq_lens` that rewrote `e.cp_host` at `:3982`, so it validates the host
+  mirror against itself. Owned by [#1105](https://github.com/mudler/vllm.cpp/issues/1105).
+
 The seven constraints above remain. A new batch size after the first
 capture is now refused (`VT_CHECK` in `WarmDecodePos` / `WarmPaMeta` /
 `WarmRacIdx`) rather than freezing `cur_pos`. The real fix is a
