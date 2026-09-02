@@ -738,6 +738,9 @@ TEST_CASE("The router gate GEMM at f32 reproduces the exact products a bf16 stor
   // this case could not tell a widened buffer from a relabelled one.
   INFO("the fixture does not discriminate: the bf16 store lost nothing");
   CHECK(differ == 13);
+
+  // Free the allocations made by the local alloc lambda.
+  for (void* p : owned) b.Free(p);
 }
 
 TEST_CASE("The parsed router dtype REACHES the DeepSeek-V2 params a forward reads") {
