@@ -614,6 +614,28 @@ tok=14), so the captured arm cannot share the eager pair. (6) the records:
 #2669 closes on merge, #2670 and #2671 ride as Owed. #1625's
 capture-default flip stays blocked on this repair.
 
+LANDED 2026-09-03 (commit `7ee345ef5`, repair = threshold 16 to 1 in
+`TryDevicePagedPushPair`/`TryDevicePagedPush`; #2669 closes on merge).
+Post-repair the captured arm's first divergences from the eager anchor sit
+at p1 t14, p2 t1, p6 t12, p7 t2, p9 t2, p10 t11, p12 t13 and p13 t7, each
+followed by that prompt's own continuation; the boundary cells themselves
+(p1 t0..t4) match eager exactly, so the clobber is gone, and the residual
+is the captured-vs-eager near-tie class #1476 recorded. The captured pair
+was dumped from the repaired tree byte-identical across two runs with a
+card reset between, then teacher-forced: 18 of 256 cells carry any gap, max
+500 mnats, zero cells outside top-K, 238 of 256 cells the teacher's exact
+argmax on our prefix. Teacher environment drifted from the #1488 record:
+transformers 5.16.1, torch 2.13.0+cu130 on CPU (the 4.57.1 environment no
+longer exists on this host); the oracle registry's sub-ULP caveat cannot
+reach this pair because the instrument's quantization error sits two orders
+below every certified gap. Green on the P150, one card reset per run: eager
+battery 16/16 anchor-exact unchanged (max 0.375 nats, rc 0), captured
+battery 16/16 against the new pair (max 0.5 nats, rc 0), focused capture
+gate 2/2 (rc 0), `VT_TT_RECAPTURE_EVERY=8` captured battery 16/16 (rc 0,
+the re-capture lane tolerates the fill path), `test_tenstorrent_backend`
+52/52 cases 5983/5983 assertions. A fresh reviewer mutated the head
+(recorded in the pull request).
+
 The operator gate (2026-08-20, P150, `206afb63`) found
 [#1476](https://github.com/mudler/vllm.cpp/issues/1476): captured replay went
 degenerate at the first KV block boundary while host-free eager stayed
