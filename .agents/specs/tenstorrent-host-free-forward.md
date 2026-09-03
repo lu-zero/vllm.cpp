@@ -647,6 +647,19 @@ caller each, both in `NotePagedKvRacWrites`
 kReshapeAndCache path (tenstorrent_ops.cpp:3105); no test-only path exists.
 Mutation logs live in `/tmp/review-2669-logs/` on the gate host.
 
+The #2566 rate figure survives the repair, re-taken on this head
+(2026-09-03, P150, the #2566 recipe: order-alternated triples,
+`--repeat 5` with leg 1 discarded, warm medians over 12 legs, one flock
+per batch, card reset first, harness `~/hf-r2672-gate3.sh`, raw logs
+`~/hf-r2672-t{1,2,3}{A,B,C}.{out,err}`): captured 28.61 tok/s against the
+27.47 pre-repair record, default 12.21 against 12.90, opt-out 15.61
+against 17.80 - that arm's band is the unclosed inversion residual the
+#2566 entry already records, and the R5-era 5.34 figure bounced to 17.80
+before it. Capture over default 2.34x, over opt-out 1.83x. Zero fatals,
+zero hangs, 470 replays on every capture leg. The repair costs the
+captured arm nothing, and the payoff figure the capture-default flip
+stands on is measured on the repaired tree.
+
 The operator gate (2026-08-20, P150, `206afb63`) found
 [#1476](https://github.com/mudler/vllm.cpp/issues/1476): captured replay went
 degenerate at the first KV block boundary while host-free eager stayed
