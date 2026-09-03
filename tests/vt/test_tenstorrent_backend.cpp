@@ -1690,10 +1690,10 @@ TEST_CASE("kTENSTORRENT host-free helpers decline by default (inertness guard)")
   // The gate: same bytes, both shadows current -> only the env/capture gate
   // can decline. These CHECKs go RED if the gate is removed (M1) or if the
   // capture flag is stuck true (M4).
-  CHECK_FALSE(vt::tenstorrent::CopyDeviceDeviceIfCapture(m2, m1));
-  CHECK_FALSE(vt::tenstorrent::MemsetDeviceIfCapture(m2, 0));
+  CHECK_FALSE(vt::tenstorrent::CopyDeviceDeviceIfCapture(m2, m1, h1.size() * sizeof(float)));
+  CHECK_FALSE(vt::tenstorrent::MemsetDeviceIfCapture(m2, 0, h2.size() * sizeof(float)));
   // value!=0 always declines (host memset is the only path for it).
-  CHECK_FALSE(vt::tenstorrent::MemsetDeviceIfCapture(m2, 1));
+  CHECK_FALSE(vt::tenstorrent::MemsetDeviceIfCapture(m2, 1, h2.size() * sizeof(float)));
 
   // And the default host path still works: Copy m1 -> m2 yields identical
   // host bytes once materialized.

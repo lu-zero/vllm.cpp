@@ -5953,7 +5953,24 @@ void EnsureHostBytes(void* host) {
 // HOST-FREE-FORWARD R2: device->device copy when capturing, so Backend::Copy
 // does not to_vector inside the captured region. Both dst and src must carry a
 // current device shadow of equal byte size; dst's shadow becomes a copy of src.
-bool CopyDeviceDeviceIfCapture(void* dst, const void* src) {
+// The byte volume a shadow's LOGICAL shape holds, or 0 for a dtype this
+// contract does not cover (conservative: the D2D copy then declines and the
+// host path runs).
+static size_t ShadowLogicalBytes(const ttnn::Tensor& t) {
+  const auto dt = t.dtype();
+  size_t esz = 0;
+  if (dt == ttnn::DataType::FLOAT32)
+    esz = 4;
+  else if (dt == ttnn::DataType::BFLOAT16)
+    esz = 2;
+  if (esz == 0) return 0;
+  uint64_t vol = 1;
+  const auto ds = t.logical_shape();
+  for (uint32_t i = 0; i < ds.rank(); ++i) vol *= ds[i];
+  return static_cast<size_t>(vol) * esz;
+}
+
+ bool CopyDeviceDeviceIfCapture(void* dst, const void* src, size_t bytes) {
   // Run the device->device copy when EITHER capturing OR in host-free-decode
   // mode (the env opt-in). The latter is essential so the EAGER warmup step
   // (which the decode-graph framework runs BEFORE capture) also exercises
@@ -5981,9 +5998,19 @@ bool CopyDeviceDeviceIfCapture(void* dst, const void* src) {
     BufferSlot* d = FindSlot(dst);
     if (s == nullptr || !s->device_current || !s->device.has_value()) return false;
     if (d == nullptr) return false;
-    if (s->bytes != d->bytes) return false;
+    // The Copy contract is `bytes`, NOT slot capacity. The registered
+    // s->bytes / d->bytes are the HOST blocks' pool capacities, and the
+    // best-fit lend (#1922) hands a DBuf a block from a LARGER size class:
+    // Qwen3-4B #1625 capture staged s.hidden ([1,2560] bf16 = 5120 B) in a
+    // 10240-B block lent from the prefill K/V class while the working copy
+    // landed on an exactly-5120-B block. Capacity equality declined, the
+    // host-path fallthrough issued a D2H read mid-capture, and tt-metal
+    // TT_FATALs ("Reads are not supported during trace capture"). The content
+    // contract is the SRC SHADOW's logical volume — the tensor the clone
+    // reproduces — which must hold exactly the bytes this Copy names.
+    if (ShadowLogicalBytes(*s->device) != bytes) return false;
     src_dev = *s->device;
-    copy_bytes = d->bytes;
+    copy_bytes = bytes;
   }
   if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr) {
     void* bt[8];
@@ -6030,7 +6057,7 @@ bool CopyDeviceDeviceIfCapture(void* dst, const void* src) {
 // when host-free decode is active, so no host write happens inside capture.
 // Reinterprets the buffer as a 2D [rows, cols] f32 tensor matching the
 // existing device shadow's numel (zeros is the only value the forward uses).
-bool MemsetDeviceIfCapture(void* p, int value) {
+bool MemsetDeviceIfCapture(void* p, int value, size_t bytes) {
   // Live read for the same reason as CopyDeviceDeviceIfCapture above.
   const bool host_free = HostFreeDecodeEnabled();
   if (!tt_capture_active() && !host_free) return false;
@@ -6072,8 +6099,15 @@ bool MemsetDeviceIfCapture(void* p, int value) {
       std::lock_guard<std::mutex> g(SlotMutex());
       BufferSlot* s = FindSlot(p);
       if (s == nullptr) return false;  // untracked buffer: host memset
-      if (s->bytes == 0 || (s->bytes % 2) != 0) return false;
-      cols = static_cast<uint32_t>(s->bytes / 2);
+      // The MEMSET's byte count names the geometry, not the slot's
+      // registered capacity: the #1922 best-fit lend hands a DBuf a block
+      // from a larger class (Qwen3-4B #1625: a fresh [1,2560] bf16 res got
+      // a 10240-B block), and cols derived from capacity staged a
+      // [1,5120] zero whose key no warm step primed — a zero-cache miss
+      // VT_CHECK-fails mid-capture. Requested bytes are the contract, the
+      // same shadow-volume rule the D2D copy lane above now applies.
+      if (bytes == 0 || (bytes % 2) != 0) return false;
+      cols = static_cast<uint32_t>(bytes / 2);
       if (s->persistent.has_value() && s->persist_rows == 1 &&
           s->persist_cols == cols) {
         // Recycled staging: zero the persistent buffer IN PLACE — the device
@@ -6194,7 +6228,11 @@ bool CopyDeviceDeviceIfResident(void* dst, const void* src, size_t bytes) {
     BufferSlot* d = FindSlot(dst);
     if (s == nullptr || !s->device_current || !s->device.has_value()) return false;
     if (d == nullptr || s->host != src || d->host != dst) return false;
-    if (s->bytes != bytes || d->bytes != bytes) return false;
+    // Same shadow-volume contract as the capture lane above: slot bytes are
+    // HOST BLOCK CAPACITY (the #1922 best-fit lend pads it), not the content
+    // the shadow holds. The clone must reproduce exactly `bytes`.
+    if (d->bytes < bytes) return false;
+    if (ShadowLogicalBytes(*s->device) != bytes) return false;
     if (!d->persistent.has_value()) return false;
     src_dev = *s->device;
   }

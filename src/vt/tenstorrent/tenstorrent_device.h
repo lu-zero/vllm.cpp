@@ -113,13 +113,13 @@ void EnsureHostBytes(void* host);
 // current device shadow, do a device->device copy (ttnn) instead of staging
 // through host. Returns true if it performed a device copy, false if the
 // caller should fall back to host memcpy.
-bool CopyDeviceDeviceIfCapture(void* dst, const void* src);
+bool CopyDeviceDeviceIfCapture(void* dst, const void* src, size_t bytes);
 // HOST-FREE-FORWARD R3: when capture/host-free is active, fill the buffer's
 // device shadow on-device (ttnn::zeros, matching the shadow's own
 // shape/dtype) instead of host memset. Only value==0 is handled; every other
 // value declines so Backend::Memset falls back to host memset. Requires the
 // buffer to already carry a current device shadow.
-bool MemsetDeviceIfCapture(void* p, int value);
+bool MemsetDeviceIfCapture(void* p, int value, size_t bytes);
 // BACKEND-TENSTORRENT-QWEN35 W7 (#2282): the EAGER arms of the same two
 // primitives, for steps that run outside capture and outside host-free decode.
 // MemsetDeviceFill zero-fills a device-resident slot's shadow on-device for a
