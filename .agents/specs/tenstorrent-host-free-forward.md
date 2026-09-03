@@ -588,18 +588,31 @@ B=5` per layer on the second request's prefill. The fix probe (fill at any
 T, threshold 16 to 1) moves the failure from prompt[1] tok=1 hard garbage
 to tok=14 deterministic near-tie.
 
+Re-measured at tip `4d10c8acc` (2026-09-03, uninstrumented): the DEFAULT
+eager arm stays anchor-exact — the SACRED battery is 16/16 PASS with the
+committed goldens, so the pair stays valid and no default-arm refresh rides
+this repair. The CAPTURED arm reds the anchor REQUIRE at prompt[1] tok=1
+(engine 30, committed 572); which wrong token appears moves run to run
+(374 in the probe session, 30 here), which is the race, not a different
+defect. The trigger is capture-only: the eager arm never consumes the
+stale shadow.
+
 Plan, in order, one pull request: (1) commit this spec; (2) a red-first
-focused gate that runs prompts 0 then 1 and adjudicates every cell against
-the committed near-tie band — it reds at prompt[1] tok=1 before the repair;
-(3) the repair: route a sequential fill-eligible chunk to
+focused gate over prompts 0 and 1 that keeps the anchor-exact REQUIRE and
+runs under `VT_TT_DECODE_CAPTURE=1` — it reds at prompt[1] tok=1 before the
+repair; (3) the repair: route a sequential fill-eligible chunk to
 `TryDevicePagedFill` at any T, or refuse the batched-update path when two
-chunk users share one physical block; (4) the full gate on the P150;
-(5) refresh the committed golden pair with `qwen3-neartie-gap.py` against
-the pinned vLLM oracle — `our_ids_tenstorrent.npy` dates to 2026-08-22
-(#1630), and a fresh dump differs from it in 64 of 256 cells, all inside
-the committed near-tie band (worst 0.375 nats, none forward-divergent);
-(6) the records: #2669 closes on merge, #2670 and #2671 ride as Owed.
-#1625's capture-default flip stays blocked on this repair.
+chunk users share one physical block; (4) the full gate on the P150: the
+focused gate, the SACRED default-arm battery, and the captured battery;
+(5) pin the captured arm with its own committed golden pair
+(`our_ids_tenstorrent_capture.npy` / `neartie_gap_mnats_tenstorrent_capture.npy`),
+dumped from the repaired tree and teacher-forced with the #1488 method
+(`qwen3-neartie-gap-transformers.py`, transformers 4.57.1 CPU) — the same
+method that refreshed the default pair at #1630. Post-repair the captured
+sequence resolves one near-tie differently from the eager anchor (probe:
+tok=14), so the captured arm cannot share the eager pair. (6) the records:
+#2669 closes on merge, #2670 and #2671 ride as Owed. #1625's
+capture-default flip stays blocked on this repair.
 
 The operator gate (2026-08-20, P150, `206afb63`) found
 [#1476](https://github.com/mudler/vllm.cpp/issues/1476): captured replay went
