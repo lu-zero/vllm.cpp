@@ -558,6 +558,14 @@ input, not a gate result.
 `ACTIVE`. R1-R3b and the R2 on-device `cur_pos` / `update_idxs` advance are
 implemented on this branch, env-gated by `VT_TT_HOST_FREE_DECODE`.
 
+### Capture-default flip staged (2026-09-03)
+
+The #1625 wave is specced under `## Capture-default flip` below: capture
+becomes the DEFAULT (`VT_TT_DECODE_CAPTURE=0` opts out), the Qwen3-4B
+captured pair is brought up in the same change, the published benchmark
+figure is re-taken on the flip tree, and the flip lands stacked on the #2669
+repair once PR #2672 merges.
+
 ### Repair (2026-09-03): short-chunk device KV push clobber (#2669)
 
 The captured multi-request battery reds at the first cross-request KV block
@@ -1017,3 +1025,105 @@ fixed at its three consumed surfaces.
   arm beats both — captured replay's superiority over eager now holds at
   all three measured sizes on token-clean legs. The per-model record entry
   is in `.agents/benchmark-record.md`.
+
+## Capture-default flip (#1625)
+
+The captured decode arm becomes the DEFAULT on Tenstorrent Blackhole:
+`support_static_graph_mode()` returns `HostFreeDecodeEnabled() &&
+DecodeCaptureEnabled()`, where `DecodeCaptureEnabled()` mirrors
+`HostFreeDecodeEnabled()`'s polarity (`VT_TT_DECODE_CAPTURE` unset or any
+value except "0" arms capture; `VT_TT_DECODE_CAPTURE=0` opts out and restores
+today's eager host-free arm). The platform comment that declined this flip —
+"the captured arm hangs deterministically on the FIRST multi-request run" —
+names #1625, and that hang is root-caused and repaired on this row: the
+short-chunk device KV push clobber (#2669, this branch) was the defect, the
+captured multi-request battery is 16/16 green and hang-free across the
+focused, recap8, and full-battery lanes, and the flip it held back is now
+unblocked. The captured arm is also the fastest measured arm (28.61 tok/s
+warm median against 12.21 for the eager host-free default and 15.61 for the
+host opt-out, same-binary order-alternated triples, #2566 recipe), so the
+flip ships the payoff rather than a risk.
+
+### Scope
+
+- `src/vt/tenstorrent/tenstorrent_device.h`: add `DecodeCaptureEnabled()`
+  beside `HostFreeDecodeEnabled()`, same one-line parse.
+- `src/vllm/platforms/tenstorrent.cpp`: rewrite the R5-flip comment block to
+  record WHY capture is now default (the #2669 root cause and the measured
+  payoff) and how to opt out; change the one-line conjunct.
+- `tests/parity/test_qwen3_paged_engine.cpp`: the `_capture` golden selection
+  currently keys on `std::getenv("VT_TT_DECODE_CAPTURE") != nullptr`
+  (presence, not value). It must key on the SAME parsed polarity as the
+  platform, so `VT_TT_DECODE_CAPTURE=0` selects the eager pair in the test
+  exactly as it selects the eager path in the engine. A drift here produces a
+  test that passes while the engine runs a different arm than the goldens
+  adjudicate.
+- Qwen3-4B captured bring-up (NEW evidence, same PR): `goldens/qwen3_greedy_4b/`
+  carries only the generic pair — no TT-specific files — so post-flip the 4B
+  SACRED battery runs CAPTURED against an unproven pair. Before the flip
+  lands: dump the captured 4B arm on the P150 (byte-identical across two runs
+  with a reset between, the 0.6B determinism standard), adjudicate against
+  the generic anchor, and on any first-divergence teacher-force a
+  `neartie_gap_mnats` pair with the #1488 method and commit the 4B capture
+  pair. If the captured 4B arm is byte-identical to the generic anchor, that
+  byte-equality IS the evidence and no new pair is committed.
+- `docs/FEATURES.md` TT host-free row: "Capture opt-in only (#1625 hang)"
+  becomes "capture DEFAULT since #<PR> (`VT_TT_DECODE_CAPTURE=0` opts out)",
+  with the payoff figure.
+- Benchmark publication: `docs/BENCHMARKS.md` has no Tenstorrent entry. The
+  flip owns one `docs/benchmarks/<benchmark-id>.md` detail file plus its
+  index row, publishing the #2566-recipe rate figure RE-TAKEN ON THE FLIP
+  TREE (capture is the default there, so the published number must be the
+  shipped default, not the opt-in arm): capture/default leg, opt-out leg,
+  order-alternated triples, `--repeat 5`, leg 1 discarded, warm medians,
+  flock + tt-smi reset per batch.
+- Closes #1625 (hang root-caused to #2669; flip landed; multi-request
+  captured battery hang-free).
+
+### Not in scope
+
+- The host opt-out inversion residual (eager host-free 12.21 vs host opt-out
+  15.61 tok/s) — pre-existing, stays open on its own lane.
+- #2670 (reader-side `device_current` trust) and #2671 (dump verdict mark) —
+  remain `## Owed` on this row.
+- Async readback (#1627) — unchanged.
+
+### Tests and gates (red-first)
+
+1. RED-FIRST (no card needed): a default-polarity assertion — with NO env
+   set, the engine arms capture and the test selects `_capture` goldens; with
+   `VT_TT_DECODE_CAPTURE=0`, both stay eager. On the pre-flip tree this reds
+   (capture requires env presence); on the flip tree it greens.
+2. The focused #2669 boundary gate and the captured 0.6B battery run with NO
+   capture env (they now arm capture by default): 2/2 and 16/16 against the
+   committed capture pair.
+3. `VT_TT_DECODE_CAPTURE=0` runs the eager arm on the flipped tree: 0.6B
+   eager battery 16/16 anchor-exact (the eager pair keeps gating the opt-out
+   arm).
+4. 4B battery with NO env (captured default): 16/16 against the
+   brought-up pair (or byte-equality evidence).
+5. recap8 lane with NO env: 16/16 (recapture cadence survives the flip).
+6. `test_tenstorrent_backend` full suite; site suite (docs changed);
+   staged preflight; fresh review with mutations (threshold-style: revert
+   the platform conjunct and watch gate 1/2 red).
+
+### Stop conditions
+
+- If the captured 4B arm fatals or hangs on the P150 (the 0.6B capture
+  fatals were fixed in an earlier wave, but 4B has NEVER run captured), the
+  flip scopes down to 0.6B-only: the 4B case pins `VT_TT_DECODE_CAPTURE=0`
+  explicitly with a comment naming the Owed 4B-capture issue, and the row
+  records the fatal as owed evidence. A default the test cannot reach is not
+  shippable, so the flip does NOT land with 4B captured-but-ungated.
+- If the flip-tree benchmark shows the captured default regressed below the
+  eager host-free default (it should not; same code path as the 28.61
+  measurement), stop and re-root-cause before landing.
+
+### Decisions recorded
+
+- One PR for spec and implementation (user: "prepare the next PR",
+  2026-09-03; matches the recorded pattern for the other TT rows).
+- 4B captured pair is IN this PR (a default the tests never exercise is the
+  nothing-lands-dead smell; scoping it out requires the stop-condition
+  evidence above).
+- The published benchmark figure is re-taken on the flip tree.
