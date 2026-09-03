@@ -65,11 +65,13 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
 #include "npy.h"
 #include "vllm/entrypoints/model_loader.h"
+#include "vllm/platforms/interface.h"
 #include "vllm/sampling_params.h"
 #include "vt/op_provider.h"  // the "which backend actually ran" proof (Metal, M3b)
 #include "vt/ops.h"
@@ -141,6 +143,18 @@ const int32_t* AsI32(const parity::NpyArray& a) {
 // paged engine, and PASSES when every one of our tokens is within kNearTieMnats of
 // vLLM's argmax in vLLM's own logits (strict where our token IS vLLM's argmax).
 // Reports the strict token-exact count and the max gap.
+
+// The #1625 flip's parsed polarity, mirrored locally in this first commit:
+// capture arms when VT_TT_DECODE_CAPTURE is unset or any value except "0",
+// the same parse as vt::tenstorrent::HostFreeDecodeEnabled — NOT mere env
+// presence, which is what the pre-flip platform required. The engine flip
+// commit replaces this mirror with vt::tenstorrent::DecodeCaptureEnabled()
+// so the test and the platform cannot drift.
+bool TtDecodeCaptureSelected() {
+  const char* e = std::getenv("VT_TT_DECODE_CAPTURE");
+  return e == nullptr || std::string_view(e) != "0";
+}
+
 void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
              const std::string& label, int64_t prompt_lo = 0,
              int64_t prompt_hi = -1, bool require_anchor_exact = true) {
@@ -269,13 +283,13 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
   const std::string ids_name =
       metal ? "our_ids_metal.npy"
             : (rocm ? "our_ids_rocm.npy"
-                    : (tenstorrent && std::getenv("VT_TT_DECODE_CAPTURE") != nullptr
+                    : (tenstorrent && TtDecodeCaptureSelected()
                            ? "our_ids_tenstorrent_capture.npy"
                            : "our_ids_tenstorrent.npy"));
   const std::string gap_name =
       metal ? "neartie_gap_mnats_metal.npy"
             : (rocm ? "neartie_gap_mnats_rocm.npy"
-                    : (tenstorrent && std::getenv("VT_TT_DECODE_CAPTURE") != nullptr
+                    : (tenstorrent && TtDecodeCaptureSelected()
                            ? "neartie_gap_mnats_tenstorrent_capture.npy"
                            : "neartie_gap_mnats_tenstorrent.npy"));
   bool bootstrap_only = false;
@@ -420,8 +434,7 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
   }
 
   if (dump) {
-    const bool tt_capture =
-        tenstorrent && std::getenv("VT_TT_DECODE_CAPTURE") != nullptr;
+    const bool tt_capture = tenstorrent && TtDecodeCaptureSelected();
     const std::string dump_name =
         tenstorrent ? (tt_capture ? "our_ids_tenstorrent_capture.i32"
                                   : "our_ids_tenstorrent.i32")
@@ -468,6 +481,20 @@ TEST_CASE("qwen3-0.6B dense paged-engine greedy near-tie correctness gate (dgx-o
 TEST_CASE("qwen3-0.6B paged-engine two-request KV boundary gate (#2669, dgx-only)") {
   RunGate("models--Qwen--Qwen3-0.6B", "qwen3_greedy_0_6b", "qwen3-0.6B-boundary",
           /*prompt_lo=*/0, /*prompt_hi=*/2);
+}
+
+// #1625 flip polarity: with NO env at all, the Tenstorrent platform arms
+// capture — the property the flip exists to land. Reds on the pre-flip tree,
+// where capture additionally required VT_TT_DECODE_CAPTURE to be present;
+// greens on the flip. Runs only where a Blackhole registers, like the
+// batteries above.
+TEST_CASE("tenstorrent capture default polarity (#1625, dgx-only)") {
+  if (!vllm::platforms::HasPlatform(vt::DeviceType::kTENSTORRENT)) {
+    MESSAGE("tenstorrent capture polarity: skipping (no Blackhole registered)");
+    return;
+  }
+  REQUIRE(vllm::platforms::GetPlatform(vt::DeviceType::kTENSTORRENT)
+              .support_static_graph_mode());
 }
 
 // Qwen3-4B (dense) — the BIGGER-model complete-correctness proof (36 layers,
