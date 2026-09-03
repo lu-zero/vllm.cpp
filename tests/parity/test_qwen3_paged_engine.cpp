@@ -65,13 +65,13 @@
 #include <filesystem>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <system_error>
 #include <vector>
 
 #include "npy.h"
 #include "vllm/entrypoints/model_loader.h"
 #include "vllm/platforms/interface.h"
+#include "vt/tenstorrent/tenstorrent_device.h"
 #include "vllm/sampling_params.h"
 #include "vt/op_provider.h"  // the "which backend actually ran" proof (Metal, M3b)
 #include "vt/ops.h"
@@ -143,17 +143,6 @@ const int32_t* AsI32(const parity::NpyArray& a) {
 // paged engine, and PASSES when every one of our tokens is within kNearTieMnats of
 // vLLM's argmax in vLLM's own logits (strict where our token IS vLLM's argmax).
 // Reports the strict token-exact count and the max gap.
-
-// The #1625 flip's parsed polarity, mirrored locally in this first commit:
-// capture arms when VT_TT_DECODE_CAPTURE is unset or any value except "0",
-// the same parse as vt::tenstorrent::HostFreeDecodeEnabled — NOT mere env
-// presence, which is what the pre-flip platform required. The engine flip
-// commit replaces this mirror with vt::tenstorrent::DecodeCaptureEnabled()
-// so the test and the platform cannot drift.
-bool TtDecodeCaptureSelected() {
-  const char* e = std::getenv("VT_TT_DECODE_CAPTURE");
-  return e == nullptr || std::string_view(e) != "0";
-}
 
 void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
              const std::string& label, int64_t prompt_lo = 0,
@@ -283,13 +272,13 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
   const std::string ids_name =
       metal ? "our_ids_metal.npy"
             : (rocm ? "our_ids_rocm.npy"
-                    : (tenstorrent && TtDecodeCaptureSelected()
+                    : (tenstorrent && vt::tenstorrent::DecodeCaptureEnabled()
                            ? "our_ids_tenstorrent_capture.npy"
                            : "our_ids_tenstorrent.npy"));
   const std::string gap_name =
       metal ? "neartie_gap_mnats_metal.npy"
             : (rocm ? "neartie_gap_mnats_rocm.npy"
-                    : (tenstorrent && TtDecodeCaptureSelected()
+                    : (tenstorrent && vt::tenstorrent::DecodeCaptureEnabled()
                            ? "neartie_gap_mnats_tenstorrent_capture.npy"
                            : "neartie_gap_mnats_tenstorrent.npy"));
   bool bootstrap_only = false;
@@ -434,7 +423,8 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
   }
 
   if (dump) {
-    const bool tt_capture = tenstorrent && TtDecodeCaptureSelected();
+    const bool tt_capture =
+        tenstorrent && vt::tenstorrent::DecodeCaptureEnabled();
     const std::string dump_name =
         tenstorrent ? (tt_capture ? "our_ids_tenstorrent_capture.i32"
                                   : "our_ids_tenstorrent.i32")

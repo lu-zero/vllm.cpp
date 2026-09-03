@@ -43,6 +43,21 @@ inline bool HostFreeDecodeEnabled() {
   return e == nullptr || std::string_view(e) != "0";
 }
 
+// True iff captured decode is enabled. Default ON since the #1625 flip — same
+// parse as HostFreeDecodeEnabled ("0" opts out and restores the eager
+// host-free arm) — where before the flip capture additionally required the
+// env to be present, because the captured arm hung on the first multi-request
+// run. That hang was the short-chunk device KV push clobber (#2669), repaired
+// on this row; the captured multi-request battery is 16/16 green and
+// hang-free. The parity test's golden selection calls this same function, so
+// the gate can never adjudicate a different arm than the engine runs. No
+// function-local static caching: tests toggle this env per case in one
+// process.
+inline bool DecodeCaptureEnabled() {
+  const char* e = std::getenv("VT_TT_DECODE_CAPTURE");
+  return e == nullptr || std::string_view(e) != "0";
+}
+
 // Opens (lazily, once) and returns the single process-wide mesh device this
 // W0 skeleton targets — device index 0 only, no multi-device mesh. Throws if
 // DeviceAvailable() was not already checked true. DELIBERATELY LEAKED (see
