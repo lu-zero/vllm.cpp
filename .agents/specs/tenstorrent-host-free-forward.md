@@ -339,15 +339,21 @@ investigation row but MUST be addressed by the item-5 port:
   ([#2812](https://github.com/mudler/vllm.cpp/issues/2812)).** The flip
   defaults capture on for Qwen3-dense only; every other decode driver keeps
   the explicit opt-in (`static_graph_requires_opt_in`) until its captured arm
-  is brought up and gated. Qwen3.5-GDN TT_FATALs mid-capture today
-  (`fd_mesh_command_queue.cpp:760`, "Writes are not supported during trace
-  capture") — that repair is part of this lane. Mistral-7B's captured arm
+  is brought up and gated. Mistral-7B's captured arm
   completes but drifts from its eager pair (p[1] t=8) — pair derivation owed.
   The architecture carve keeps Mistral, Llama and InternLM2 — which construct
   the Qwen3-dense graph class — on the pre-flip eager default, so their
   ambient gates stay adjudicated against the committed eager pairs. The
   Qwen3.5 harness selects the pair by the engine's arm and skips loudly until
-  then.
+  then. CORRECTION (fresh review, 2026-09-04): the earlier "Qwen3.5-GDN
+  TT_FATALs mid-capture today" record is STALE — with the conjunct deleted,
+  the captured GDN battery completes and greens 16/16 against the eager
+  goldens (~24 min), so the fatal was another shadow-volume instance, cured
+  by commit `1872aeb16`. The conjunct's surviving justification is PAIR
+  DISCIPLINE — no committed captured pair, so the default stays on the proven
+  arm — and until #2812 lands that pair, no gate detects the conjunct's
+  deletion (captured happens to equal the eager goldens today); the #2812
+  lane owes the polarity gate that closes this blindness.
 
 - **The capture arm's cold step emits a deterministic wrong first decode
   token ([#2461](https://github.com/mudler/vllm.cpp/issues/2461)) — REPAIR
