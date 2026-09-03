@@ -70,6 +70,7 @@
 #include "vllm/sampling_params.h"
 #include "vt/op_provider.h"  // the "which backend actually ran" proof
 #include "vt/ops.h"
+#include "vt/tenstorrent/tenstorrent_device.h"
 
 namespace fs = std::filesystem;
 
@@ -300,15 +301,35 @@ void RunGate(const std::string& golden_subdir, const char* label) {
   const char* hf_env = std::getenv("VT_TT_HOST_FREE_DECODE");
   const bool host_free_off =
       tenstorrent && hf_env != nullptr && std::string_view(hf_env) == "0";
-  const char* ids_name = tenstorrent ? (host_free_off
+  // Selection follows the engine's arm: the #1625 flip defaults TT capture on
+  // for the QWEN3-DENSE family only; the GDN family's captured arm is not
+  // brought up (#2812) so the engine keeps the explicit opt-in there (the
+  // platform's static_graph_requires_opt_in), and VT_TT_HOST_FREE_DECODE=0
+  // declines the whole conjunct. A hardcoded eager name would adjudicate a
+  // captured run against eager goldens when the arm IS captured.
+  const bool tt_capture = tenstorrent && !host_free_off &&
+                          vt::tenstorrent::DecodeCaptureEnabled() &&
+                          vt::tenstorrent::DecodeCaptureRequested();
+  const char* ids_name = tenstorrent
+                             ? (tt_capture
+                                    ? "our_ids_tenstorrent_capture.npy"
+                                    : (host_free_off
                                            ? "our_ids_tenstorrent_host_free_off.npy"
-                                           : "our_ids_tenstorrent.npy")
-                                     : "our_ids.npy";
+                                           : "our_ids_tenstorrent.npy"))
+                             : "our_ids.npy";
   const char* gap_name = tenstorrent
-                             ? (host_free_off
-                                    ? "neartie_gap_mnats_tenstorrent_host_free_off.npy"
-                                    : "neartie_gap_mnats_tenstorrent.npy")
+                             ? (tt_capture
+                                    ? "neartie_gap_mnats_tenstorrent_capture.npy"
+                                    : (host_free_off
+                                           ? "neartie_gap_mnats_tenstorrent_host_free_off.npy"
+                                           : "neartie_gap_mnats_tenstorrent.npy"))
                              : "neartie_gap_mnats.npy";
+  if (tt_capture && !fs::exists(gdir / ids_name) && !dump) {
+    MESSAGE(label << " TT capture pair owed (this family's captured arm is "
+            "explicit opt-in until its pair is brought up; #2812); skipping "
+            "on Tenstorrent");
+    return;
+  }
   parity::NpyArray o_dev, gap_dev;  // keep the device arrays alive for the loop
   bool bootstrap_only = false;
   if (device_golden) {
@@ -447,7 +468,8 @@ void RunGate(const std::string& golden_subdir, const char* label) {
 
   if (dump) {
     const std::string dump_name =
-        tenstorrent ? "our_ids_tenstorrent.i32" : "our_ids.i32";
+        tt_capture ? "our_ids_tenstorrent_capture.i32"
+                   : (tenstorrent ? "our_ids_tenstorrent.i32" : "our_ids.i32");
     const std::string path = (gdir / dump_name).string();
     std::FILE* f = std::fopen(path.c_str(), "wb");
     if (f != nullptr) {

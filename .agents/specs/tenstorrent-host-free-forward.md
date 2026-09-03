@@ -326,6 +326,29 @@ investigation row but MUST be addressed by the item-5 port:
 
 ## Owed
 
+- **Qwen3-4B TT forward beyond the near-tie band on both arms
+  ([#2811](https://github.com/mudler/vllm.cpp/issues/2811)).** Found by the
+  #1625 flip's 4B bring-up (2026-09-03): deterministic on both arms, but
+  5/16 prompts past the 500-mnat band against teacher-forced gaps on each
+  arm's own prefix (capture worst 1000 mnats @ (11,3), eager worst 2000 @
+  (5,6)). The 4B dense gate skips loudly on TT until the lane lands a passing
+  pair or a falsified-drift root cause. The two 4B capture FATALS found on
+  the way are NOT owed — fixed in commit `1872aeb16` (shadow-volume
+  contract).
+- **TT captured-arm bring-up for the non-Qwen3-dense families
+  ([#2812](https://github.com/mudler/vllm.cpp/issues/2812)).** The flip
+  defaults capture on for Qwen3-dense only; every other decode driver keeps
+  the explicit opt-in (`static_graph_requires_opt_in`) until its captured arm
+  is brought up and gated. Qwen3.5-GDN TT_FATALs mid-capture today
+  (`fd_mesh_command_queue.cpp:760`, "Writes are not supported during trace
+  capture") — that repair is part of this lane. Mistral-7B's captured arm
+  completes but drifts from its eager pair (p[1] t=8) — pair derivation owed.
+  The architecture carve keeps Mistral, Llama and InternLM2 — which construct
+  the Qwen3-dense graph class — on the pre-flip eager default, so their
+  ambient gates stay adjudicated against the committed eager pairs. The
+  Qwen3.5 harness selects the pair by the engine's arm and skips loudly until
+  then.
+
 - **The capture arm's cold step emits a deterministic wrong first decode
   token ([#2461](https://github.com/mudler/vllm.cpp/issues/2461)) — REPAIR
   LANDED in this change (2026-09-01, root cause and evidence in `## Now`);
@@ -1058,15 +1081,10 @@ flip ships the payoff rather than a risk.
   exactly as it selects the eager path in the engine. A drift here produces a
   test that passes while the engine runs a different arm than the goldens
   adjudicate.
-- Qwen3-4B captured bring-up (NEW evidence, same PR): `goldens/qwen3_greedy_4b/`
-  carries only the generic pair — no TT-specific files — so post-flip the 4B
-  SACRED battery runs CAPTURED against an unproven pair. Before the flip
-  lands: dump the captured 4B arm on the P150 (byte-identical across two runs
-  with a reset between, the 0.6B determinism standard), adjudicate against
-  the generic anchor, and on any first-divergence teacher-force a
-  `neartie_gap_mnats` pair with the #1488 method and commit the 4B capture
-  pair. If the captured 4B arm is byte-identical to the generic anchor, that
-  byte-equality IS the evidence and no new pair is committed.
+- Qwen3-4B captured bring-up (AMENDED 2026-09-03 — outcome in
+  `## Capture-default flip (#1625)` → `### Bring-up amendment`): the pair was
+  dumped, teacher-forced, and CANNOT be committed — both TT arms land beyond
+  the near-tie band. Owned by #2811.
 - `docs/FEATURES.md` TT host-free row: "Capture opt-in only (#1625 hang)"
   becomes "capture DEFAULT since #<PR> (`VT_TT_DECODE_CAPTURE=0` opts out)",
   with the payoff figure.
@@ -1127,3 +1145,66 @@ flip ships the payoff rather than a risk.
   nothing-lands-dead smell; scoping it out requires the stop-condition
   evidence above).
 - The published benchmark figure is re-taken on the flip tree.
+
+### Bring-up amendment (2026-09-03)
+
+The 4B bring-up the scope bullet promised produced findings the spec did not
+anticipate. Recorded here because the code and Git history do not carry the
+decisions.
+
+**Finding 1 — the 4B TT forward diverges beyond the near-tie band on BOTH
+arms.** Both arms are deterministic (capture dumps byte-identical across runs,
+sha256 `7e77e6ea…`; eager `8325ff10…`) and the two fatal bugs on the 4B
+capture path are FIXED (commit `1872aeb16`: D2D copy and capture memset took
+`BufferSlot::bytes` — the #1922 best-fit lend's host-block CAPACITY — as the
+content contract; on 4B the 5120-B `s.hidden` shadow sat in a 10240-B block
+and the D2D lane declined, falling through to a host read mid-capture
+(TT_FATAL, `fd_mesh_command_queue.cpp:807`), and the memset derived its zero
+geometry from capacity and staged a [1,5120] zero no warm step primed
+(zero-cache miss, `tenstorrent_ops.cpp:255`). 0.6B survived on its size-class
+bins.) But against `transformers`-teacher-forced gaps on each arm's OWN
+prefix, 5 of 16 prompts land beyond the 500-mnat band — capture worst 1000
+mnats @ (11,3), eager worst 2000 @ (5,6); first-divergence margins 0.625-2.0
+nats, which is a real forward difference and not a bf16 tie (0.6B TT worst
+500; the committed CUDA 4B pair's worst 250). A pair that fails its own gate
+cannot be committed. DECISION (user, 2026-09-03): scope 4B down per the stop
+condition's pattern — the 4B dense gate skips loudly on TT naming #2811,
+`VT_DUMP_IDS=1` still bootstraps a dump for the bring-up, and the finding is
+owed. Hypothesis to falsify on #2811's lane: diffuse bf16 accumulation drift
+at H=2560/36L (the divergence is concentrated: most prompts are fully
+vLLM-endorsed, gap 0 on every cell).
+
+**Finding 2 — the flip's blast radius was every TT decode-graph driver, and
+one of them crashes.** `support_static_graph_mode()` is consulted by ten
+driver sites beyond Qwen3-dense (Qwen3.5-GDN ×2, Qwen3.5-dense, Qwen3-MoE
+driver + registry, GLM4.5-MoE-lite registry, DeepSeek-V2 driver + registry,
+Qwen3-DFlash, Voxtral). The flip as first committed armed capture for ALL of
+them by default; the Qwen3.5-0.8B gate battery TT_FATALs mid-capture
+("Writes are not supported during trace capture",
+`fd_mesh_command_queue.cpp:760`) — a product-default crash for a model that
+worked pre-flip. Mistral-7B (which rides the Qwen3-dense machinery) completes
+but its captured sequence drifts from its committed EAGER pair (anchor drift
+p[1] t=8, `engine=1924 anchor=1988`) — pair debt, not a crash. SHAPE: the
+platform gains `static_graph_requires_opt_in()` (base false; TT returns
+`!DecodeCaptureRequested()`), every driver conjuncts the seam — the ten
+non-Qwen3-dense sites call the no-arg overload — and the Qwen3-dense driver
+calls the
+architecture-aware overload, because its ONE graph class also serves the
+Mistral, Llama and InternLM2 registries, and the TT override carves default
+capture to exactly `Qwen3ForCausalLM` (DECISION, user, 2026-09-03: carve by
+architecture — an ungated default arm for three registries is the failure the
+scope-down exists to prevent). Those three keep the pre-flip explicit opt-in
+until their captured arms are brought up (#2812). The Qwen3.5 and Mistral
+gate harnesses mirror the engine arm (`DecodeCaptureEnabled() &&
+DecodeCaptureRequested()`); a hardcoded eager name would adjudicate a
+captured run against eager goldens.
+
+**Gates this amendment adds:** Qwen3.5-0.8B ambient (no env) greens against
+its committed ambient pair (pre-amendment tree: TT_FATAL red,
+`flip-q35-prefix.out`); Qwen3.5 with `VT_TT_DECODE_CAPTURE=1` loud-skips;
+Mistral ambient greens against its committed eager pair — the architecture
+carve restores the pre-flip eager default (pre-carve red: captured-vs-eager
+anchor drift, `flip-mist-prefix.out`); Mistral with `VT_TT_DECODE_CAPTURE=1`
+loud-skips; 4B dense loud-skips (#2811); 0.6B both
+legs and the backend suite stay green. `flip-{q35-ambient,q35-optin,mist-skip,4b-skip,
+06b-ambient,06b-eager,backend-scope}.out` hold the green side.

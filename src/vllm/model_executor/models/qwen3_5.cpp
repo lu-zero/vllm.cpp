@@ -10579,8 +10579,10 @@ struct Qwen3_5DecodeGraph::Impl {
     // once per process into a function-local static. These were the LAST TWO of
     // the six batched-driver reads the spec's `## Our baseline` item 1 counted.
     Backend& b = vt::GetBackend(queue.device.type);
+    // The TT captured arm of this family is not gated (#2812): explicit opt-in only.
     enabled = vt::GraphCaptureEnabled() &&
               vllm::platforms::GetPlatform(queue.device.type).support_static_graph_mode() &&
+              !vllm::platforms::GetPlatform(queue.device.type).static_graph_requires_opt_in() &&
               b.SupportsGraphCapture();
     dbuf = enabled && DecodeGraphDoubleBufferEnabled();
     poison = enabled && std::getenv("VT_ASYNC_EXECUTOR_POISON") != nullptr;
@@ -11198,8 +11200,10 @@ struct Qwen3_5DenseDecodeGraph::Impl {
     // once per process into a function-local static. These were the LAST TWO of
     // the six batched-driver reads the spec's `## Our baseline` item 1 counted.
     Backend& b = vt::GetBackend(queue.device.type);
+    // The TT captured arm of this family is not gated (#2812): explicit opt-in only.
     enabled = vt::GraphCaptureEnabled() &&
               vllm::platforms::GetPlatform(queue.device.type).support_static_graph_mode() &&
+              !vllm::platforms::GetPlatform(queue.device.type).static_graph_requires_opt_in() &&
               b.SupportsGraphCapture();
     dbuf = enabled && DecodeGraphDoubleBufferEnabled();
     poison = enabled && std::getenv("VT_ASYNC_EXECUTOR_POISON") != nullptr;

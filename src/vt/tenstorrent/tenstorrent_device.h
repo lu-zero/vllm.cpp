@@ -7,6 +7,7 @@
 #include <vector>
 #include <cstdlib>
 #include <memory>
+#include <string>
 #include <string_view>
 
 // ttnn::MeshDevice (ttnn/api/ttnn/device.hpp) is a `using` alias for this real
@@ -56,6 +57,30 @@ inline bool HostFreeDecodeEnabled() {
 inline bool DecodeCaptureEnabled() {
   const char* e = std::getenv("VT_TT_DECODE_CAPTURE");
   return e == nullptr || std::string_view(e) != "0";
+}
+
+// The pre-flip polarity: capture only when EXPLICITLY requested. The decode
+// graph drivers whose TT captured arm has no committed gate evidence conjunct
+// this, so the #1625 default-on flips only the arm class with evidence
+// (Qwen3-dense: the 0.6B capture pair, the deterministic 4B/Mistral runs);
+// every other family keeps its pre-flip eager default until its captured arm
+// is brought up (#2812 — the Qwen3.5-GDN arm TT_FATALs mid-capture today).
+inline bool DecodeCaptureRequested() {
+  const char* e = std::getenv("VT_TT_DECODE_CAPTURE");
+  return e != nullptr && std::string_view(e) != "0";
+}
+
+// The #1625 flip's evidence family: Qwen3 dense causal-LM checkpoints. The
+// dense decode-graph driver defaults capture on for exactly this architecture
+// string; Mistral, Llama and InternLM2 construct the SAME graph class and keep
+// the explicit opt-in until their captured arms are brought up (#2812 —
+// Mistral's captured arm drifts from its committed eager pair today).
+inline bool DecodeCaptureDefaultArch(
+    const std::vector<std::string>& architectures) {
+  for (const auto& a : architectures) {
+    if (a == "Qwen3ForCausalLM") return true;
+  }
+  return false;
 }
 
 // Opens (lazily, once) and returns the single process-wide mesh device this

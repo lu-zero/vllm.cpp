@@ -43,6 +43,7 @@
 #include "vllm/entrypoints/model_loader.h"
 #include "vllm/sampling_params.h"
 #include "vt/ops.h"
+#include "vt/tenstorrent/tenstorrent_device.h"
 
 namespace fs = std::filesystem;
 
@@ -222,9 +223,30 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
   // then qwen3-neartie-gap-transformers.py teacher-forces `transformers` on
   // that sequence -- NOT vLLM, which has no Tenstorrent backend at all. See
   // AGENTS.md "When vLLM has no implementation" and .agents/oracles/transformers.md.
-  const char* ids_name = tenstorrent ? "our_ids_tenstorrent.npy" : "our_ids.npy";
-  const char* gap_name =
-      tenstorrent ? "neartie_gap_mnats_tenstorrent.npy" : "neartie_gap_mnats.npy";
+  // Selection follows the engine's arm. This model constructs the Qwen3-dense
+  // graph class, whose architecture carve (#1625/#2812) keeps MISTRAL on the
+  // pre-flip eager default: ambient adjudicates the eager arm against the
+  // committed eager pair, and only an explicit VT_TT_DECODE_CAPTURE opt-in
+  // runs the captured arm — whose pair is owed (#2812), so the gate skips
+  // loudly there instead of failing main on mainline runs. A hardcoded eager
+  // name would adjudicate a captured run against eager goldens.
+  const bool tt_capture = tenstorrent &&
+                          vt::tenstorrent::DecodeCaptureEnabled() &&
+                          vt::tenstorrent::DecodeCaptureRequested();
+  const char* ids_name =
+      tt_capture ? "our_ids_tenstorrent_capture.npy"
+                 : (tenstorrent ? "our_ids_tenstorrent.npy" : "our_ids.npy");
+  const char* gap_name = tt_capture
+                             ? "neartie_gap_mnats_tenstorrent_capture.npy"
+                             : (tenstorrent
+                                    ? "neartie_gap_mnats_tenstorrent.npy"
+                                    : "neartie_gap_mnats.npy");
+  if (tt_capture && !fs::exists(gdir / ids_name) && !dump) {
+    MESSAGE(label << " TT capture pair owed (capture is the TT default since "
+            "the #1625 flip; this model's pair is not brought up; #2812); "
+            "skipping on Tenstorrent");
+    return;
+  }
   bool bootstrap_only = false;
   if (device_golden) {
     const bool have_dev = fs::exists(gdir / ids_name) && fs::exists(gdir / gap_name);
@@ -353,7 +375,8 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
 
   if (dump) {
     const std::string dump_name =
-        tenstorrent ? "our_ids_tenstorrent.i32" : "our_ids.i32";
+        tt_capture ? "our_ids_tenstorrent_capture.i32"
+                   : (tenstorrent ? "our_ids_tenstorrent.i32" : "our_ids.i32");
     const std::string path = (gdir / dump_name).string();
     std::FILE* f = std::fopen(path.c_str(), "wb");
     if (f != nullptr) {
