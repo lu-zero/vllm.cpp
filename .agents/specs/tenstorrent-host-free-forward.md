@@ -633,8 +633,19 @@ battery 16/16 anchor-exact unchanged (max 0.375 nats, rc 0), captured
 battery 16/16 against the new pair (max 0.5 nats, rc 0), focused capture
 gate 2/2 (rc 0), `VT_TT_RECAPTURE_EVERY=8` captured battery 16/16 (rc 0,
 the re-capture lane tolerates the fill path), `test_tenstorrent_backend`
-52/52 cases 5983/5983 assertions. A fresh reviewer mutated the head
-(recorded in the pull request).
+52/52 cases 5983/5983 assertions. A fresh reviewer returned PASS on the
+review range `77224426e..7ee345ef5`: reverting the threshold to 16 reds the
+focused capture gate at prompt[1] tok=1 (engine 11 against the committed
+572; the wrong token differs from the spec's 30/374, consistent with the
+race), corrupting a captured-pair cell reds it again naming the corrupt
+value, the eager SACRED battery stays 16/16 green (max 0.375 nats), and the
+reachability mutation, `can_update=false` in `NotePagedKvRacWrites` so both
+device push call sites die, greens as expected, which pins the M1 red to
+the production push site. Statically both push functions have exactly one
+caller each, both in `NotePagedKvRacWrites`
+(tenstorrent_ops.cpp:1175,1187), whose only caller is the production
+kReshapeAndCache path (tenstorrent_ops.cpp:3105); no test-only path exists.
+Mutation logs live in `/tmp/review-2669-logs/` on the gate host.
 
 The operator gate (2026-08-20, P150, `206afb63`) found
 [#1476](https://github.com/mudler/vllm.cpp/issues/1476): captured replay went
