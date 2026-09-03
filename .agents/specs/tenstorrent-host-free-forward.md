@@ -534,6 +534,20 @@ not a process-global `GraphCapturesCounter`. Tracked on
   `test_qwen3_paged_engine.cpp`. Found during the #1488 re-adjudication after
   the garbled value had been misread as golden-buffer corruption. Fixed by
   [#1508](https://github.com/mudler/vllm.cpp/issues/1508).
+- **Device-PA decode consumes the KV shadow on `device_current` alone
+  ([#2670](https://github.com/mudler/vllm.cpp/issues/2670)).** Latent after
+  #2669's repair removes the one known trigger: the reader-side contract
+  has no proof besides the flag, so any future publisher over a partially
+  correct device block corrupts decode with no error path. Repair
+  direction: a per-block coverage stamp the push records and the reader
+  checks before it skips the upload; mirror upload stays the fallback.
+- **`VT_DUMP_IDS=1` turns the anchor REQUIRE off and the verdict line does
+  not say so ([#2671](https://github.com/mudler/vllm.cpp/issues/2671)).** A
+  dump-mode run prints `16/16 prompts PASS` from the committed goldens
+  alone, which is how a build that reds 14 of 16 prompts outside dump mode
+  looked green on 2026-09-02. Repair direction: mark the verdict
+  `RE-CAPTURE MODE` and report skipped anchors; keep the
+  `qwen3-neartie-gap.py` refresh path working.
 
 The operator must still rerun the 80-token no-hang gate and
 `test_qwen3_paged_engine` on a Blackhole P150. An implementer run is an
@@ -543,6 +557,49 @@ input, not a gate result.
 
 `ACTIVE`. R1-R3b and the R2 on-device `cur_pos` / `update_idxs` advance are
 implemented on this branch, env-gated by `VT_TT_HOST_FREE_DECODE`.
+
+### Repair (2026-09-03): short-chunk device KV push clobber (#2669)
+
+The captured multi-request battery reds at the first cross-request KV block
+boundary. The boundary decode step emits deterministic punctuation garbage
+(the 11/13/264 family) while eager host-free stays green; #1625 carries the
+symptom. Root cause, probed on the P150 with scratch instrumentation that
+never landed:
+
+- `TryDevicePagedPushPair` routes a prefill chunk shorter than
+  `kPagedFillMinTokens` (16) to `TryDevicePagedUpdateBatch`. The batched op
+  treats each chunk token as a separate batch user over a synthetic
+  one-entry page-table stick. All users of one chunk resolve to the same
+  physical block, tt-metal `paged_update_cache` is a page-granular
+  concurrent read-modify-write, so the users clobber each other and the
+  last writer wins. The device block keeps the previous request's rows
+  0..3, patches only the final row, and leaves the rest stale, while the
+  push site publishes `device_current = true`.
+- The boundary decode step reads `sk.device_current` and consumes the
+  device shadow without a re-upload, so device-PA attends the dead
+  request's KV rows. Request 0 is always clean: its prefill push declines
+  (`can_update` is false with no shadow yet), so the mirror re-uploads.
+
+Evidence: the device-vs-mirror diff at the boundary shows K maxdiff 54-342
+with rows 0..3 byte-identical to the dead request's values and rows 5-6
+stale nonzero against a zeroed mirror; the virgin-step control diff is
+0.000000. The flag history shows five mirror patches then `prefillpush OK
+B=5` per layer on the second request's prefill. The fix probe (fill at any
+T, threshold 16 to 1) moves the failure from prompt[1] tok=1 hard garbage
+to tok=14 deterministic near-tie.
+
+Plan, in order, one pull request: (1) commit this spec; (2) a red-first
+focused gate that runs prompts 0 then 1 and adjudicates every cell against
+the committed near-tie band — it reds at prompt[1] tok=1 before the repair;
+(3) the repair: route a sequential fill-eligible chunk to
+`TryDevicePagedFill` at any T, or refuse the batched-update path when two
+chunk users share one physical block; (4) the full gate on the P150;
+(5) refresh the committed golden pair with `qwen3-neartie-gap.py` against
+the pinned vLLM oracle — `our_ids_tenstorrent.npy` dates to 2026-08-22
+(#1630), and a fresh dump differs from it in 64 of 256 cells, all inside
+the committed near-tie band (worst 0.375 nats, none forward-divergent);
+(6) the records: #2669 closes on merge, #2670 and #2671 ride as Owed.
+#1625's capture-default flip stays blocked on this repair.
 
 The operator gate (2026-08-20, P150, `206afb63`) found
 [#1476](https://github.com/mudler/vllm.cpp/issues/1476): captured replay went
