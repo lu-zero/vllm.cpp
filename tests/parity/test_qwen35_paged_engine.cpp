@@ -326,8 +326,8 @@ void RunGate(const std::string& golden_subdir, const char* label) {
                              : "neartie_gap_mnats.npy";
   if (tt_capture && !fs::exists(gdir / ids_name) && !dump) {
     MESSAGE(label << " TT capture pair owed (this family's captured arm is "
-            "explicit opt-in until its pair is brought up; #2812); skipping "
-            "on Tenstorrent");
+            "blocked by the host-orchestrated GDN ops; the device-pure wave "
+            "owns the arm, #2812); skipping on Tenstorrent");
     return;
   }
   parity::NpyArray o_dev, gap_dev;  // keep the device arrays alive for the loop

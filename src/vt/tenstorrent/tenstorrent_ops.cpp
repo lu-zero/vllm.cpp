@@ -281,7 +281,12 @@ struct BufferSlot {
   uint32_t dev_cols = 0;
   bool host_current = true;    // host bytes match the latest value
   bool device_current = false; // device tensor matches the latest value
-  // BACKEND-TENSTORRENT-QWEN35 W7 (#2282): the pool handed the block to a new
+  // #2812: the gemma (w+1) F32 baked affine form, staged once and reused.
+  // Separate from `device` (the raw BF16 form EnsureAffine1D caches) so a
+  // non-gemma consumer of the same buffer never reads the +1 values. The
+  // per-call transient upload this replaces is a host write, which a trace
+  // capture forbids — the Qwen3.5 captured arm fatalled here on every norm.
+  std::optional<ttnn::Tensor> gemma_device;
   // tenant (MarkScratchAcquired) and no producer has established its content
   // yet. The resident allocation and the host bytes both hold the PREVIOUS
   // tenant's bytes — undefined for the new tenant, whose pending device op
@@ -619,6 +624,97 @@ ttnn::Tensor UploadRowsBf16(const Tensor& t, uint32_t rows, uint32_t cols,
   StagingPersistentBytes().fetch_add(static_cast<uint64_t>(n) * 2,
                                      std::memory_order_relaxed);
   return dev;
+}
+
+// ---- Persistent weight-view staging (TILE BF16 on device) ------------------
+ttnn::Tensor EnsureDevice2D(const Tensor& t, MeshDevice& device);
+// MatmulBT receives interior weight views: the packed GDN projections are
+// Slice'd per call (qwen3_5.cpp qkvz/z splits), and EnsureDevice2D refuses to
+// serve an interior view from the base's tracked staging (W2c: those are the
+// wrong offset's bytes). The view therefore re-staged anonymously on every
+// call — a per-call host write that trace capture forbids (#2812: the
+// Qwen3.5-0.8B captured battery fatalled in exactly this arm, fd_mesh_command_queue.cpp:760,
+// 2/2 deterministic) and a pure eager tax. Key the shadow by the VIEW's own
+// data pointer plus its geometry: a view's address is stable for the model's
+// lifetime (the parent host buffer outlives the step loop), and a recycled
+// address must also match rows x cols to collide. Weight windows are
+// immutable after load; if a mutable weight window ever appears, its parent's
+// MarkHostWritten must drop the views' shadows the way DropEmbedTableShadow
+// does for the vocab table.
+struct WeightViewShadow {
+  std::optional<ttnn::Tensor> device;
+  uint32_t rows = 0, cols = 0;
+};
+std::mutex& WeightViewMutex() {
+  static std::mutex m;
+  return m;
+}
+std::map<uintptr_t, WeightViewShadow>& WeightViewShadows() {
+  static std::map<uintptr_t, WeightViewShadow>* m =
+      new std::map<uintptr_t, WeightViewShadow>(); // never destroyed (#1486)
+  return *m;
+}
+
+// True iff `t` is a rank-2 contiguous tensor whose pointer is a tracked BASE
+// (EnsureDevice2D's fast-path condition). Views and untracked pointers are
+// the ones EnsureDevice2D stages anonymously.
+bool IsTrackedBase2D(const Tensor& t) {
+  if (t.rank != 2 || !t.IsContiguous()) return false;
+  std::lock_guard<std::mutex> g(SlotMutex());
+  BufferSlot* s = FindSlot(t.data);
+  return s != nullptr && t.data == s->host;
+}
+
+// Persistent device staging for an interior/untracked BF16 weight view.
+// Stages the window's own bytes once (the same from_span the anonymous arm
+// runs, so the packed device bytes are identical) and reuses the resident
+// tensor from then on — capture-safe and eager-cheap.
+ttnn::Tensor EnsureWeightViewDevice(const Tensor& t, MeshDevice& device) {
+  VT_CHECK(t.rank == 2 && t.IsContiguous() && t.dtype == DType::kBF16,
+           "tenstorrent EnsureWeightViewDevice: contiguous rank-2 bf16");
+  const uint32_t rows = static_cast<uint32_t>(t.shape[0]);
+  const uint32_t cols = static_cast<uint32_t>(t.shape[1]);
+  const uintptr_t key = reinterpret_cast<uintptr_t>(t.data);
+  {
+    std::lock_guard<std::mutex> g(WeightViewMutex());
+    auto it = WeightViewShadows().find(key);
+    if (it != WeightViewShadows().end() && it->second.device.has_value() &&
+        it->second.rows == rows && it->second.cols == cols) {
+      return *it->second.device;
+    }
+  }
+  EnsureHost(t);
+  const size_t n = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr,
+                 "[TT-UP] EnsureWeightViewDevice from_span WRITE during "
+                 "capture ptr=%p rows=%u cols=%u\n",
+                 t.data, rows, cols);
+  ttnn::Tensor dev = ttnn::Tensor::from_span(
+      ttsl::Span<const bfloat16>(static_cast<const bfloat16*>(t.data), n),
+      TileSpecOf(rows, cols), &device);
+  // The view stage IS a bulk bf16 staging: report it through the same
+  // counters EnsureDevice2D's bf16 arm bumps, so the W4 contract ("each view
+  // stage is its own bulk upload") holds for the shadow arm too. Later calls
+  // serve the resident shadow and, like a resident serve there, count nothing.
+  StagingBulkUploads().fetch_add(1, std::memory_order_relaxed);
+  StagingBulkBytes().fetch_add(static_cast<uint64_t>(n) * 2,
+                               std::memory_order_relaxed);
+  std::lock_guard<std::mutex> g(WeightViewMutex());
+  WeightViewShadow& s = WeightViewShadows()[key];
+  s.device = dev;
+  s.rows = rows;
+  s.cols = cols;
+  return dev;
+}
+
+// MatmulBT's weight staging: tracked bases keep EnsureDevice2D's fast path;
+// interior views get the persistent shadow instead of the per-call anonymous
+// staging.
+ttnn::Tensor EnsureMatmulWeightDevice(const Tensor& b, MeshDevice& device) {
+  if (b.dtype == DType::kBF16 && !IsTrackedBase2D(b))
+    return EnsureWeightViewDevice(b, device);
+  return EnsureDevice2D(b, device);
 }
 
 // Return a TILE BFLOAT16 device tensor for rank-2 `t`, uploading only when the
@@ -1402,7 +1498,7 @@ void MatmulBTKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
 
   MeshDevice& device = SharedMeshDevice();
   ttnn::Tensor dev_a = EnsureDevice2D(a, device);
-  ttnn::Tensor dev_b = EnsureDevice2D(b, device);
+  ttnn::Tensor dev_b = EnsureMatmulWeightDevice(b, device);
   ttnn::Tensor dev_c =
       ttnn::operations::matmul::matmul(dev_a, dev_b, /*transpose_a=*/false, /*transpose_b=*/true);
   CommitDevice2D(out, std::move(dev_c));
@@ -1757,15 +1853,47 @@ void RmsNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& weight,
   // QWEN35 W2b: dropping the +1 here collapsed ambient prefill to `,`).
   ttnn::Tensor dev_w;
   if (args.gemma) {
-    EnsureHost(weight);
-    std::vector<float> gw(static_cast<size_t>(d));
-    for (uint32_t i = 0; i < d; ++i)
-      gw[static_cast<size_t>(i)] = LoadElemF32(weight, static_cast<int64_t>(i)) + 1.0f;
-    dev_w = ttnn::Tensor::from_vector<float>(
-        std::move(gw),
-        SpecOf(tt::tt_metal::Shape({1, d}), ttnn::DataType::FLOAT32,
-               ttnn::Layout::TILE),
-        &device);
+    // Gemma (w+1) is baked host-side in the oracle's f32 order — the same
+    // treatment as the fused preamble's weff — because ttnn::rms_norm applies
+    // gamma raw. The baked form is cached in its own slot field, distinct
+    // from EnsureAffine1D's raw BF16 form: a non-gemma consumer of the same
+    // buffer must never read the +1 version. Qwen3 never sets gemma; Qwen3.5
+    // sets it on every norm (BACKEND-TENSTORRENT-QWEN35 W2b: dropping the +1
+    // here collapsed ambient prefill to `,`). The cache is what makes the
+    // captured arm legal: the first (warmup) call stages the baked tensor,
+    // and every later call — including every captured step — reuses it
+    // instead of issuing the per-call host write that trace capture
+    // forbids (#2812: the Qwen3.5-0.8B captured battery fatalled here,
+    // fd_mesh_command_queue.cpp:760, 2/2 deterministic).
+    bool have_w = false;
+    {
+      std::lock_guard<std::mutex> g(SlotMutex());
+      BufferSlot* s = FindSlot(weight.data);
+      if (s != nullptr && weight.data == s->host &&
+          s->gemma_device.has_value()) {
+        dev_w = *s->gemma_device;
+        have_w = true;
+      }
+    }
+    if (!have_w) {
+      EnsureHost(weight);
+      std::vector<float> gw(static_cast<size_t>(d));
+      for (uint32_t i = 0; i < d; ++i)
+        gw[static_cast<size_t>(i)] =
+            LoadElemF32(weight, static_cast<int64_t>(i)) + 1.0f;
+      if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+        std::fprintf(stderr,
+                     "[TT-UP] RmsNorm gemma from_vector WRITE during capture\n");
+      dev_w = ttnn::Tensor::from_vector<float>(
+          std::move(gw),
+          SpecOf(tt::tt_metal::Shape({1, d}), ttnn::DataType::FLOAT32,
+                 ttnn::Layout::TILE),
+          &device);
+      std::lock_guard<std::mutex> g(SlotMutex());
+      BufferSlot* s = FindSlot(weight.data);
+      if (s != nullptr && weight.data == s->host)
+        s->gemma_device = dev_w;
+    }
   } else {
     dev_w = EnsureAffine1D(weight, d, device);
   }
