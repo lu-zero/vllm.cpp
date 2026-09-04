@@ -94,18 +94,19 @@ class TenstorrentPlatform final : public Platform {
            vt::tenstorrent::DecodeCaptureEnabled();
   }
 
-  // #1625/#2812: the default-on above is EVIDENCE-SCOPED to the Qwen3-dense
-  // family (the only one with committed TT captured-arm gate evidence). Every
+  // #1625/#2812: the default-on above is EVIDENCE-SCOPED to the families with
+  // committed TT captured-arm gate evidence (Qwen3-dense, Mistral-7B). Every
   // other decode driver conjuncts this query and keeps the pre-flip explicit
-  // opt-in until its own captured arm is brought up.
+  // opt-in until its own captured arm is brought up and gated.
   bool static_graph_requires_opt_in() const override {
     return !vt::tenstorrent::DecodeCaptureRequested();
   }
 
   // Architecture-scoped carve-out for the Qwen3-dense graph driver: the flip's
-  // evidence family captures by default; the other families that construct the
-  // same class (Mistral, Llama, InternLM2) keep the explicit opt-in (#2812 —
-  // Mistral's captured arm drifts from its committed eager pair today).
+  // evidence families (Qwen3-dense, Mistral-7B) capture by default — each
+  // gates its captured arm against its own committed teacher-forced pair
+  // (#2812); Llama and InternLM2, which construct the same class, keep the
+  // explicit opt-in until their captured arms are brought up.
   bool static_graph_requires_opt_in(
       const std::vector<std::string>& architectures) const override {
     if (vt::tenstorrent::DecodeCaptureRequested()) return false;

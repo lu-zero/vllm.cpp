@@ -335,25 +335,47 @@ investigation row but MUST be addressed by the item-5 port:
   pair or a falsified-drift root cause. The two 4B capture FATALS found on
   the way are NOT owed — fixed in commit `1872aeb16` (shadow-volume
   contract).
-- **TT captured-arm bring-up for the non-Qwen3-dense families
-  ([#2812](https://github.com/mudler/vllm.cpp/issues/2812)).** The flip
-  defaults capture on for Qwen3-dense only; every other decode driver keeps
-  the explicit opt-in (`static_graph_requires_opt_in`) until its captured arm
-  is brought up and gated. Mistral-7B's captured arm
-  completes but drifts from its eager pair (p[1] t=8) — pair derivation owed.
-  The architecture carve keeps Mistral, Llama and InternLM2 — which construct
-  the Qwen3-dense graph class — on the pre-flip eager default, so their
-  ambient gates stay adjudicated against the committed eager pairs. The
-  Qwen3.5 harness selects the pair by the engine's arm and skips loudly until
-  then. CORRECTION (fresh review, 2026-09-04): the earlier "Qwen3.5-GDN
-  TT_FATALs mid-capture today" record is STALE — with the conjunct deleted,
-  the captured GDN battery completes and greens 16/16 against the eager
-  goldens (~24 min), so the fatal was another shadow-volume instance, cured
-  by commit `1872aeb16`. The conjunct's surviving justification is PAIR
-  DISCIPLINE — no committed captured pair, so the default stays on the proven
-  arm — and until #2812 lands that pair, no gate detects the conjunct's
-  deletion (captured happens to equal the eager goldens today); the #2812
-  lane owes the polarity gate that closes this blindness.
+- **Qwen3.5-GDN captured arm: structurally blocked mid-capture; the
+  device-pure GDN wave is owed
+  ([#2907](https://github.com/mudler/vllm.cpp/issues/2907), found by
+  [#2812](https://github.com/mudler/vllm.cpp/issues/2812)).**
+  RE-CORRECTION (2026-09-04, P150 repro 2/2 deterministic): the previous
+  CORRECTION on this bullet was WRONG — the original "Qwen3.5-GDN
+  TT_FATALs mid-capture" record was right. Its supporting M2 mutation
+  almost certainly hit the INERT MoE driver site (`Qwen3_5DecodeGraph`),
+  not the dense driver (`Qwen3_5DenseDecodeGraph`) the 0.8B checkpoint
+  exercises, so its 16/16 green measured the eager default, not the
+  captured arm. The captured 0.8B battery dies deterministically on
+  tt-metal "Writes are not supported during trace capture"
+  (fd_mesh_command_queue.cpp:760). Root cause: three per-call staging
+  classes inside `Qwen3_5DenseDecodeGraph::Step`. (1) The `RmsNormKernel`
+  gemma branch re-uploaded the baked w+1 f32 buffer every call — FIXED
+  (a `gemma_device` slot on `BufferSlot` caches it). (2) `MatmulBT` weight
+  interior views — the non-merged GDN path Slice's `packed_weight` per
+  call, which `EnsureDevice2D` refuses (W2c) — fell to anonymous
+  `from_span` uploads every call — FIXED (a weight-view shadow cache keyed
+  by view pointer and geometry; tracked bases keep `EnsureDevice2D`).
+  (3) The GDN ops themselves (`CausalConv1dUpdateKernel`,
+  `GdnDecodeKernel`) are host-orchestrated BY DESIGN — EnsureHost on
+  x/q/k/v/g/beta, ReadIdxHost, per-call host vector builds, per-call
+  UploadTensor — which no trace capture can admit; removing that is the
+  device-pure GDN wave, a separate row and issue. Blindness: the ambient
+  q35 gate still adjudicates only the eager arm and no captured pair gate
+  exists; a conjunct's deletion for q35 now fails loudly (the captured
+  battery hits the deterministic fatal) rather than passing silently, but
+  the arm stays ungated until the wave lands.
+- **Mistral-7B captured pair LANDED (2026-09-04, #2812);
+  `MistralForCausalLM` joins the default-on arch set.** The captured arm
+  is byte-identical across two runs with a card reset between, and differs
+  from the committed eager pair in 34/256 cells spanning 5 prompts (worst
+  p1 t8-t15 — the same p[1] t=8 cell the M1 mutation flagged), so
+  #2566's CLI-level token identity does not extend to the battery. The
+  pair is teacher-forced via transformers: every cell sits inside the
+  500-mnat band, worst 250 mnats at (1,8). The captured gate greens
+  128/128 against its own pair, and the ambient mistral gate now
+  adjudicates the CAPTURED arm against the capture pair. Llama and
+  InternLM2 keep the explicit opt-in until their own captured arms are
+  brought up.
 
 - **The capture arm's cold step emits a deterministic wrong first decode
   token ([#2461](https://github.com/mudler/vllm.cpp/issues/2461)) — REPAIR
@@ -594,6 +616,17 @@ becomes the DEFAULT (`VT_TT_DECODE_CAPTURE=0` opts out), the Qwen3-4B
 captured pair is brought up in the same change, the published benchmark
 figure is re-taken on the flip tree, and the flip lands stacked on the #2669
 repair once PR #2672 merges.
+
+### #2812 pairs lane (2026-09-04)
+
+Mistral-7B's captured pair is committed and its captured arm gates green
+against it (teacher-forced, worst 250 mnats); `MistralForCausalLM` joins
+`DecodeCaptureDefaultArch`, so the ambient mistral gates adjudicate the
+CAPTURED arm. The Qwen3.5-0.8B captured arm stays owed: it dies
+deterministically mid-capture on the host-orchestrated GDN ops; the
+per-call gemma-norm and weight-view staging classes found on the way are
+fixed on this branch, and the device-pure GDN wave owns the rest
+(#2907). See `## Owed`.
 
 ### Repair (2026-09-03): short-chunk device KV push clobber (#2669)
 

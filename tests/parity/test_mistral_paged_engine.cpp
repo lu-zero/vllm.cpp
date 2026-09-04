@@ -224,15 +224,15 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
   // that sequence -- NOT vLLM, which has no Tenstorrent backend at all. See
   // AGENTS.md "When vLLM has no implementation" and .agents/oracles/transformers.md.
   // Selection follows the engine's arm. This model constructs the Qwen3-dense
-  // graph class, whose architecture carve (#1625/#2812) keeps MISTRAL on the
-  // pre-flip eager default: ambient adjudicates the eager arm against the
-  // committed eager pair, and only an explicit VT_TT_DECODE_CAPTURE opt-in
-  // runs the captured arm — whose pair is owed (#2812), so the gate skips
-  // loudly there instead of failing main on mainline runs. A hardcoded eager
-  // name would adjudicate a captured run against eager goldens.
-  const bool tt_capture = tenstorrent &&
-                          vt::tenstorrent::DecodeCaptureEnabled() &&
-                          vt::tenstorrent::DecodeCaptureRequested();
+  // graph class, whose architecture carve (#1625/#2812) admits MISTRAL to the
+  // capture default: ambient adjudicates the CAPTURED arm against the
+  // committed capture pair (teacher-forced via `transformers`:
+  // byte-identical across runs, differs from the eager pair in 34/256 cells,
+  // every gap within 250 mnats, #2812), and an explicit VT_TT_DECODE_CAPTURE=0
+  // opt-out runs the eager arm against the committed eager pair. A hardcoded
+  // eager name would adjudicate a captured run against eager goldens.
+  const bool tt_capture =
+      tenstorrent && vt::tenstorrent::DecodeCaptureEnabled();
   const char* ids_name =
       tt_capture ? "our_ids_tenstorrent_capture.npy"
                  : (tenstorrent ? "our_ids_tenstorrent.npy" : "our_ids.npy");
@@ -242,9 +242,9 @@ void RunGate(const std::string& repo_dir, const std::string& golden_subdir,
                                     ? "neartie_gap_mnats_tenstorrent.npy"
                                     : "neartie_gap_mnats.npy");
   if (tt_capture && !fs::exists(gdir / ids_name) && !dump) {
-    MESSAGE(label << " TT capture pair owed (capture is the TT default since "
-            "the #1625 flip; this model's pair is not brought up; #2812); "
-            "skipping on Tenstorrent");
+    MESSAGE(label << " TT capture pair absent from the golden dir (the pair "
+            "is committed upstream; #2812); refusing to adjudicate the "
+            "captured arm against the eager pair — skipping on Tenstorrent");
     return;
   }
   bool bootstrap_only = false;

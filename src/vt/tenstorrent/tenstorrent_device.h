@@ -61,24 +61,28 @@ inline bool DecodeCaptureEnabled() {
 
 // The pre-flip polarity: capture only when EXPLICITLY requested. The decode
 // graph drivers whose TT captured arm has no committed gate evidence conjunct
-// this, so the #1625 default-on flips only the arm class with evidence
-// (Qwen3-dense: the 0.6B capture pair, the deterministic 4B/Mistral runs);
-// every other family keeps its pre-flip eager default until its captured arm
-// is brought up (#2812 — the Qwen3.5-GDN arm TT_FATALs mid-capture today).
+// this, so the #1625 default-on flips only the arm classes with evidence
+// (Qwen3-dense and Mistral-7B: each captured arm gates against its own
+// committed teacher-forced pair, #2812); every other family keeps its
+// pre-flip eager default until its captured arm is brought up (#2812 — the
+// Qwen3.5-GDN arm is structurally blocked mid-capture today: the GDN ops are
+// host-orchestrated per call and a trace capture forbids host writes, so the
+// arm waits on the device-pure GDN wave).
 inline bool DecodeCaptureRequested() {
   const char* e = std::getenv("VT_TT_DECODE_CAPTURE");
   return e != nullptr && std::string_view(e) != "0";
 }
 
-// The #1625 flip's evidence family: Qwen3 dense causal-LM checkpoints. The
-// dense decode-graph driver defaults capture on for exactly this architecture
-// string; Mistral, Llama and InternLM2 construct the SAME graph class and keep
-// the explicit opt-in until their captured arms are brought up (#2812 —
-// Mistral's captured arm drifts from its committed eager pair today).
+// The #1625 flip's evidence families: Qwen3 dense causal-LM and Mistral
+// checkpoints. Both captured arms gate against their own committed
+// teacher-forced pairs (0.6B/4B, Mistral-7B — #2812); Llama and InternLM2
+// construct the SAME graph class and keep the explicit opt-in until their
+// captured arms are brought up (#2812).
 inline bool DecodeCaptureDefaultArch(
     const std::vector<std::string>& architectures) {
   for (const auto& a : architectures) {
     if (a == "Qwen3ForCausalLM") return true;
+    if (a == "MistralForCausalLM") return true;
   }
   return false;
 }
