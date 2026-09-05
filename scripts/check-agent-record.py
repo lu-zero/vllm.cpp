@@ -469,7 +469,10 @@ MATRICES = {
     # architecture. The first measurement landed with nowhere to record
     # it. `INVENTORIED`, no owner, no spec of its own. Bumped for a real
     # new row, never to make a failing state transition pass.
-    "BACKEND": (AGENTS / "backend-matrix.md", 88),
+    # 89 since 2026-09-05: +`BACKEND-TENSTORRENT-GDN-DEVICE-PURE`, the
+    # device-resident GDN decode wave split out of the Qwen35 wiring row
+    # (#2907, owed from #2812); spec committed first on the row branch.
+    "BACKEND": (AGENTS / "backend-matrix.md", 89),
 }
 
 ENGINE_MATRIX = AGENTS / "engine-matrix.md"
