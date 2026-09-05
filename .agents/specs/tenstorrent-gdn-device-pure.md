@@ -212,6 +212,9 @@ shared stale pair could not adjudicate either arm.
 
 ## Outcome (2026-09-05)
 
+- Landed: `108865e7a` (the device-resident ops and the capture admission)
+  plus `bcade48d6` (the ratchet-pin evidence tying the BACKEND count to the
+  row), through PR #2956; the merge closed #2907 and #2812.
 - Measured: captured and eager arms differ at 59/256 cells (near-ties on
   both paths); each arm against HF greedy stays inside the 500-mnat band
   with worst cell 375 mnats (captured 68 cells, eager 81 cells,
