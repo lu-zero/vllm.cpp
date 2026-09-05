@@ -151,7 +151,7 @@ q35 goldens' existing conventions.
 
 | W | Content |
 |---|---|
-| W0 | The spec, committed alone (`c64aa6d66`) before any implementation. |
+| W0 | The spec, committed alone (`5b0d001fe`) before any implementation. |
 | W1 | RED: the captured arm fatals on a host readback mid-capture; CausalConv1dUpdate + GdnDecode device-resident; focused suite green. |
 | W2 | GdnPostConv, RmsNormGated, AttnQkNormRopeGate device-pure; device-side cos_sin production; 2023/2023 focused green. |
 | W3 | Root cause (dual-role shadow replacement at prefill joins) traced with an instrumented backtrace; the four-part fix; probe green (375 mnats, zero sentinels). |
