@@ -760,4 +760,29 @@ the diff. The worktree and branch are retired. AMENDED 2026-09-09
 llama.cpp-domain oracle pair per the registered-oracle rule, the
 committed opt-in lane battery with dump ×2 identity, the user-facing
 env doc, the recorded vehicle decode A/B; the default-config flip
-stays a NEEDS_DECISION.
+stays a NEEDS_DECISION. AMENDED 2026-09-10 (twelfth): the W4c stop
+record landed (#3117) — the lane gate fired its binding stop condition at
+1133 mnats (p5 tok7), the spec's ≥1000 "a bug hunt, not a band." The
+hunt that followed proved the lane is CORRECT and the STOP-BAND is a
+false alarm. Root cause: bf16 double quantization. The model sends bf16
+activations to the lane; the lane widens bf16→f32 then quantizes to q8
+(double quant). The llama.cpp oracle uses f32 activations (single
+quant). A standalone C++ test confirmed 11-13% of int8 values differ,
+mean dot diff 0.306. The lane MIRRORS vLLM: the vLLM GGUF plugin's
+`quantize_q8_1` CUDA kernel does `static_cast<float>(x[...])` (bf16→f32)
+then quantizes to int8 — the same double quantization. A transformers
+5.17.0 bf16 reference on CPU showed all three quantized paths (default,
+lane, llama.cpp) match bf16 on the same 5/16 prompts; the lane is as
+close to bf16 ground truth as default and llama.cpp. The device kernel
+(`keepquant_kernel_code.h`) is a bit-exact port of llama.cpp's
+`quantize_row_q8_K_ref` and `ggml_vec_dot_q4_K_q8_K_generic`; the bug is
+NOT in the algorithm. llama.cpp f16 compute is unavailable (hard assert
+`src1->type == GGML_TYPE_F32` at `ggml-cpu.c:1332`, WIP and unmerged).
+The vLLM GGUF plugin oracle is now `gateable = yes` (#3125): it emitted
+48 byte-identical greedy tokens per prompt on gfx1151; CUDA forward stays
+blocked on thor:gpu0 (#2624, sm_110 missing from the vLLM `_C` wheel).
+The lane's e2e denominator is the vLLM GGUF plugin, not llama.cpp,
+because the lane mirrors the plugin's bf16 activation path. The bf16
+double-quant divergence is inherent to mirroring vLLM, not a defect to
+fix. #3079 closed COMPLETED by #3117; the throughput floor stays owed to
+[#1003](https://github.com/mudler/vllm.cpp/issues/1003).
