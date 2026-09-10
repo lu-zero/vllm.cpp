@@ -433,11 +433,12 @@ to make a failure pass.
   capture leg hashes the local bytes); the 27B arm entry LANDED with
   wave-3b-2, provenance caveat included — the gate-completion half of that
   pin stays owed to [#3042](https://github.com/mudler/vllm.cpp/issues/3042).
-- The 27B e2e gate, left UNREACHED by wave-3b-2:
-  [#3042](https://github.com/mudler/vllm.cpp/issues/3042) owns it. The
+- The 27B e2e gate — MOVED INTO W4d SCOPE
+  ([#3042](https://github.com/mudler/vllm.cpp/issues/3042)). The
   committed goldens (`tests/parity/goldens/qwen38_gguf_q4km_27b/`) are
-  lane-ready, and the TT-side run against them closes the gate. Evidence and
-  the next lever: `## W4`, wave-3b-2.
+  lane-ready, and the TT-side run against them closes the gate. The OOM
+  evidence, the three resident shadow maps, and the work breakdown:
+  `## W4d`.
 - Residency reconciliation (RESOLVED BY ARITHMETIC, 2026-09-06, #3030):
   the twin residency is a 0.8B-only shape. Measured on the pinned 27B
   artifact: non-expert keep-quant twins need 18.47 GiB, the expert tower
@@ -668,6 +669,171 @@ bundled.
 - **PR shape.** One PR, spec and implementation (row claim answer
   2026-09-05, recorded; the spec commits first inside it).
 
+## W4d — the 27B residency (#3042)
+
+- **Scope.** The 27B dense keep-quant arm
+  (`Qwen3.8-27B-Q4_K_M.gguf`, sha256 `7e78da5d…fe169`, 17,106,775,008 B)
+  passed its loader wiring, MTP drafter skip, and reachability test in
+  wave-3b-2, but its end-to-end gate is unmet: keep-quant decode exhausts
+  device DRAM before one 16-token generation completes on the production
+  entry point. This wave fits the residency within the 32 GB Blackhole
+  device and closes the gate. In scope: a device-side allocation trace
+  tool, attribution of the ~11 GB overshoot above the surveyed ~22-23 GB
+  design residency, and the fix that closes the gap. Out of scope: the
+  throughput floor (stays owed to
+  [#1003](https://github.com/mudler/vllm.cpp/issues/1003)); the oracle
+  re-declaration ([#2624](https://github.com/mudler/vllm.cpp/issues/2624),
+  deferred — the 27B cannot run until residency fits); the E=N expert arm
+  (no MoE artifact on disk).
+- **The OOM evidence (8 runs, 2026-09-07).** Failing allocations
+  1,073,725,440 B under the 2048 budget and 134,184,960 B under the
+  32 MiB `VT_TT_KEEPQUANT_CHUNK_BYTES` cap; both die in the dense
+  keep-quant decode chain (`DecodeKeepQuantWordsF32` → `ttnn::where`
+  f32 planes, `tenstorrent_ops.cpp:1999-2086`). Free-at-failure declines
+  monotonically: 244 MB → 46 MB → 12.7 MB per bank. The allocator ends
+  at ~34 GB allocated against a 32 GB device with a 3.7 MB largest free
+  block — fragmentation, not a single oversized request. Budget 512
+  fails identically, so the demand is not activation-sized. Three
+  mitigations failed: plane budget cut; `VT_TT_KEEPQUANT_CHUNK_BYTES=32MiB`
+  (got 85% through the first prefill, 2,489 decode calls); the knob as a
+  hard cap over the wide-N `ceil(N/8)` trace bound. The residency sits
+  ~11 GB above the ~22-23 GB surveyed design (15.92 GB packed +
+  2.37 GiB embedding twin + 2.37 GiB output twin + chunk tiles +
+  activations).
+- **The three resident shadow maps.** All are process-global, keyed by
+  host pointer, and deliberately never destroyed per
+  [#1486](https://github.com/mudler/vllm.cpp/issues/1486):
+  (1) `EmbedTableShadows()` (`tenstorrent_ops.cpp:1641`) — bf16
+  embedding/output twin(s), ~2.37 GiB each. Created by
+  `EnsureEmbedTableDevice` (`:1651-1677`) via
+  `ttnn::Tensor::from_vector<float>` with `BFLOAT16, ROW_MAJOR`. The
+  27B's tied head shares the table, so the output twin doubles the
+  embedding twin.
+  (2) `KeepQuantWordShadows()` (`:1836`) — packed i32 word shadows, the
+  ~15.92 GB packed residency. Created by `EnsureKeepQuantWords`
+  (`:1862-1919`).
+  (3) `DecodedWeightShadows()` (`:2541`) — decoded bf16 twins. These
+  MUST be empty on the dense path (test hook
+  `DecodedWeightShadowPresentForTest`, `tenstorrent_device.h:190-207`).
+  A non-empty map on the dense path is a residency bug, not a feature.
+- **The OOM failure chain.** `DecodeKeepQuantWordsF32` (`:1999-2086`)
+  decodes packed i32 words into f32 planes. The `ttnn::where` calls
+  (`:2022, :2024, :2082`) construct/repair f32 planes for
+  subnormal/normal/signed-zero bit patterns. The 4,068,474,880 B
+  `ttnn::where` was the whole-weight-per-step decode plane — a single
+  allocation that exceeded the remaining device budget. The chunked
+  decode path (E=1 dense arm, `MatmulBTQuantGroupedKernel` at
+  `:2442`) was supposed to avoid whole-weight planes, but the `ceil(N/8)`
+  trace term (see below) forces large planes regardless of the chunk
+  cap.
+- **The `VT_TT_KEEPQUANT_CHUNK_BYTES` cap limitation.** The env knob
+  (`:2705-2712`) controls the f32 plane budget (default 256 MiB). A
+  positive integer is a hard cap on chunk row count. But the chunk
+  computation (`:2713-2718`) takes `max(plane_bytes / (K * 4),
+  ceil(N/8))` — the `ceil(N/8)` trace term forces N/8-row chunks for
+  wide-N weights. The head [248320, 5120] decodes 31040-row planes =
+  606+ MB regardless of the cap (`:2719-2724` comment documents this).
+  This is exactly the allocation that died at 27B. The cap reduces
+  per-call peak but cannot eliminate the trace-driven floor.
+- **`ttnn::where` memory amplification.** The composite fallback path
+  (`where_impl`, `ternary.cpp:28`) materializes ~4-5 full-size
+  temporaries when broadcast is `INVALID_BCAST`. On a 27B model near
+  OOM, this multiplies peak memory. The fused path (valid broadcast,
+  `ternary.cpp:136`) is cheap. The `DecodeKeepQuantWordsF32` `where`
+  calls (`:2022, :2024, :2082`) hit the fallback path — their operands
+  are comparison outputs and bitcast results with mismatched shapes,
+  not broadcast-compatible. Each `where` call can amplify its input
+  size 4-5×.
+- **The missing tool.** No device-side allocation trace exists. The
+  available observability is pull-only: `LastTraceBytes()` /
+  `LastTraceBytesForTest()` (trace-buffer bytes only, not total DRAM);
+  `VT_TT_TRACE_DEBUG` (per-op stderr bisection);
+  `KeepQuantCaptureStagingWrites()` (staging-write counter);
+  `TrustDump` (tensor contents, not allocations). The existing OOM
+  evidence was gathered from `get_memory_view()` snapshots at failure
+  time, but there is no record of which op allocated what between
+  snapshots. The next lever — stated in `## W4` since 2026-09-07 — is
+  the device-side allocation trace, not another mitigation.
+- **tt-metal memory profiling tools available.** The pinned tt-metal
+  runtime offers three pull-based tools:
+  (1) `TT_METAL_MEM_PROFILER=1` — generates CSVs in `.reports/tt_metal/`
+  (`program_memory_usage_summary.csv`, `program_l1_usage_summary.csv`,
+  `program_detailed_memory_usage.csv`). Caveat: captured at
+  program-compile time; buffers created after compile are NOT captured.
+  (2) `DumpDeviceMemoryState()` / `ttnn.dump_device_memory_state(device,
+  prefix)` — on-demand snapshot, writes a per-bank breakdown.
+  (3) `ttnn.get_memory_view(device, BufferType.DRAM)` — returns
+  per-bank statistics: `total_bytes_free_per_bank`,
+  `largest_contiguous_bytes_free_per_bank`, block table. This is how
+  the "free-at-failure per bank" numbers were obtained.
+  No allocation callbacks or hooks exist — observability is pull-only.
+  The trace tool must interleave `get_memory_view` snapshots between
+  ops, or wrap the allocator to log each allocation.
+- **Work breakdown.**
+  **W0 — the allocation trace tool.** A device-side allocation tracer
+  that records each `ttnn` buffer allocation with its calling op and
+  size, interleaved with `get_memory_view()` snapshots. This is the
+  tool the `## W4` section names as "the next lever." The tool lives in
+  the TT backend (not tt-metal); it wraps the buffer-creation path or
+  polls between ops. Red-first: the tool must detect the known 4 GB
+  `ttnn::where` allocation before the fix is applied.
+  **W1 — attribute the 11 GB overshoot.** Run the 27B vehicle with the
+  trace tool on the local Blackhole. Identify the top memory
+  contributors and reconcile against the surveyed ~22-23 GB design.
+  Candidates, named and unmeasured: (a) `ttnn::where` composite-fallback
+  temporaries amplifying peak 4-5×; (b) the `ceil(N/8)` trace term
+  forcing 606+ MB head planes regardless of the chunk cap; (c) the
+  2.37 GiB output twin doubling the embedding twin on the tied head;
+  (d) f32 plane transients from per-chunk decode fragmenting the
+  allocator; (e) possible keep-quant words double-staging against the
+  design residency. The trace tool distinguishes a single oversized
+  allocation from accumulated fragmentation.
+  **W2 — fix the top contributor.** The fix depends on W1's attribution.
+  Candidate fixes: (a) force the `ttnn::where` fused path by reshaping
+  operands to broadcast-compatible shapes before the `where` calls in
+  `DecodeKeepQuantWordsF32`; (b) bypass `ttnn::where` entirely with a
+  custom device kernel for the f32 plane construction (the W4b
+  precedent — a custom kernel below ttnn); (c) eliminate the output
+  twin on the tied-head path (the embedding twin alone serves the
+  gather); (d) shrink the `ceil(N/8)` trace floor by reordering the
+  chunk loop to process narrow-N weights first. The fix must not
+  regress the 0.8B vehicle (16/16 PASS) or the default op suite.
+  **W3 — re-run the 27B e2e gate.** The committed goldens
+  (`tests/parity/goldens/qwen38_gguf_q4km_27b/`) are lane-ready. The
+  TT-side run against them closes the gate: 16-prompt greedy parity
+  in the ratified 500-mnat band with 0 forward-divergent tokens, dump
+  ×2 byte-identity across reset. The gate runs through the production
+  entry point (`examples/vllm-bench`), not a hand-built type.
+- **Risks.** (1) The trace tool itself allocates memory — the
+  instrumentation must not perturb the OOM it measures. Mitigation: the
+  tool logs allocation metadata only (op name, size, caller), never
+  copies tensor data; `get_memory_view` snapshots are cheap. (2) The
+  `ttnn::where` fused path may not be reachable for the
+  `DecodeKeepQuantWordsF32` operand shapes — the comparison outputs and
+  bitcast results have inherently mismatched shapes. Mitigation: a
+  custom device kernel (W4b precedent) bypasses ttnn entirely. (3)
+  Fixing the top contributor reveals a second contributor — the ~11 GB
+  gap may be the sum of several smaller leaks, not one oversized
+  allocation. Mitigation: the trace tool produces a ranked attribution,
+  and W2 fixes them in order. (4) The fix regresses the 0.8B vehicle —
+  the 0.8B has the same code paths with smaller tensors. Mitigation:
+  the 0.8B vehicle gate (16/16 PASS) is the invariant; any fix that
+  breaks it is rejected.
+- **Gates and stop conditions.** Preflight; default op suite unchanged;
+  0.8B vehicle battery unchanged (W4a 16/16 — the invariant); the 27B
+  e2e gate green (0 forward-divergent, every flip inside 500 mnats, dump
+  ×2 identity); `DecodedWeightShadows()` empty on the dense path after
+  the fix. Stop: any default-path regression; the trace tool perturbing
+  the OOM (the tool's own allocations change the failure point); the fix
+  requiring a model-architectural change (that is a new row, not W4d);
+  the 27B gate passing only with a non-production configuration.
+- **PR shape.** One PR, spec and implementation (row claim answer
+  2026-09-05, recorded; the spec commits first inside it). The W0 tool
+  and W1 attribution land in the same PR as the spec. W2 and W3 may
+  split into a follow-up PR if the attribution reveals multiple
+  contributors, but the spec, tool, and attribution are the first
+  deliverable.
+
 ## Now
 
 `ACTIVE`, 2026-09-06. W1 complete (#2989, open). W2 complete on the row
@@ -785,4 +951,15 @@ The lane's e2e denominator is the vLLM GGUF plugin, not llama.cpp,
 because the lane mirrors the plugin's bf16 activation path. The bf16
 double-quant divergence is inherent to mirroring vLLM, not a defect to
 fix. #3079 closed COMPLETED by #3117; the throughput floor stays owed to
-[#1003](https://github.com/mudler/vllm.cpp/issues/1003).
+[#1003](https://github.com/mudler/vllm.cpp/issues/1003). AMENDED
+2026-09-10 (thirteenth): W4d opens under `## W4d` — the 27B residency
+([#3042](https://github.com/mudler/vllm.cpp/issues/3042)). The spec
+records the OOM evidence (8 runs, ~34 GB against 32 GB, ~11 GB above
+the surveyed design), the three resident shadow maps, the
+`DecodeKeepQuantWordsF32` → `ttnn::where` failure chain, the
+`VT_TT_KEEPQUANT_CHUNK_BYTES` cap limitation (the `ceil(N/8)` trace
+term), `ttnn::where` memory amplification, the missing device-side
+allocation trace tool, and the work breakdown (W0: trace tool, W1:
+attribute the overshoot, W2: fix the top contributor, W3: re-run the
+27B e2e gate). The 27B e2e gate moves from `## Owed` into W4d scope.
+The row stays `ACTIVE`: W4d is the open scope.
