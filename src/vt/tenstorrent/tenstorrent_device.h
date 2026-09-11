@@ -205,6 +205,15 @@ void KeepQuantChunkRowsOverrideForTest(int64_t rows);
 bool KeepQuantWordShadowPresentForTest(const void* host);
 bool DecodedWeightShadowPresentForTest(const void* host);
 bool EmbedTableShadowPresentForTest(const void* host);
+// W4d W0 (#3042): device-side allocation trace — interleaves
+// get_memory_view snapshots between ops to attribute the 27B OOM.
+// Gated by VT_TT_ALLOC_TRACE. The snapshot count and max-allocation-delta
+// probes are the red-first observables: zero before any device work,
+// positive after the keep-quant path runs instrumented.
+void AllocTraceSnapshot(MeshDevice& device, const char* label);
+int64_t AllocTraceSnapshotCountForTest();
+int64_t AllocTraceMaxDeltaForTest();
+void ResetAllocTraceForTest();
 #else
 inline int64_t KeepQuantCaptureStagingWrites() { return 0; }
 inline void ResetKeepQuantCaptureStagingWritesForTest() {}
@@ -213,6 +222,10 @@ inline void KeepQuantChunkRowsOverrideForTest(int64_t) {}
 inline bool KeepQuantWordShadowPresentForTest(const void*) { return false; }
 inline bool DecodedWeightShadowPresentForTest(const void*) { return false; }
 inline bool EmbedTableShadowPresentForTest(const void*) { return false; }
+inline void AllocTraceSnapshot(MeshDevice&, const char*) {}
+inline int64_t AllocTraceSnapshotCountForTest() { return 0; }
+inline int64_t AllocTraceMaxDeltaForTest() { return 0; }
+inline void ResetAllocTraceForTest() {}
 #endif
 
 // ITEM 5 (rope): driver-side warm hook — populate the persistent device

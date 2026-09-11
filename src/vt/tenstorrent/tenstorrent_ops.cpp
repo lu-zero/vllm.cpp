@@ -61,6 +61,7 @@
 #include <tt_stl/span.hpp>
 // W5 (#2244): the persistent staging route re-uploads through tt-metal's
 // in-place H2D (ttnn::copy_to_device) instead of a fresh from_span creation.
+#include <tt-metalium/memory_reporter.hpp>
 #include <tt-metalium/mesh_buffer.hpp>
 #include <tt-metalium/mesh_command_queue.hpp>
 #include <ttnn/tensor/tensor_ops.hpp>
@@ -1664,6 +1665,7 @@ ttnn::Tensor EnsureEmbedTableDevice(const Tensor& table, MeshDevice& device) {
   std::vector<float> host_table = ToHostF32(table);
   if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
     std::fprintf(stderr, "[TT-UP] EnsureEmbedTableDevice from_vector WRITE during capture\n");
+  AllocTraceSnapshot(device, "EnsureEmbedTableDevice/pre");
   ttnn::Tensor dev_table = ttnn::Tensor::from_vector<float>(
       host_table,
       SpecOf(tt::tt_metal::Shape({vocab, h}), ttnn::DataType::BFLOAT16, ttnn::Layout::ROW_MAJOR),
@@ -1673,6 +1675,7 @@ ttnn::Tensor EnsureEmbedTableDevice(const Tensor& table, MeshDevice& device) {
   s.device = dev_table;
   s.vocab = vocab;
   s.h = h;
+  AllocTraceSnapshot(device, "EnsureEmbedTableDevice/post");
   return dev_table;
 }
 
@@ -1906,6 +1909,7 @@ ttnn::Tensor EnsureKeepQuantWords(const Tensor& packed, DType enc, int64_t rows,
           (static_cast<uint32_t>(p[3]) << 24)));
     }
   }
+  AllocTraceSnapshot(device, "EnsureKeepQuantWords/pre");
   ttnn::Tensor staged = ttnn::Tensor::from_vector<int32_t>(
       std::move(words),
       SpecOf(tt::tt_metal::Shape({static_cast<uint32_t>(b64),
@@ -1915,6 +1919,7 @@ ttnn::Tensor EnsureKeepQuantWords(const Tensor& packed, DType enc, int64_t rows,
   std::lock_guard<std::mutex> g(KeepQuantWordMutex());
   KeepQuantWordShadows()[packed.data] =
       KeepQuantWordShadow{staged, rows, nb, wpb};
+  AllocTraceSnapshot(device, "EnsureKeepQuantWords/post");
   return staged;
 }
 
@@ -2724,6 +2729,7 @@ void MatmulBTQuantGroupedKernel(Queue&, Tensor& out, const Tensor& act,
     // trade VT_TT_TRACE_REGION_MB records on its axis.
     if (plane_env_set)
       chunk = std::min(chunk, std::max<int64_t>(plane_bytes / (K * 4), 1));
+    AllocTraceSnapshot(device, "KQuantGrouped/chunk-loop/pre");
     std::vector<ttnn::Tensor> partials;
     partials.reserve(static_cast<size_t>((N + chunk - 1) / chunk));
     for (int64_t c0 = 0; c0 < N; c0 += chunk) {
@@ -2743,6 +2749,7 @@ void MatmulBTQuantGroupedKernel(Queue&, Tensor& out, const Tensor& act,
           ttnn::typecast(std::move(part), ttnn::DataType::FLOAT32),
           ttnn::Layout::ROW_MAJOR));
     }
+    AllocTraceSnapshot(device, "KQuantGrouped/chunk-loop/post");
     ttnn::Tensor assembled =
         partials.size() == 1
             ? std::move(partials[0])
@@ -8457,6 +8464,74 @@ void EmbedDeviceIdsInto(void* out_host, int64_t rows, int64_t cols,
 }
 
 // ---- Called from TenstorrentBackend::Alloc/Free/Copy (no ttnn in that TU). ----
+
+// ---- W4d W0 (#3042): device-side allocation trace ---------------------------
+// Interleaves get_memory_view snapshots between ops to attribute the 27B OOM.
+// Gated by VT_TT_ALLOC_TRACE. Logs free/allocated bytes per DRAM bank to stderr
+// with a running delta; the max negative delta (largest single allocation) is
+// the red-first test observable.
+namespace {
+bool AllocTraceEnabled() {
+  return std::getenv("VT_TT_ALLOC_TRACE") != nullptr;
+}
+struct AllocTraceState {
+  std::mutex mtx;
+  int64_t snapshot_count = 0;
+  int64_t prev_free_total = -1;  // -1 = no previous snapshot
+  int64_t max_alloc_delta = 0;   // largest single allocation (bytes)
+};
+AllocTraceState& AllocTraceSt() {
+  static AllocTraceState* s = new AllocTraceState();  // never destroyed (#1486)
+  return *s;
+}
+}  // namespace
+
+void AllocTraceSnapshot(MeshDevice& device, const char* label) {
+  if (!AllocTraceEnabled()) return;
+  const auto view = tt::tt_metal::detail::GetMemoryView(
+      &device, tt::tt_metal::BufferType::DRAM);
+  const int64_t num_banks = static_cast<int64_t>(view.num_banks);
+  const int64_t free_per_bank =
+      static_cast<int64_t>(view.total_bytes_free_per_bank);
+  const int64_t alloc_per_bank =
+      static_cast<int64_t>(view.total_bytes_allocated_per_bank);
+  const int64_t largest_free =
+      static_cast<int64_t>(view.largest_contiguous_bytes_free_per_bank);
+  const int64_t total_free = num_banks * free_per_bank;
+
+  std::lock_guard<std::mutex> g(AllocTraceSt().mtx);
+  int64_t delta = 0;
+  if (AllocTraceSt().prev_free_total >= 0)
+    delta = total_free - AllocTraceSt().prev_free_total;  // negative = allocated
+  if (delta < 0 && -delta > AllocTraceSt().max_alloc_delta)
+    AllocTraceSt().max_alloc_delta = -delta;
+  AllocTraceSt().prev_free_total = total_free;
+  AllocTraceSt().snapshot_count++;
+
+  std::fprintf(stderr,
+      "[TT-ALLOC] #%lld label=%s banks=%lld free_per_bank=%lld "
+      "largest_free=%lld alloc_per_bank=%lld total_free=%lld delta=%lld\n",
+      (long long)AllocTraceSt().snapshot_count, label,
+      (long long)num_banks, (long long)free_per_bank,
+      (long long)largest_free, (long long)alloc_per_bank,
+      (long long)total_free, (long long)delta);
+}
+
+int64_t AllocTraceSnapshotCountForTest() {
+  std::lock_guard<std::mutex> g(AllocTraceSt().mtx);
+  return AllocTraceSt().snapshot_count;
+}
+int64_t AllocTraceMaxDeltaForTest() {
+  std::lock_guard<std::mutex> g(AllocTraceSt().mtx);
+  return AllocTraceSt().max_alloc_delta;
+}
+void ResetAllocTraceForTest() {
+  std::lock_guard<std::mutex> g(AllocTraceSt().mtx);
+  AllocTraceSt().snapshot_count = 0;
+  AllocTraceSt().prev_free_total = -1;
+  AllocTraceSt().max_alloc_delta = 0;
+}
+
 void RegisterHostBuffer(void* host, size_t bytes) {
   if (host == nullptr) return;
   std::lock_guard<std::mutex> g(SlotMutex());

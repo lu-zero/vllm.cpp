@@ -7578,3 +7578,111 @@ TEST_CASE("kTENSTORRENT dense keep-quant matmul converts a ROW_MAJOR chained act
   MESSAGE("ROW_MAJOR chained activation leg: TILE conversion engaged, envelope ok");
 }
 
+// W4d W0 (#3042): the allocation-trace tool's red-first observables.
+//
+// The trace is gated by VT_TT_ALLOC_TRACE (read live per call, never cached):
+// without the env the snapshots are no-ops and the count stays zero even after
+// a keep-quant matmul. With the env set, the count goes positive after a matmul
+// (EnsureKeepQuantWords + the grouped chunk loop both interleave snapshots) and
+// the max-allocation-delta goes positive — proving GetMemoryView ran between
+// real device allocations. The env gate is the red-first cut: a missing or
+// broken gate would record snapshots unconditionally and fail Phase 1.
+TEST_CASE("kTENSTORRENT alloc-trace: zero without env, positive with it (#3042)") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  REQUIRE(vt::OpRegistered(vt::OpId::kMatmulBTQuant, vt::DeviceType::kTENSTORRENT));
+
+  const char* const prev = std::getenv("VT_TT_ALLOC_TRACE");
+  const bool had = prev != nullptr;
+  const std::string saved = had ? std::string(prev) : std::string();
+
+  Backend& backend = *vt::TryGetBackend(DeviceType::kTENSTORRENT);
+  Queue q = backend.CreateQueue();
+
+  constexpr int64_t M = 4, N = 8;
+  const int64_t kBlockBytes = vt::BlockBytes(vt::DType::kQ4_K);
+  const int64_t kBlockElems = vt::BlockElems(vt::DType::kQ4_K);
+  const int64_t K = 2 * kBlockElems;
+
+  std::mt19937 rng(20260911u);
+  auto make_weight = [&]() {
+    std::vector<uint8_t> packed(static_cast<size_t>(N * 2 * kBlockBytes));
+    for (int64_t b = 0; b < N * 2; ++b) {
+      uint8_t* blk = packed.data() + b * kBlockBytes;
+      const uint16_t d = vt::F32ToF16(
+          0.05f + 0.35f * static_cast<float>(rng() % 64) / 64.0f);
+      std::memcpy(blk + 0, &d, sizeof(d));
+      const uint16_t ls = vt::F32ToF16(
+          0.005f + 0.02f * static_cast<float>(rng() % 32) / 32.0f);
+      std::memcpy(blk + 2, &ls, sizeof(ls));
+      for (int i = 0; i < 12; ++i) blk[4 + i] = static_cast<uint8_t>(rng() & 0xFF);
+      for (int i = 0; i < 128; ++i) blk[16 + i] = static_cast<uint8_t>(rng() & 0xFF);
+    }
+    return packed;
+  };
+  auto make_activation = [&]() {
+    std::vector<uint16_t> a_bf(static_cast<size_t>(M * K));
+    for (auto& v : a_bf)
+      v = vt::F32ToBF16((static_cast<float>(rng() % 401) - 200.0f) / 100.0f);
+    return a_bf;
+  };
+
+  auto run_matmul = [&](std::vector<uint8_t>& packed,
+                        std::vector<uint16_t>& a_bf) {
+    void* mem_a = backend.Alloc(M * K * sizeof(uint16_t));
+    void* mem_b = backend.Alloc(packed.size());
+    void* mem_o = backend.Alloc(M * N * sizeof(float));
+    backend.Copy(q, mem_a, a_bf.data(), a_bf.size() * sizeof(uint16_t));
+    backend.Copy(q, mem_b, packed.data(), packed.size());
+    Tensor a_t = Tensor::Contiguous(mem_a, vt::DType::kBF16,
+                                    Device{vt::DeviceType::kTENSTORRENT, 0}, {M, K});
+    Tensor b_t = Tensor::Contiguous(mem_b, vt::DType::kQ4_K,
+                                    Device{vt::DeviceType::kTENSTORRENT, 0}, {N, K});
+    Tensor o_t = Tensor::Contiguous(mem_o, vt::DType::kF32,
+                                    Device{vt::DeviceType::kTENSTORRENT, 0}, {M, N});
+    vt::MatmulBT(q, o_t, a_t, b_t);
+    std::vector<float> out(static_cast<size_t>(M * N), 0.0f);
+    backend.Copy(q, out.data(), mem_o, out.size() * sizeof(float));
+    backend.Free(mem_a);
+    backend.Free(mem_b);
+    backend.Free(mem_o);
+  };
+
+  // --- Phase 1: trace is OFF (env unset) ---
+  ::unsetenv("VT_TT_ALLOC_TRACE");
+  vt::tenstorrent::ResetAllocTraceForTest();
+  CHECK(vt::tenstorrent::AllocTraceSnapshotCountForTest() == 0);
+  CHECK(vt::tenstorrent::AllocTraceMaxDeltaForTest() == 0);
+  {
+    auto packed = make_weight();
+    auto a_bf = make_activation();
+    run_matmul(packed, a_bf);
+  }
+  CHECK_MESSAGE(vt::tenstorrent::AllocTraceSnapshotCountForTest() == 0,
+                "trace recorded snapshots with VT_TT_ALLOC_TRACE unset");
+
+  // --- Phase 2: trace is ON (env set) ---
+  ::setenv("VT_TT_ALLOC_TRACE", "1", 1);
+  vt::tenstorrent::ResetAllocTraceForTest();
+  CHECK(vt::tenstorrent::AllocTraceSnapshotCountForTest() == 0);
+  CHECK(vt::tenstorrent::AllocTraceMaxDeltaForTest() == 0);
+  {
+    auto packed = make_weight();
+    auto a_bf = make_activation();
+    run_matmul(packed, a_bf);
+  }
+  CHECK_MESSAGE(vt::tenstorrent::AllocTraceSnapshotCountForTest() > 0,
+                "trace recorded no snapshots with VT_TT_ALLOC_TRACE set");
+  CHECK_MESSAGE(vt::tenstorrent::AllocTraceMaxDeltaForTest() > 0,
+                "max allocation delta stayed zero after a matmul with trace on");
+
+  if (had) {
+    ::setenv("VT_TT_ALLOC_TRACE", saved.c_str(), 1);
+  } else {
+    ::unsetenv("VT_TT_ALLOC_TRACE");
+  }
+  vt::tenstorrent::ResetAllocTraceForTest();
+}
+
