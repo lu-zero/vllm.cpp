@@ -5651,6 +5651,137 @@ TEST_CASE("kTENSTORRENT kMatmulBTQuant matches the CPU integer vec_dot bit-exact
   }
 }
 
+// QUANT-GGUF-IQ-TENSTORRENT repair: pin the DEFAULT-path dispatch the row's
+// reachability claim names. IQ3_XXS has no W4a grouped arm, so its only serve
+// is the int8-dot kernel, dispatched REGARDLESS of VT_TT_KEEPQUANT_INT8DOT
+// (tenstorrent_ops.cpp MatmulBTQuantKernel). The sweep above self-gates on the
+// env, so deleting the dispatch override alone left every gate green: the
+// route pin (OpRegistered) proves admission, not dispatch. This leg runs the
+// IQ3_XXS device decode with the lever explicitly UNSET and holds the same
+// bit-exact bar vs the CPU integer vec_dot oracle — the dispatch-only
+// mutation (override deleted, admission kept) refuses the route here and goes
+// RED.
+TEST_CASE("kTENSTORRENT kMatmulBTQuant IQ3_XXS serves the int8-dot arm on the DEFAULT path (VT_TT_KEEPQUANT_INT8DOT unset)") {
+  // Default-path contract: the lever env must NOT be set for this leg. Save
+  // and restore the ambient value whatever happens (the microbench pattern).
+  const char* prev_lever = std::getenv("VT_TT_KEEPQUANT_INT8DOT");
+  const bool had_lever = prev_lever != nullptr;
+  const std::string saved_lever =
+      had_lever ? std::string(prev_lever) : std::string();
+  struct RestoreLeverEnv {
+    const bool had;
+    const std::string saved;
+    ~RestoreLeverEnv() {
+      if (had) ::setenv("VT_TT_KEEPQUANT_INT8DOT", saved.c_str(), 1);
+      else ::unsetenv("VT_TT_KEEPQUANT_INT8DOT");
+    }
+  } restore_lever_env{had_lever, saved_lever};
+  ::unsetenv("VT_TT_KEEPQUANT_INT8DOT");
+
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  REQUIRE(vt::OpRegistered(vt::OpId::kMatmulBTQuant, vt::DeviceType::kTENSTORRENT));
+
+  Backend& backend = vt::GetBackend(vt::DeviceType::kTENSTORRENT);
+  Queue q = backend.CreateQueue();
+
+  const vt::DType enc = vt::DType::kIQ3_XXS;
+  const int64_t kBlockBytes = vt::BlockBytes(enc);
+  const int64_t kBlockElems = vt::BlockElems(enc);
+  REQUIRE(kBlockBytes == 98);
+  REQUIRE(kBlockElems == 256);
+  auto quant_act = vt::cpu::BlockFromFloat(vt::DType::kQ8_K);
+  auto vec_dot = vt::cpu::BlockVecDot(enc);
+  REQUIRE(quant_act != nullptr);
+  REQUIRE(vec_dot != nullptr);
+
+  // The sweep's IQ3_XXS packed generator and PRNG style, fixed seed.
+  std::mt19937 rng(20260909u);
+  auto rand_byte = [&rng]() { return static_cast<uint8_t>(rng() & 0xFF); };
+  auto rand_f16_signed = [&rng](float lo, float span) {
+    return (lo + span * static_cast<float>(rng() % 64) / 64.0f) *
+           ((rng() % 2) != 0 ? 1.0f : -1.0f);
+  };
+  auto fill_block = [&](uint8_t* blk) {
+    // block_iq3_xxs = { f16 d; u8 qs[96] } (98B): qs[0..63] grid indices,
+    // qs[64..71] per-32 scale+sign u32s; random bytes stay in range.
+    const uint16_t d_bits = vt::F32ToF16(rand_f16_signed(0.05f, 0.35f));
+    std::memcpy(blk + 0, &d_bits, sizeof(d_bits));
+    for (int i = 0; i < 96; ++i) blk[2 + i] = rand_byte();
+  };
+
+  // Decode shapes (M=1 is the GEMV), both one- and multi-block K.
+  for (int64_t M : {int64_t{1}, int64_t{3}}) {
+    for (int64_t N : {int64_t{1}, int64_t{17}}) {
+      for (int64_t nb : {int64_t{1}, int64_t{16}}) {
+        const int64_t K = nb * kBlockElems;
+        std::vector<uint8_t> packed(N * nb * kBlockBytes);
+        for (int64_t b = 0; b < N * nb; ++b)
+          fill_block(packed.data() + b * kBlockBytes);
+        std::vector<float> a_f32(M * K);
+        for (auto& v : a_f32) v = (static_cast<float>(rng() % 401) - 200.0f) / 100.0f;
+        std::vector<uint16_t> a_bf(M * K);
+        for (size_t i = 0; i < a_f32.size(); ++i) a_bf[i] = vt::F32ToBF16(a_f32[i]);
+        std::vector<float> a_q32(M * K);
+        for (size_t i = 0; i < a_f32.size(); ++i) a_q32[i] = vt::BF16ToF32(a_bf[i]);
+
+        // CPU integer oracle: quantize each activation row once, one nrc==1
+        // vec_dot per (m, n) pair.
+        const size_t y_row_bytes = vt::cpu::QuantActRowBytes(enc, K);
+        std::vector<uint8_t> y(M * y_row_bytes);
+        for (int64_t m = 0; m < M; ++m)
+          quant_act(a_q32.data() + m * K, y.data() + m * y_row_bytes, K);
+        std::vector<float> oracle(M * N);
+        for (int64_t m = 0; m < M; ++m)
+          for (int64_t n = 0; n < N; ++n)
+            vec_dot(static_cast<int>(K), &oracle[static_cast<size_t>(m) * N + n],
+                    /*bs=*/0, packed.data() + static_cast<size_t>(n) * nb * kBlockBytes,
+                    /*bx=*/0, y.data() + m * y_row_bytes, /*by=*/0, /*nrc=*/1);
+
+        void* mem_a = backend.Alloc(a_bf.size() * sizeof(uint16_t));
+        void* mem_b = backend.Alloc(packed.size());
+        void* mem_o = backend.Alloc(std::max<size_t>(M * N, 16) * sizeof(float));
+        backend.Copy(q, mem_a, a_bf.data(), a_bf.size() * sizeof(uint16_t));
+        backend.Copy(q, mem_b, packed.data(), packed.size());
+        Tensor a_t = Tensor::Contiguous(mem_a, vt::DType::kBF16,
+                                        Device{vt::DeviceType::kTENSTORRENT, 0}, {M, K});
+        Tensor b_t = Tensor::Contiguous(mem_b, enc,
+                                        Device{vt::DeviceType::kTENSTORRENT, 0}, {N, K});
+        Tensor o_t = Tensor::Contiguous(mem_o, vt::DType::kF32,
+                                        Device{vt::DeviceType::kTENSTORRENT, 0}, {M, N});
+        vt::MatmulBT(q, o_t, a_t, b_t);  // route refusal under the mutation throws here
+        std::vector<float> out(std::max<size_t>(M * N, 16), 0.0f);
+        backend.Copy(q, out.data(), mem_o, out.size() * sizeof(float));
+        backend.Free(mem_a);
+        backend.Free(mem_b);
+        backend.Free(mem_o);
+
+        INFO("default path, enc=", static_cast<int>(enc), " M=", M, " N=", N,
+             " nb=", nb, " K=", K);
+        if (std::memcmp(out.data(), oracle.data(), oracle.size() * sizeof(float)) != 0) {
+          int64_t bad = 0;
+          for (int64_t i = 0; i < static_cast<int64_t>(oracle.size()); ++i) {
+            if (std::memcmp(&out[static_cast<size_t>(i)], &oracle[static_cast<size_t>(i)],
+                            sizeof(float)) != 0) {
+              if (bad < 4)
+                MESSAGE("diff m=", i / N, " n=", i % N, " dev=", out[static_cast<size_t>(i)],
+                        " oracle=", oracle[static_cast<size_t>(i)]);
+              ++bad;
+            }
+          }
+          MESSAGE("total bad: ", bad, " / ", oracle.size(),
+                  " (default-path IQ3_XXS did not take the int8-dot arm)");
+        }
+        CHECK(std::memcmp(out.data(), oracle.data(), oracle.size() * sizeof(float)) == 0);
+      }
+    }
+  }
+  MESSAGE("default-path IQ3_XXS decode: the 8-shape leg bit-exact vs the CPU vec_dot "
+          "with VT_TT_KEEPQUANT_INT8DOT unset");
+}
+
 // KEEPQUANT W3 (issue #2959): the decode set generalizes to the other GGUF
 // k-quants the q4km vehicle actually stores — Q5_K (attn_qkv/ssm_out), Q6_K
 // (token_embd, tied LM head, half of ffn_down/attn_v) and Q8_0 (ssm_alpha/
