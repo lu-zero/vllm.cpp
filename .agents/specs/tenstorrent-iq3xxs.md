@@ -115,9 +115,27 @@ Q3_K, and every other IQ encoding.
 - Census: issue record `/tmp/apex-gguf-dump.txt` (2026-09-13).
 - Artifact hash recomputed at wave start (2026-09-14): sha256 above.
 - Red/green logs under `/tmp/row-tt-iq-evidence/`.
+- Wave-1 outcome (2026-09-14): op sweep 116/116 bit-exact vs the CPU
+  oracle (`oplevel-green.log`); route pin green; review mutations 4/5
+  red-detected, the dispatch-only gap repaired by a dedicated env-unset
+  default-path leg (mutation red `repair-mutation-red.log`, green
+  `repair-green.log`); backend suite 74/74 (524,455 assertions);
+  APEX e2e recorded OOM/owed (`apex-alloc-trace.log`, see `## Owed`).
 
 ## Owed
 
+- **APEX e2e generation gate (spec Gate 4) — recorded OOM 2026-09-14.**
+  `vllm-bench` on APEX-I-Nano (27B recipe, default path, seed 0) fatals on
+  the first engine step: `kq-decode/repair` asks 1,116,733,440 B inside
+  `KQuantGrouped/chunk-loop` (the pre-existing Q4_K grouped decode repair
+  plane, N=12288/K=5120), fatal `Out of Memory: Not enough space to
+  allocate 1006632960 B` with 108 MB largest free block. The IQ3_XXS
+  staging itself is NOT the trigger (`EnsureKeepQuantWords` deltas
+  15-47 MB); APEX's residency profile (133 refused-arm Q3_K/IQ2_*
+  tensors expanded to bf16 + keep-quant words) leaves the allocator
+  fragmented. Evidence: `/tmp/row-tt-iq-evidence/apex-alloc-trace.log`.
+  Owner: the keep-quant row's W4 residency redesign (chunked repair
+  planes / smaller dequant row-chunks). NOT this row's wave 1.
 - W4a grouped E=1 arm for IQ3_XXS (the non-env expert-tower path).
 - IQ2_S (CPU dot is its prerequisite), IQ2_XXS, Q3_K waves.
 - Embed-table dequantizing gather; `ssm_out` block-safe column permutation
