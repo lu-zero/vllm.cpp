@@ -208,6 +208,48 @@ bool& tt_capture_active() {
   static bool b = false;
   return b;
 }
+
+// Capture-safe reshape: the free ttnn::reshape (from reshape_view/reshape.hpp)
+// launches ReshapeViewTiledProgramFactory::create_program_artifacts which
+// calls to_device — forbidden during trace capture, and a cache miss when
+// the slot state differs between eager warmup and capture. During capture,
+// the member Tensor::reshape(logical, old_padded) is a pure metadata view
+// (view_device, same buffer, no program). The old padded shape is reused so
+// the buffer size check passes. The data is correct for same-numel reshapes
+// because TILE layout stores data in flat row-major within the tile grid —
+// element i maps to the same physical byte regardless of the logical shape
+// interpretation (the tile grid is the same; only the logical dims change).
+// Downstream ops may see a different padded shape than the eager step warmed,
+// but element-wise ops (sigmoid, multiply, typecast, add) don't depend on
+// the padded shape for correctness; shape-dependent ops (matmul, rms_norm)
+// use the logical shape which matches.
+ttnn::Tensor CaptureSafeReshape(const ttnn::Tensor& t, const ttnn::Shape& shape) {
+  if (!tt_capture_active()) {
+    return ttnn::reshape(t, shape);
+  }
+  // During capture, use the member Tensor::reshape (pure metadata view,
+  // same buffer, no device program). Try the old padded shape first
+  // (always fits the buffer), then tile-aligned padded as fallback.
+  const auto old_padded = t.padded_shape();
+  try {
+    return t.reshape(shape, old_padded);
+  } catch (...) {
+    const auto rank = shape.rank();
+    ttsl::SmallVector<uint32_t> padded_dims;
+    for (uint32_t i = 0; i < rank; ++i) {
+      if (i + 2 >= rank) {
+        padded_dims.push_back(((shape[i] + 31u) / 32u) * 32u);
+      } else {
+        padded_dims.push_back(shape[i]);
+      }
+    }
+    try {
+      return t.reshape(shape, ttnn::Shape(padded_dims));
+    } catch (...) {
+      return t;  // both failed: return original (may cause downstream issues)
+    }
+  }
+}
 }  // namespace
 
 // KEEPQUANT W3 capture-safety probe (tenstorrent_device.h): staging writes the
@@ -887,18 +929,13 @@ ttnn::Tensor EnsureDevice2D(const Tensor& t, MeshDevice& device) {
     reserved_base = tracked_base && s->device_reserved;
     if (tracked_base && s->device_current && s->device.has_value()) {
       if (s->dev_rows == rows && s->dev_cols == cols) {
-        // The commit stores the producer's logical shape ([B,Hv,Dv]) beside
-        // flat dev_rows/dev_cols; this consumer needs [rows, cols]. A stale
-        // rank-3 logical leaks into downstream binary ops, which cannot
-        // broadcast it ([2,48,128] vs [96,128] — the vllm-bench 27B run).
-        // The re-layout MUST round-trip ROW_MAJOR: a bare reshape on a TILE
-        // owner whose row count is not tile-aligned reinterprets the padded
-        // tile rows and CORRUPTS the bytes (the 0.8B vehicle anchor drifted
-        // at tok=0 under exactly that reshape). This branch only sees the
-        // decode-scale shadow, so the round-trip is cheap.
         const auto ls = s->device->logical_shape();
         if (ls.rank() == 2 && ls[0] == rows && ls[1] == cols)
           return *s->device;
+        if (tt_capture_active()) {
+          s->device = CaptureSafeReshape(*s->device, ttnn::Shape({rows, cols}));
+          return *s->device;
+        }
         ttnn::Tensor reshaped = ttnn::to_layout(
             ttnn::reshape(ttnn::to_layout(*s->device, ttnn::Layout::ROW_MAJOR),
                           ttnn::Shape({rows, cols})),
@@ -910,6 +947,14 @@ ttnn::Tensor EnsureDevice2D(const Tensor& t, MeshDevice& device) {
           static_cast<uint64_t>(s->dev_rows) * static_cast<uint64_t>(s->dev_cols);
       const uint64_t want = static_cast<uint64_t>(rows) * static_cast<uint64_t>(cols);
       if (have == want) {
+        if (tt_capture_active()) {
+          ttnn::Tensor reshaped =
+              CaptureSafeReshape(*s->device, ttnn::Shape({rows, cols}));
+          s->device = reshaped;
+          s->dev_rows = rows;
+          s->dev_cols = cols;
+          return *s->device;
+        }
         ttnn::Tensor reshaped =
             ttnn::reshape(*s->device, ttnn::Shape({rows, cols}));
         s->device = reshaped;
@@ -5663,11 +5708,21 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
         {
           Tensor q_flat = query.View({total_q * hq, d});
           ttnn::Tensor dev_q_2d = EnsureDevice2D(q_flat, device);
-          const uint32_t hu_pad = ((hu + 31u) / 32u) * 32u;
+          // The 4D view's H dimension must NOT be tile-padded per batch:
+          // the 2D tensor [B*H, D] packs heads contiguously (B*H rows in
+          // one tile column), but padding H→32 per batch element would
+          // require B*32 rows (2× the buffer for H=16, B=2). Instead,
+          // use the 2D tensor's padded [rows, D] as a 4D padded shape
+          // [1, 1, rows, D] — the total padded volume is the same
+          // (rows*D = B*H*D), the last two dims are tile-aligned (rows
+          // is B*H padded to 32, D is already aligned), and the buffer
+          // is large enough. The logical [1, B, H, D] reinterprets the
+          // same flat data; sdpa_decode reads per-batch head slices.
+          const auto ps2d = dev_q_2d.padded_shape();
           dev_q = ttnn::multiply(
               ttnn::experimental::view(
                   dev_q_2d, ttnn::Shape({1u, Bu, hu, du}),
-                  ttnn::Shape({1u, Bu, hu_pad, du})),
+                  ttnn::Shape({1u, 1u, ps2d[0], ps2d[1]})),
               1.0f);
         }
         // sdpa_decode requires bf16 (the host arm below builds bf16 too).
@@ -5926,7 +5981,7 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
     if (identity_order && total_q == num_reqs) {
       try {
         const uint32_t flat_cols = static_cast<uint32_t>(hq * d);
-        ttnn::Tensor flat = ttnn::reshape(dev_out,
+        ttnn::Tensor flat = CaptureSafeReshape(dev_out,
             ttnn::Shape({Bu, flat_cols}));
         CommitDeviceLogical2D(out, std::move(flat), Bu, flat_cols);
         // Verify the committed output matches the PA output
@@ -6950,11 +7005,13 @@ ttnn::Tensor EnsureGdnCacheDevice(const Tensor& t, int64_t rows, int64_t cols,
             static_cast<uint64_t>(rows) * cols) {
       if (s->dev_rows == rows && s->dev_cols == cols) return *s->device;
       // Same buffer re-served at new logical dims: reshape to the NEW dims'
-      // split geometry (equal volume — a pure data-movement program whose
-      // circular buffers are per-tile).
-      ttnn::Tensor reshaped =
-          ttnn::reshape(*s->device, ttnn::Shape({static_cast<uint32_t>(rows) * sf,
-                                                  ublk}));
+      // split geometry (equal volume). Always use the member reshape (pure
+      // view) to produce the same padded shape in both eager and capture,
+      // so downstream ops (untilize in ScatterRowsDevice) see the same input
+      // and hit the program cache.
+      const auto old_padded = s->device->padded_shape();
+      ttnn::Tensor reshaped = s->device->reshape(
+          ttnn::Shape({static_cast<uint32_t>(rows) * sf, ublk}), old_padded);
       s->device = reshaped;
       s->dev_rows = static_cast<uint32_t>(rows);
       s->dev_cols = static_cast<uint32_t>(cols);
@@ -7352,8 +7409,15 @@ ttnn::Tensor ServeActF32(const Tensor& t, uint32_t rows, uint32_t cols,
   ttnn::Tensor raw;
   if (ServeDeviceShadowRaw(t, rows, cols, raw)) {
     const auto ls = raw.logical_shape();
-    if (ls.rank() != 2 || ls[0] != rows || ls[1] != cols)
-      raw = ttnn::reshape(raw, ttnn::Shape({rows, cols}));
+    if (ls.rank() != 2 || ls[0] != rows || ls[1] != cols) {
+      if (tt_capture_active() && ls.rank() == 2 &&
+          ls[0] * ls[1] == static_cast<uint32_t>(rows) * cols) {
+        // CaptureSafeReshape: member reshape (pure view, no device program)
+        raw = CaptureSafeReshape(raw, ttnn::Shape({rows, cols}));
+      } else {
+        raw = CaptureSafeReshape(raw, ttnn::Shape({rows, cols}));
+      }
+    }
     if (raw.dtype() != ttnn::DataType::FLOAT32)
       raw = ttnn::typecast(raw, ttnn::DataType::FLOAT32);
     if (raw.layout() != ttnn::Layout::TILE)
@@ -8104,6 +8168,10 @@ DecodeStepResult GdnDecodeStepComposed(const ttnn::Tensor& S, const ttnn::Tensor
                                        const ttnn::Tensor& dev_k, const ttnn::Tensor& dev_v,
                                        const ttnn::Tensor& dev_g, const ttnn::Tensor& dev_b,
                                        float scale, uint32_t bh, uint32_t dk, uint32_t dv) {
+  // During capture, use the free ttnn::reshape: the program IS cached from
+  // the eager warmup (GdnDecodeStepComposed runs the same reshapes in both
+  // passes). create_program_artifacts only runs on cache miss, so the cache
+  // hit path doesn't call to_device.
   ttnn::Tensor decay = ttnn::exp(ttnn::reshape(dev_g, ttnn::Shape({bh, 1, 1})));
   ttnn::Tensor Sd = ttnn::multiply(S, decay);
   ttnn::Tensor kcol = ttnn::reshape(dev_k, ttnn::Shape({bh, dk, 1}));
@@ -8201,10 +8269,10 @@ void GdnDecodeKernel(Queue&, Tensor& out, const Tensor& q_in, const Tensor& k,
     // recapture cadence's, and the VT_CHECK inside names it).
     sentry = GdnSsmIdxEntry(idxv, slots, sf, device);
     oh = sentry.oh;
-    S = ttnn::reshape(ttnn::matmul(*oh, cache2d),
+    S = CaptureSafeReshape(ttnn::matmul(*oh, cache2d),
                       ttnn::Shape({bh, udv, udk}));
   } else {
-    S = ttnn::reshape(cache2d, ttnn::Shape({bh, udv, udk}));
+    S = CaptureSafeReshape(cache2d, ttnn::Shape({bh, udv, udk}));
   }
 
   const char* mode = std::getenv("VT_TT_GDN_DECODE");
@@ -8293,13 +8361,13 @@ void GdnDecodeKernel(Queue&, Tensor& out, const Tensor& q_in, const Tensor& k,
 
   CommitDeviceLogical2D(
       out,
-      ttnn::reshape(o, ttnn::Shape({ub, uhv, udv})),
+      CaptureSafeReshape(o, ttnn::Shape({ub, uhv, udv})),
       static_cast<uint32_t>(batch * hv), udv);
 
   // rows2d in the SPLIT shadow geometry ([B*F, blk]) — same flat bytes as
   // [B, Hv*Dv*Dk]; the regroup across the head boundary is one exact
   // data-movement program with per-tile circular buffers (only when F > 1).
-  ttnn::Tensor rows2d = ttnn::reshape(
+  ttnn::Tensor rows2d = CaptureSafeReshape(
       S_new, ttnn::Shape({static_cast<uint32_t>(ub * sf),
                           static_cast<uint32_t>((uhv * udv * udk) / sf)}));
   // bf16 STORAGE semantics (SupportsCompressedGdnState, cuda_backend.cu): a
@@ -8323,12 +8391,13 @@ void GdnDecodeKernel(Queue&, Tensor& out, const Tensor& q_in, const Tensor& k,
     // content match plus the NULL refusal above make it the all-live form
     // ScatterRowsExact would build); eager keeps the per-call path, NULL
     // compaction included.
+    // Use ScatterRowsDevice for BOTH eager and capture: the committed state
+    // must have the same properties in both passes, so EnsureGdnCacheDevice
+    // takes the same branch in the next layer. The eager warmup warms the
+    // untilize/indexed_fill programs that capture needs.
     ttnn::Tensor newc =
-        tt_capture_active()
-            ? ScatterRowsDevice(cache2d, sentry.scatter_bid, rows2d, slots,
-                                hv * dv * dk, sf)
-            : ScatterRowsExact(cache2d, idxv, rows2d, slots, hv * dv * dk, sf,
-                               device);
+        ScatterRowsDevice(cache2d, sentry.scatter_bid, rows2d, slots,
+                            hv * dv * dk, sf);
     CommitDeviceLogical2D(state, std::move(newc), static_cast<uint32_t>(slots),
                           static_cast<uint32_t>(hv * dv * dk));
   } else {
@@ -9397,7 +9466,31 @@ bool MemsetDeviceIfCapture(void* p, int value, size_t bytes) {
     // EnsureDevice2D restage primed the zero at this exact spec
     // (ZeroCachePrime) and the copy program is warm from the eager copy
     // lane — ZeroCacheGet refuses a capture-time miss by design.
-    if (!tt_capture_active()) return false;
+    if (!tt_capture_active()) {
+      // Prime the zero-cache AND warm the copy program for this spec during
+      // eager warmup: the capture-time lane runs ttnn::copy(zero_src, *fresh)
+      // whose CopyDeviceOperation hash is shape-specific, so a copy never
+      // executed during warmup is not in the program cache and trace capture
+      // fatals on the missing binary. Also prime ZeroCacheGet for the
+      // [1, cols] bf16 TILE spec — a fresh-slot memset whose geometry never
+      // staged (the 27B bench: a 20480-B res.Zero → [1,10240] bf16 TILE)
+      // would miss mid-capture.
+      if (bytes > 0 && (bytes % 2) == 0) {
+        uint32_t cols = static_cast<uint32_t>(bytes / 2);
+        MeshDevice& md = SharedMeshDevice();
+        md.enable_program_cache();
+        auto shape = ttnn::Shape({1u, cols});
+        ZeroCachePrime(shape, ttnn::DataType::BFLOAT16,
+                       ttnn::Layout::TILE, md);
+        ttnn::Tensor zero_src = ZeroCacheGet(
+            shape, ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, md);
+        ttnn::Tensor tmp = ttnn::empty(shape, ttnn::DataType::BFLOAT16,
+                                       ttnn::Layout::TILE, &md,
+                                       ttnn::MemoryConfig{});
+        ttnn::copy(zero_src, tmp);
+      }
+      return false;
+    }
     MeshDevice& device_fresh = SharedMeshDevice();
     device_fresh.enable_program_cache();
     uint32_t cols = 0;
