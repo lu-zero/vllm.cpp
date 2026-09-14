@@ -9825,6 +9825,57 @@ bool ConvShadowServeable(const void* conv_state_data, int64_t slots,
          s->device->logical_shape()[1] == uslots * uc;
 }
 
+namespace {
+
+struct GdnShadowData {
+  std::optional<ttnn::Tensor> device;
+  uint32_t dev_rows = 0, dev_cols = 0;
+  bool device_current = false, conv_transposed = false;
+};
+
+}  // namespace
+
+std::vector<GdnStateShadowSnapshot> SnapshotGdnStateShadows(
+    const std::vector<const void*>& ptrs) {
+  std::vector<GdnStateShadowSnapshot> out;
+  out.reserve(ptrs.size());
+  std::lock_guard<std::mutex> g(SlotMutex());
+  for (const void* p : ptrs) {
+    GdnShadowData data;
+    BufferSlot* s = FindSlot(const_cast<void*>(p));
+    if (s != nullptr) {
+      data.device = s->device;
+      data.dev_rows = s->dev_rows;
+      data.dev_cols = s->dev_cols;
+      data.device_current = s->device_current;
+      data.conv_transposed = s->conv_transposed;
+    }
+    GdnStateShadowSnapshot snap;
+    static_assert(sizeof(GdnShadowData) <= sizeof(snap.storage),
+                  "GdnStateShadowSnapshot storage too small");
+    new (snap.storage) GdnShadowData(std::move(data));
+    out.push_back(snap);
+  }
+  return out;
+}
+
+void RestoreGdnStateShadows(
+    const std::vector<const void*>& ptrs,
+    const std::vector<GdnStateShadowSnapshot>& snapshots) {
+  std::lock_guard<std::mutex> g(SlotMutex());
+  for (size_t i = 0; i < ptrs.size() && i < snapshots.size(); ++i) {
+    auto* data = reinterpret_cast<GdnShadowData*>(
+        const_cast<char*>(snapshots[i].storage));
+    BufferSlot* s = FindSlot(const_cast<void*>(ptrs[i]));
+    if (s == nullptr) continue;
+    s->device = data->device;
+    s->dev_rows = data->dev_rows;
+    s->dev_cols = data->dev_cols;
+    s->device_current = data->device_current;
+    s->conv_transposed = data->conv_transposed;
+  }
+}
+
 void WarmPagedKvShadow(void* k_cache_data, void* v_cache_data,
                       int64_t num_blocks, int64_t block_size,
                       int64_t num_kv_heads, int64_t head_size,
