@@ -45,6 +45,8 @@
 
 #include <cstdint>
 
+#include "iq3xxs_tables.h"
+
 // ---- little-endian loads --------------------------------------------------
 
 static inline uint16_t kq_load16(const uint8_t* p) {
@@ -460,4 +462,51 @@ static inline float kq_vec_dot_q8_0_q8_0(const uint8_t* xblock,
     sumf = sumf + prod;
   }
   return sumf;
+}
+
+// cpu_quant_dot.cpp:622 (quants.c:999, ggml_vec_dot_iq3_xxs_q8_K_generic).
+// IQ3_XXS block: {f16 d; u8 qs[96]} = 98B — qs[0..63] grid-index bytes (one
+// full byte indexes kIq3xxsGrid[256], a u32 codebook read four bytes at a
+// time), qs[64..71] the per-32-element sub-block scale+sign u32s (4-bit
+// scale in the top nibble: ls = 2*(aux32>>28)+1; four 7-bit kKsignsIq2xs
+// selectors in bits 0..27). The int32 accumulation order is the CPU's:
+// per sub-block sumi over the four lanes (grid1[j] sign-paired with q8[j],
+// grid2[j] with q8[j+4], j ascending), folded by ls into bsum, one
+// d * bsum f32 mul-add per block, the 0.25f grid-magnitude fold LAST. No
+// divisions, so the file's reciprocal hazard does not arise; the decoder
+// reads only the true 98 block bytes — the staging pad is never touched.
+static inline float kq_vec_dot_iq3_xxs_q8_K(const uint8_t* xblock,
+                                           uint32_t block_word_bytes,
+                                           const uint8_t* yrow, uint32_t nb) {
+  float sumf = 0.0f;
+  for (uint32_t i = 0; i < nb; ++i, xblock += block_word_bytes, yrow += 292) {
+   const float yd = __builtin_bit_cast(float, kq_load32(yrow));
+   const float d = kq_f16_bits_to_f32(kq_load16(xblock)) * yd;
+   const uint8_t* q3 = xblock + 2;
+   const uint8_t* gas = xblock + 2 + 64;
+   const int8_t* q8 = reinterpret_cast<const int8_t*>(yrow + 4);
+   int32_t bsum = 0;
+   for (uint32_t ib32 = 0; ib32 < 8; ++ib32) {
+     const uint32_t aux32 = kq_load32(gas);
+     gas += 4;
+     const int32_t ls = static_cast<int32_t>(2u * (aux32 >> 28) + 1u);
+     int32_t sumi = 0;
+     for (uint32_t l = 0; l < 4; ++l) {
+       const uint8_t* grid1 =
+           reinterpret_cast<const uint8_t*>(&kIq3xxsGrid[q3[2 * l + 0]]);
+       const uint8_t* grid2 =
+           reinterpret_cast<const uint8_t*>(&kIq3xxsGrid[q3[2 * l + 1]]);
+       const uint8_t signs = kKsignsIq2xs[(aux32 >> (7 * l)) & 127];
+       for (uint32_t j = 0; j < 4; ++j) {
+         sumi += grid1[j] * q8[j + 0] * ((signs & kKmaskIq2xs[j + 0]) ? -1 : 1);
+         sumi += grid2[j] * q8[j + 4] * ((signs & kKmaskIq2xs[j + 4]) ? -1 : 1);
+       }
+       q8 += 8;
+     }
+     q3 += 8;
+     bsum += sumi * ls;
+   }
+   sumf = sumf + d * static_cast<float>(bsum);
+  }
+  return 0.25f * sumf;
 }

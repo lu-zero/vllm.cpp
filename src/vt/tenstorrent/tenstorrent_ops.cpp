@@ -1956,6 +1956,7 @@ int KeepQuantWordsPerBlock(DType enc) {
     case DType::kQ5_K: return 48;
     case DType::kQ6_K: return 64;
     case DType::kQ8_0: return 16;
+    case DType::kIQ3_XXS: return 32;  // 98 B zero-padded to 128 B
     default: return 0;
   }
 }
@@ -2787,10 +2788,11 @@ void MatmulBTQuantKernel(Queue& q, Tensor& out, const Tensor& a, const Tensor& b
       std::string("k") + static_cast<char>(enc_lower[0] - 'a' + 'A') +
       enc_lower.substr(1);
   VT_CHECK(enc == DType::kQ4_K || enc == DType::kQ5_K || enc == DType::kQ6_K ||
-               enc == DType::kQ8_0,
+               enc == DType::kQ8_0 || enc == DType::kIQ3_XXS,
            std::string("tenstorrent kMatmulBTQuant: ") + enc_name +
                " has no keep-quant decode on TENSTORRENT; the registered set "
-               "is kQ4_K/kQ5_K/kQ6_K/kQ8_0 (BACKEND-TENSTORRENT-KEEPQUANT)");
+               "is kQ4_K/kQ5_K/kQ6_K/kQ8_0/kIQ3_XXS "
+               "(BACKEND-TENSTORRENT-KEEPQUANT, QUANT-GGUF-IQ-TENSTORRENT)");
   const int64_t elems = BlockElems(enc);
   VT_CHECK(b.shape[1] % elems == 0,
            std::string("tenstorrent kMatmulBTQuant: K must be a whole number "
@@ -2842,6 +2844,15 @@ void MatmulBTQuantKernel(Queue& q, Tensor& out, const Tensor& a, const Tensor& b
   // transients pinned 3.8 GiB into the trace region at 27B
   // (tenstorrent-27b-int8dot-capture.md). bf16-out carries an explicit
   // f32->bf16 cast before the commit (the W4b store-geometry bug, fixed).
+  // QUANT-GGUF-IQ-TENSTORRENT wave 1: IQ3_XXS has NO W4a grouped arm (the
+  // grouped decode set is the four W3 encodings), so its only serve is the
+  // int8-dot kernel — dispatch it there REGARDLESS of the env, which makes
+  // the capability reachable on the default configuration. The other four
+  // encodings keep the env-gated lever exactly as W4d left it.
+  if (enc == DType::kIQ3_XXS) {
+    MatmulBTQuantInt8DotKernel(q, out, a, b);
+    return;
+  }
   if (const char* int8dot_env = std::getenv("VT_TT_KEEPQUANT_INT8DOT");
       int8dot_env != nullptr && int8dot_env[0] != '\0' &&
       std::strcmp(int8dot_env, "0") != 0) {
@@ -3289,7 +3300,7 @@ constexpr uint32_t ARG_ROW0 = 6;      // first weight column of this core (4*gro
 constexpr uint32_t ARG_ROWC = 7;      // real columns this core dots (0: idle)
 constexpr uint32_t ARG_MTILE = 8;     // activation rows per quantize tile
 constexpr uint32_t ARG_QB_PAD = 9;    // 16B-aligned activation-quant row bytes
-constexpr uint32_t ARG_ENC = 10;      // 0/1/2/3 = Q4_K/Q5_K/Q6_K/Q8_0
+constexpr uint32_t ARG_ENC = 10;      // 0/1/2/3/4 = Q4_K/Q5_K/Q6_K/Q8_0/IQ3_XXS
 constexpr uint32_t ARG_TCOLS = 11;    // padded tile width (uniform): groups_per_core*4
 
 // CB scratch (self-cycled: reserve -> use -> push -> pop; no consumer core).
@@ -3397,8 +3408,10 @@ void kernel_main() {
           v = kq_vec_dot_q5_K_q8_K(xw, word_bytes, yq, nb);
         else if (enc == 2)
           v = kq_vec_dot_q6_K_q8_K(xw, word_bytes, yq, nb);
-        else
+        else if (enc == 3)
           v = kq_vec_dot_q8_0_q8_0(xw, word_bytes, yq, nb);
+        else
+          v = kq_vec_dot_iq3_xxs_q8_K(xw, word_bytes, yq, nb);
         out_tile[r * tcols + n] = v;
       }
     }
@@ -3595,7 +3608,9 @@ void MatmulBTQuantInt8DotKernel(Queue& q, Tensor& out, const Tensor& a,
   const uint32_t enc_sel = enc == DType::kQ4_K    ? 0
                            : enc == DType::kQ5_K  ? 1
                            : enc == DType::kQ6_K  ? 2
-                                                  : 3;
+                           : enc == DType::kQ8_0  ? 3
+                           : enc == DType::kIQ3_XXS ? 4
+                                                  : 0;
   const uint32_t wpb = static_cast<uint32_t>(KeepQuantWordsPerBlock(enc));
   const uint32_t act_f32 = a.dtype == DType::kF32 ? 1u : 0u;
   const std::string workload_key =

@@ -5424,10 +5424,13 @@ TEST_CASE("kTENSTORRENT kMatmulBTQuant matches the CPU integer vec_dot bit-exact
   Backend& backend = vt::GetBackend(vt::DeviceType::kTENSTORRENT);
   Queue q = backend.CreateQueue();
 
-  // The registered set, in the kernel's ARG_ENC order (0/1/2/3): Q4_K is
-  // W1's vehicle, Q5_K/Q6_K/Q8_0 the W3 decode set.
-  const vt::DType encodings[] = {vt::DType::kQ4_K, vt::DType::kQ5_K,
-                                 vt::DType::kQ6_K, vt::DType::kQ8_0};
+  // The registered set, in the kernel's ARG_ENC order (0/1/2/3/4): Q4_K is
+  // W1's vehicle, Q5_K/Q6_K/Q8_0 the W3 decode set, IQ3_XXS the
+  // QUANT-GGUF-IQ-TENSTORRENT wave-1 addition (enc_sel 4, q8_K pairing).
+  const vt::DType encodings[] = {
+      vt::DType::kQ4_K,   vt::DType::kQ5_K,
+      vt::DType::kQ6_K,   vt::DType::kQ8_0,
+      vt::DType::kIQ3_XXS};
   for (const vt::DType enc : encodings) {
     const int64_t kBlockBytes = vt::BlockBytes(enc);
     const int64_t kBlockElems = vt::BlockElems(enc);
@@ -5440,7 +5443,10 @@ TEST_CASE("kTENSTORRENT kMatmulBTQuant matches the CPU integer vec_dot bit-exact
     } else if (enc == vt::DType::kQ6_K) {
       REQUIRE(kBlockBytes == 210);
       REQUIRE(kBlockElems == 256);
-    } else {
+    } else if (enc == vt::DType::kIQ3_XXS) {
+      REQUIRE(kBlockBytes == 98);
+      REQUIRE(kBlockElems == 256);
+    } else if (enc == vt::DType::kQ8_0) {
       REQUIRE(kBlockBytes == 34);
       REQUIRE(kBlockElems == 32);
     }
@@ -5491,6 +5497,14 @@ TEST_CASE("kTENSTORRENT kMatmulBTQuant matches the CPU integer vec_dot bit-exact
         for (int i = 0; i < 16; ++i) blk[192 + i] = rand_byte();  // scales
         const uint16_t d_bits = vt::F32ToF16(rand_f16_signed(0.05f, 0.35f));
         std::memcpy(blk + 208, &d_bits, sizeof(d_bits));
+      } else if (enc == vt::DType::kIQ3_XXS) {
+        // block_iq3_xxs = { f16 d; u8 qs[96] } (98B) — qs[0..63] are grid
+        // indices (a full byte indexes kIq3xxsGrid[256]), qs[64..71] are the
+        // per-32 scale+sign u32s: the top nibble is the 4-bit scale, bits
+        // 0..27 four 7-bit sign selectors — random bytes stay in range.
+        const uint16_t d_bits = vt::F32ToF16(rand_f16_signed(0.05f, 0.35f));
+        std::memcpy(blk + 0, &d_bits, sizeof(d_bits));
+        for (int i = 0; i < 96; ++i) blk[2 + i] = rand_byte();
       } else {
         // block_q8_0 = { f16 d; i8 qs[32] } (34B)
         const uint16_t d_bits = vt::F32ToF16(rand_f16_signed(0.05f, 0.35f));
