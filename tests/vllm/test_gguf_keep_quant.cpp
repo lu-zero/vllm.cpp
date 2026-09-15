@@ -351,6 +351,10 @@ TEST_CASE("keep-quant routing on TENSTORRENT admits exactly the registered decod
   CHECK(route(kQ5_K) == GgufResidency::kKeepQuant);  // W3 decode set
   CHECK(route(kQ6_K) == GgufResidency::kKeepQuant);  // W3 decode set
   CHECK(route(kIQ3_XXS) == GgufResidency::kKeepQuant);  // IQ3_XXS int8-dot arm
+  // QUANT-GGUF-IQ-TENSTORRENT wave 2: IQ2_XXS (enc_sel 5) and IQ2_S
+  // (enc_sel 6) join the int8-dot set in the same change as their kernels.
+  CHECK(route(kIQ2_XXS) == GgufResidency::kKeepQuant);
+  CHECK(route(kIQ2_S) == GgufResidency::kKeepQuant);
   CHECK(route(kQ4_0) == GgufResidency::kExpandBf16);  // no TT arm at all
   CHECK(route(kQ2_K) == GgufResidency::kExpandBf16);
   CHECK(route(kQ3_K) == GgufResidency::kExpandBf16);

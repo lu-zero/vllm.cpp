@@ -1957,6 +1957,8 @@ int KeepQuantWordsPerBlock(DType enc) {
     case DType::kQ6_K: return 64;
     case DType::kQ8_0: return 16;
     case DType::kIQ3_XXS: return 32;  // 98 B zero-padded to 128 B
+    case DType::kIQ2_XXS: return 32;  // 66 B zero-padded to 128 B
+    case DType::kIQ2_S: return 32;    // 82 B zero-padded to 128 B
     default: return 0;
   }
 }
@@ -2788,10 +2790,11 @@ void MatmulBTQuantKernel(Queue& q, Tensor& out, const Tensor& a, const Tensor& b
       std::string("k") + static_cast<char>(enc_lower[0] - 'a' + 'A') +
       enc_lower.substr(1);
   VT_CHECK(enc == DType::kQ4_K || enc == DType::kQ5_K || enc == DType::kQ6_K ||
-               enc == DType::kQ8_0 || enc == DType::kIQ3_XXS,
+               enc == DType::kQ8_0 || enc == DType::kIQ3_XXS ||
+               enc == DType::kIQ2_XXS || enc == DType::kIQ2_S,
            std::string("tenstorrent kMatmulBTQuant: ") + enc_name +
                " has no keep-quant decode on TENSTORRENT; the registered set "
-               "is kQ4_K/kQ5_K/kQ6_K/kQ8_0/kIQ3_XXS "
+               "is kQ4_K/kQ5_K/kQ6_K/kQ8_0/kIQ3_XXS/kIQ2_XXS/kIQ2_S "
                "(BACKEND-TENSTORRENT-KEEPQUANT, QUANT-GGUF-IQ-TENSTORRENT)");
   const int64_t elems = BlockElems(enc);
   VT_CHECK(b.shape[1] % elems == 0,
@@ -2849,7 +2852,8 @@ void MatmulBTQuantKernel(Queue& q, Tensor& out, const Tensor& a, const Tensor& b
   // int8-dot kernel — dispatch it there REGARDLESS of the env, which makes
   // the capability reachable on the default configuration. The other four
   // encodings keep the env-gated lever exactly as W4d left it.
-  if (enc == DType::kIQ3_XXS) {
+  if (enc == DType::kIQ3_XXS || enc == DType::kIQ2_XXS ||
+      enc == DType::kIQ2_S) {
     MatmulBTQuantInt8DotKernel(q, out, a, b);
     return;
   }
@@ -3410,8 +3414,12 @@ void kernel_main() {
           v = kq_vec_dot_q6_K_q8_K(xw, word_bytes, yq, nb);
         else if (enc == 3)
           v = kq_vec_dot_q8_0_q8_0(xw, word_bytes, yq, nb);
-        else
+        else if (enc == 4)
           v = kq_vec_dot_iq3_xxs_q8_K(xw, word_bytes, yq, nb);
+        else if (enc == 5)
+          v = kq_vec_dot_iq2_xxs_q8_K(xw, word_bytes, yq, nb);
+        else
+          v = kq_vec_dot_iq2_s_q8_K(xw, word_bytes, yq, nb);
         out_tile[r * tcols + n] = v;
       }
     }
@@ -3610,6 +3618,8 @@ void MatmulBTQuantInt8DotKernel(Queue& q, Tensor& out, const Tensor& a,
                            : enc == DType::kQ6_K  ? 2
                            : enc == DType::kQ8_0  ? 3
                            : enc == DType::kIQ3_XXS ? 4
+                           : enc == DType::kIQ2_XXS ? 5
+                           : enc == DType::kIQ2_S   ? 6
                                                   : 0;
   const uint32_t wpb = static_cast<uint32_t>(KeepQuantWordsPerBlock(enc));
   const uint32_t act_f32 = a.dtype == DType::kF32 ? 1u : 0u;

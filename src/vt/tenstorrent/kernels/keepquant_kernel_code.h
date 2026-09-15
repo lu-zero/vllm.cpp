@@ -13,6 +13,9 @@
 //   vec_dot_q5_K_q8_K      cpu_quant_dot.cpp:367 (quants.c:720)
 //   vec_dot_q6_K_q8_K      cpu_quant_dot.cpp:457 (quants.c:800)
 //   vec_dot_q8_0_q8_0      cpu_quant_dot.cpp:~170 (quants.c:400)
+//   vec_dot_iq3_xxs_q8_K   cpu_quant_dot.cpp:622 (quants.c:999)
+//   vec_dot_iq2_xxs_q8_K   cpu_quant_dot.cpp:577 (quants.c:855)
+//   vec_dot_iq2_s_q8_K     cpu_quant_dot.cpp:899 (quants.c:947)
 //
 // The accumulation ORDER inside every routine is the ported order, because
 // the whole point of the lever is bit-exactness against it: per block 8
@@ -45,6 +48,7 @@
 
 #include <cstdint>
 
+#include "iq2_tables.h"
 #include "iq3xxs_tables.h"
 
 // ---- little-endian loads --------------------------------------------------
@@ -509,4 +513,93 @@ static inline float kq_vec_dot_iq3_xxs_q8_K(const uint8_t* xblock,
    sumf = sumf + d * static_cast<float>(bsum);
   }
   return 0.25f * sumf;
+}
+
+// quants.c:855 — ggml_vec_dot_iq2_xxs_q8_K_generic. Codebook dot: the block
+// is { f16 d; u16 qs[32] } (66 B), the u16s read as 8 u32 PAIRS per
+// sub-block: the pair's low u32 bytes are four grid indices into
+// kIq2xxsGrid[256] (u64 ternary entries), the second u32's top nibble the
+// 4-bit scale (ls = 2*(>>28)+1) and bits 0..27 four 7-bit kKsignsIq2xs
+// selectors. Same int32 accumulation order as IQ3_XXS; the 0.125f fold LAST.
+// No divisions.
+static inline float kq_vec_dot_iq2_xxs_q8_K(const uint8_t* xblock,
+                                           uint32_t block_word_bytes,
+                                           const uint8_t* yrow, uint32_t nb) {
+  float sumf = 0.0f;
+  for (uint32_t i = 0; i < nb; ++i, xblock += block_word_bytes, yrow += 292) {
+  const float yd = __builtin_bit_cast(float, kq_load32(yrow));
+  const float d = kq_f16_bits_to_f32(kq_load16(xblock)) * yd;
+  const uint8_t* q2 = xblock + 2;
+  const int8_t* q8 = reinterpret_cast<const int8_t*>(yrow + 4);
+  uint32_t aux32[2];
+  uint8_t* aux8 = reinterpret_cast<uint8_t*>(aux32);
+  int32_t bsum = 0;
+  for (uint32_t ib32 = 0; ib32 < 8; ++ib32) {
+    aux32[0] = kq_load32(q2);
+    aux32[1] = kq_load32(q2 + 4);
+    q2 += 8;
+    const int32_t ls = static_cast<int32_t>(2u * (aux32[1] >> 28) + 1u);
+    int32_t sumi = 0;
+    for (uint32_t l = 0; l < 4; ++l) {
+      const uint8_t* grid =
+          reinterpret_cast<const uint8_t*>(&kq_iq2xxs_grid[aux8[l]]);
+      const uint8_t signs = kKsignsIq2xs[(aux32[1] >> (7 * l)) & 127];
+      for (uint32_t j = 0; j < 8; ++j)
+        sumi += grid[j] * q8[j] * ((signs & kKmaskIq2xs[j]) ? -1 : 1);
+      q8 += 8;
+    }
+    bsum += sumi * ls;
+  }
+  sumf = sumf + d * static_cast<float>(bsum);
+  }
+  return 0.125f * sumf;
+}
+
+// quants.c:947 — ggml_vec_dot_iq2_s_q8_K_generic. Codebook dot: the block is
+// { f16 d; u8 qs[64]; u8 qh[8]; u8 scales[8] } (82 B). Per 32-sub-block the
+// 8-bit qs index widens by 2 bits spliced from qh[ib32]
+// (`qs[l] | ((qh[ib32] << (8-2l)) & 0x300)`), into kIq2sGrid[1024] u64
+// ternary entries; the byte's low/high nibbles give ls1 (lanes 0-1) and ls2
+// (lanes 2-3) as 1 + 2*<nibble>. Signs are kKsignsIq2xs selectors read
+// straight from the sign bytes qs+64. Same accumulation order; 0.125f LAST.
+// No divisions.
+static inline float kq_vec_dot_iq2_s_q8_K(const uint8_t* xblock,
+                                         uint32_t block_word_bytes,
+                                         const uint8_t* yrow, uint32_t nb) {
+  float sumf = 0.0f;
+  for (uint32_t i = 0; i < nb; ++i, xblock += block_word_bytes, yrow += 292) {
+  const float yd = __builtin_bit_cast(float, kq_load32(yrow));
+  const float d = kq_f16_bits_to_f32(kq_load16(xblock)) * yd;
+  const uint8_t* qs = xblock + 2;
+  const uint8_t* qh = xblock + 2 + 64;
+  const uint8_t* scales = xblock + 2 + 64 + 8;
+  const uint8_t* signs = qs + 32;
+  const int8_t* q8 = reinterpret_cast<const int8_t*>(yrow + 4);
+  int32_t bsum = 0;
+  for (uint32_t ib32 = 0; ib32 < 8; ++ib32) {
+    const int32_t ls1 = 1 + 2 * (scales[ib32] & 0xf);
+    const int32_t ls2 = 1 + 2 * (scales[ib32] >> 4);
+    int32_t sumi1 = 0;
+    int32_t sumi2 = 0;
+    for (uint32_t l = 0; l < 2; ++l) {
+      const uint8_t* grid = reinterpret_cast<const uint8_t*>(
+          &kq_iq2s_grid[qs[l] | ((qh[ib32] << (8 - 2 * l)) & 0x300)]);
+      for (uint32_t j = 0; j < 8; ++j)
+        sumi1 += q8[j] * grid[j] * ((signs[l] & kKmaskIq2xs[j]) ? -1 : 1);
+      q8 += 8;
+    }
+    for (uint32_t l = 2; l < 4; ++l) {
+      const uint8_t* grid = reinterpret_cast<const uint8_t*>(
+          &kq_iq2s_grid[qs[l] | ((qh[ib32] << (8 - 2 * l)) & 0x300)]);
+      for (uint32_t j = 0; j < 8; ++j)
+        sumi2 += q8[j] * grid[j] * ((signs[l] & kKmaskIq2xs[j]) ? -1 : 1);
+      q8 += 8;
+    }
+    bsum += ls1 * sumi1 + ls2 * sumi2;
+    qs += 4;
+    signs += 4;
+  }
+  sumf = sumf + d * static_cast<float>(bsum);
+  }
+  return 0.125f * sumf;
 }
