@@ -48,7 +48,7 @@ Mirror wave 1 point-for-point:
 2. `keepquant_kernel_code.h`: `kq_vec_dot_iq2_xxs_q8_K` and
    `kq_vec_dot_iq2_s_q8_K` — ported statement-for-statement; IQ2_XXS's
    qh-splice and IQ2_S's per-ib32 `ls1/ls2` low/high split exactly as the
-   CPU reference; `0.25f * sumf` folds last; no divisions.
+   CPU reference; `0.125f * sumf` folds last; no divisions.
 3. Staging: `KeepQuantWordsPerBlock(kIQ2_XXS)` and `(kIQ2_S)`: IQ2_XXS
    66 B → 128 B → 32 words; IQ2_S 82 B → 128 B → 32 words (both
    zero-padded, sub-word tail like Q6_K/IQ3_XXS).
