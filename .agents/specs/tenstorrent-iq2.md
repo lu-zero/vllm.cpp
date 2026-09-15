@@ -104,3 +104,40 @@ Mirror wave 1 point-for-point:
 
 - Same as wave 1: soft-float drift that cannot be closed → stop and
   escalate; no residency redesign in this wave.
+
+## Outcome
+
+Landed 2026-09-15 (PR #3200, squash `d4ff05f8c`). Both encodings decode
+on-core bit-exact: op sweep 162/162 assertions across 18 shapes x 7
+encodings vs the CPU oracles `VecDotIQ2_XXSQ8_K` (quants.c:855) and
+`VecDotIQ2_SQ8_K` (quants.c:947); default-path env-unset leg 38
+assertions; route pin 61 cases / 12,131 assertions; full backend suite
+75/75 cases, 775,034 assertions, 0 failed on the P150. Fresh review
+PASS with 7/7 claimed guarantees mutation-verified red, including the
+mandatory `& 0x300` qh-splice flip (which lives in IQ2_S, not IQ2_XXS
+as the draft spec's Risks section mislocated).
+
+Measured and rejected:
+
+- Plain `constexpr` table placement: the 10,240 B of u64 grids overflow
+  the kernel's ~4.8 KB local-data region; the loader refuses at
+  tt_elffile.cpp:394. Rejected for `.text` placement with
+  `used`+`externally_visible` — a bare `section(".text")` is dropped by
+  tt-metal's `-flto=auto` pass and the tables silently reappear in
+  `.data`. Placement verified via linked brisc.elf symbols.
+- Duplicating the sign/mask tables in `iq2_tables.h`: redefinition
+  against wave 1's `iq3xxs_tables.h`; reused instead.
+
+Default values and why:
+
+- Fold constant is `0.125f * sumf` for BOTH encodings — the CPU
+  oracles fold with 0.125f; the draft spec's 0.25f was wrong (IQ3_XXS
+  is the 0.25f encoding). Corrected in `b05a4e599`.
+- Unconditional int8-dot dispatch (no env knob) — same reachability
+  rule wave 1 set; the dispatch-only mutation went red on the
+  default-path leg, proving the default configuration reaches it.
+
+Gates state: op oracle PASS, route PASS, backend suite PASS; the APEX
+e2e generation gate stays recorded OOM/owed (Q4_K grouped repair-plane
+residency, keep-quant W4 territory) — unchanged from wave 1, not owned
+here. Owed carried forward: Q3_K wave 3, W4a grouped E=1 arms.
