@@ -216,3 +216,21 @@ for the slot's stored tensor in CommitDevice2D/EnsureHost download. Correlate
 a zero slot's stored-tensor identity against the free list. Then the fix is
 one of: (a) not storing aliased views in slots, (b) reclaim checking the
 slot map before force-freeing, or (c) slot invalidation on dealloc.
+
+## Slot-history instrumentation results (2026-09-16, VT_TT_SLOT_TRACE=2)
+
+- 433 downloads, 314 read zeros (73%).
+- The FIRST zero download (log line 306) is slot 0xffeea102f280's FIRST-EVER
+  commit: [1,30720] bf16, committed at line 302, downloaded at 306 — zero.
+  No [TT-FREE] before it, no earlier zero downloads. So the producing op
+  computed a zero tensor from its first use: the zeros ORIGINATE in the
+  producer's operands or its own compute, and propagate downstream (the 73%
+  are inheritance, not independent corruption).
+- Shape [1,30720] bf16 matches the SigmoidGateBf16 commit form
+  (CommitDeviceLogical2D(out, dev_y, 1, n)); earlier SIGGATE probes showed
+  its first call LIVE and later calls' operands zero — so the origin is at
+  or before that op's operands.
+- Next: rerun with VT_TT_TRACE_DEBUG=1 + VT_TT_SLOT_TRACE=2 to name the
+  committing op of the first zero; then walk the operand chain one op at a
+  time (the SIGGATE probe showed attn/gate live at call 1 — find which
+  operand of which call is the first zero and read its producer).

@@ -210,6 +210,12 @@ bool& tt_capture_active() {
   static bool b = false;
   return b;
 }
+// VT_TT_SLOT_TRACE verbosity: unset/0 = the original [TT-SLOT] lines,
+// 2 = [TT-FREE]/[TT-DL] slot-history instrumentation.
+int slot_trace_level() {
+  const char* e = std::getenv("VT_TT_SLOT_TRACE");
+  return e != nullptr && e[0] == '2' ? 2 : (e != nullptr ? 1 : 0);
+}
 
 // Capture-safe reshape: the free ttnn::reshape (from reshape_view/reshape.hpp)
 // launches ReshapeViewTiledProgramFactory::create_program_artifacts which
@@ -639,6 +645,21 @@ void EnsureHost(Tensor& t) {
     return;
   }
   DownloadToHost(*s->device, t, "EnsureHost");
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: level-2 slot history — identity
+  // of what the download READ (the slot's stored device tensor) with a
+  // sample checksum, so a zero read names its stored tensor.
+  if (slot_trace_level() >= 2) {
+    auto v = s->device->to_vector<float>();
+    double sum = 0.0;
+    uint64_t nz = 0;
+    for (float x : v) { sum += x; if (x != 0.0f) ++nz; }
+    std::fprintf(stderr,
+                 "[TT-DL] t=%p stored=%s nz=%llu/%llu sum=%.2f\n",
+                 static_cast<const void*>(t.data), DevShapeStr(*s->device).c_str(),
+                 static_cast<unsigned long long>(nz),
+                 static_cast<unsigned long long>(v.size()), sum);
+    std::fflush(stderr);
+  }
   s->host_current = true;
 }
 
@@ -2157,8 +2178,15 @@ void TTReclaimPlanes(MeshDevice& device,
                      std::initializer_list<ttnn::Tensor*> planes) {
   if (tt_capture_active()) return;
   device.mesh_command_queue().finish();
-  for (ttnn::Tensor* plane : planes)
+  for (ttnn::Tensor* plane : planes) {
+    if (slot_trace_level() >= 2) {
+      char b[80];
+      std::snprintf(b, sizeof(b), "%s", DevShapeStr(*plane).c_str());
+      std::fprintf(stderr, "[TT-FREE] shape=%s\n", b);
+      std::fflush(stderr);
+    }
     ttnn::deallocate(*plane, /*force=*/true);
+  }
 }
 void TTReclaimPlanes(MeshDevice& device, std::vector<ttnn::Tensor>& planes) {
   if (tt_capture_active()) return;
