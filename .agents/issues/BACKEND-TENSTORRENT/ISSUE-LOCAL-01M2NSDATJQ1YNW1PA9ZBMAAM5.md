@@ -70,3 +70,28 @@ engine's weight-view plumbing for this GGUF (ResidentWeight for the
 lm_head/down weights); (3) the residual path around the first dead op.
 Probe: checksum the staged `words` (row 0) inside the kernels behind
 VT_DEBUG_SAMPLED=2, and checksum the packed host master before staging.
+
+## Staging + kernel exonerations (2026-09-16, continued)
+
+- Weight staging is LIVE: all 353 stagings across the artifact's encoding mix
+  (iq2_s x88, iq2_xxs x44, iq3_xxs x68, q3_K x78, q4_K x74, q6_K x1 — the
+  lm_head staged live at rows=248320). No zero masters, no zero word shadows.
+- The int8-dot kernel is BIT-EXACT at the production block-3 shape
+  (q3_K, M=17, N=5120, K=17408): 87040/87040 exact vs the CPU vec_dot oracle
+  (test "int8-dot Q3_K at the 27B down-proj shape"). Both keep-quant kernels
+  are now exonerated in isolation at production shapes.
+
+## Remaining suspect: the ServeActF32 / SigmoidGateBf16 geometry path
+
+The death sits right after the attention block (AttnQkNormRopeGate ->
+CastBf16 -> ReshapeAndCache -> TryPagedAttentionDeviceDecode ->
+SigmoidGateBf16). SigmoidGateBf16 serves its operands at a [1, n] geometry
+through ServeActF32 (tenstorrent_ops.cpp:7607-7653), whose eager
+geometry-mismatch arm calls CaptureSafeReshape — the FREE ttnn::reshape —
+on a TILE shadow whose native geometry may be [17, 87040]. This is the
+exact doctrine violation NormalizeDevF32Tile's comment warns about
+(free reshape of a TILE at a changed shape; the #3206 review's F2 owed
+item named kSigmoidGateBf16 as a hardcoded-geometry consumer predating
+the doctrine). Probe: checksum dev_attn/dev_gate inside
+SigmoidGateBf16Kernel behind VT_DEBUG_SAMPLED=2; read the serve path at
+:7613 against the AttnQkNormRopeGate doctrine.

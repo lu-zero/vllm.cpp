@@ -6585,6 +6585,76 @@ TEST_CASE("kTENSTORRENT E=1 chunked quant matmul at lm_head decode shapes: M=1 m
   }
   }
 }
+TEST_CASE("kTENSTORRENT int8-dot Q3_K at the 27B down-proj shape: M=17 N=5120 K=17408 (ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5)") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  Backend& backend = vt::GetBackend(vt::DeviceType::kTENSTORRENT);
+  Queue q = backend.CreateQueue();
+  const vt::DType enc = vt::DType::kQ3_K;
+  const int64_t kBlockBytes = vt::BlockBytes(enc);
+  const int64_t kBlockElems = vt::BlockElems(enc);
+  auto quant_act = vt::cpu::BlockFromFloat(vt::DType::kQ8_K);
+  auto vec_dot = vt::cpu::BlockVecDot(enc);
+  std::mt19937 rng(20260920u);
+  auto rand_byte = [&rng]() { return static_cast<uint8_t>(rng() & 0xFF); };
+  auto fill_block = [&](uint8_t* blk) {
+    for (int i = 0; i < 32; ++i) blk[0 + i] = rand_byte();   // hmask
+    for (int i = 0; i < 64; ++i) blk[32 + i] = rand_byte();  // qs
+    for (int i = 0; i < 12; ++i) blk[96 + i] = rand_byte();  // scales
+    const uint16_t dbits = vt::F32ToF16(0.05f + 0.3f * static_cast<float>(rng() % 64) / 64.0f);
+    std::memcpy(blk + 108, &dbits, sizeof(dbits));
+  };
+  // THE PRODUCTION SHAPE that killed the stream (block 3's MoE down-proj).
+  constexpr int64_t M = 17, N = 5120, nb = 68;
+  const int64_t K = nb * kBlockElems;
+  std::vector<uint8_t> packed(N * nb * kBlockBytes);
+  for (int64_t b = 0; b < N * nb; ++b) fill_block(packed.data() + b * kBlockBytes);
+  std::vector<float> a_f32(M * K);
+  for (auto& v : a_f32) v = (static_cast<float>(rng() % 401) - 200.0f) / 100.0f;
+  std::vector<uint16_t> a_bf(M * K);
+  for (size_t i = 0; i < a_f32.size(); ++i) a_bf[i] = vt::F32ToBF16(a_f32[i]);
+  std::vector<float> a_q32(M * K);
+  for (size_t i = 0; i < a_f32.size(); ++i) a_q32[i] = vt::BF16ToF32(a_bf[i]);
+  const size_t y_row_bytes = vt::cpu::QuantActRowBytes(enc, K);
+  std::vector<uint8_t> y(M * y_row_bytes);
+  for (int64_t m = 0; m < M; ++m)
+    quant_act(a_q32.data() + m * K, y.data() + m * y_row_bytes, K);
+  MESSAGE("oracle: ", M * N, " vec_dots at K=", K);
+  std::vector<float> oracle(static_cast<size_t>(M) * N);
+  for (int64_t m = 0; m < M; ++m)
+    for (int64_t n = 0; n < N; ++n)
+      vec_dot(static_cast<int>(K), &oracle[static_cast<size_t>(m) * N + n],
+              0, packed.data() + static_cast<size_t>(n) * nb * kBlockBytes,
+              0, y.data() + m * y_row_bytes, 0, 1);
+  void* mem_a = backend.Alloc(a_bf.size() * sizeof(uint16_t));
+  void* mem_b = backend.Alloc(packed.size());
+  void* mem_o = backend.Alloc(M * N * sizeof(float));
+  backend.Copy(q, mem_a, a_bf.data(), a_bf.size() * sizeof(uint16_t));
+  backend.Copy(q, mem_b, packed.data(), packed.size());
+  Tensor a_t = Tensor::Contiguous(mem_a, vt::DType::kBF16,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {M, K});
+  Tensor b_t = Tensor::Contiguous(mem_b, enc,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {N, K});
+  Tensor o_t = Tensor::Contiguous(mem_o, vt::DType::kF32,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {M, N});
+  vt::MatmulBT(q, o_t, a_t, b_t);
+  std::vector<float> out(static_cast<size_t>(M) * N, 0.0f);
+  backend.Copy(q, out.data(), mem_o, out.size() * sizeof(float));
+  backend.Free(mem_a);
+  backend.Free(mem_b);
+  backend.Free(mem_o);
+  int64_t exact = 0, zero = 0;
+  for (int64_t i = 0; i < M * N; ++i) {
+    if (out[static_cast<size_t>(i)] == oracle[static_cast<size_t>(i)]) ++exact;
+    if (out[static_cast<size_t>(i)] == 0.0f) ++zero;
+  }
+  MESSAGE("q3_K production shape: exact=", exact, "/", M * N, " zeros=", zero);
+  CHECK(zero < (M * N) / 2);
+  CHECK(std::memcmp(out.data(), oracle.data(),
+                    static_cast<size_t>(M) * N * sizeof(float)) == 0);
+}
 TEST_CASE("kTENSTORRENT keep-quant decode probe: rows=4 nb=20 Q6_K (the chunk-B the matmul repro feeds)") {
   if (!TenstorrentPresent()) {
     MESSAGE("SKIPPED: no Tenstorrent device on this box");
@@ -6702,6 +6772,86 @@ TEST_CASE("kTENSTORRENT E=1 quant matmul nb=20 SINGLE chunk: K=5120 matmul vs mu
   MESSAGE("single-chunk nb=20: nonzero=", nonzero, "/", M * N,
           " worst_abs=", worst);
   CHECK(nonzero > static_cast<int>(M * N) / 2);
+  CHECK(worst < 1e4f);
+}
+TEST_CASE("kTENSTORRENT E=1 chunked quant matmul PRODUCTION SCALE: N=32760 chunk=3276 nb=20 (B=65520 decode, 10-way concat)") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  Backend& backend = vt::GetBackend(vt::DeviceType::kTENSTORRENT);
+  Queue q = backend.CreateQueue();
+  // The 27B lm_head production chunk: 3276 rows (the plane_bytes/(K*16) cap),
+  // B = 3276*20 = 65,520 word rows per chunk decode — the shapes no unit test
+  // exercised before the all-zero-logits e2e gate.
+  vt::tenstorrent::KeepQuantChunkRowsOverrideForTest(3276);
+  struct ChunkReset {
+    ~ChunkReset() { vt::tenstorrent::KeepQuantChunkRowsOverrideForTest(0); }
+  } chunk_reset;
+  auto widen = [](uint16_t u) {
+    uint32_t bits = static_cast<uint32_t>(u) << 16;
+    float f;
+    std::memcpy(&f, &bits, 4);
+    return f;
+  };
+  constexpr int64_t M = 1, N = 32760, nb = 20;
+  const int64_t kBlockBytes = vt::BlockBytes(vt::DType::kQ6_K);
+  const int64_t kBlockElems = vt::BlockElems(vt::DType::kQ6_K);
+  const int64_t K = nb * kBlockElems;
+  std::mt19937 rng(20260919u);
+  std::vector<uint8_t> packed(N * nb * kBlockBytes);
+  for (int64_t b = 0; b < N * nb; ++b) {
+    uint8_t* blk = packed.data() + b * kBlockBytes;
+    for (int i = 0; i < 128; ++i) blk[0 + i] = static_cast<uint8_t>(rng() & 0xFF);
+    for (int i = 0; i < 64; ++i) blk[128 + i] = static_cast<uint8_t>(rng() & 0xFF);
+    for (int i = 0; i < 16; ++i) blk[192 + i] = static_cast<uint8_t>(rng() & 0xFF);
+    const uint16_t dbits = vt::F32ToF16(0.1f + 0.2f * static_cast<float>(rng() % 16) / 16.0f);
+    std::memcpy(blk + 208, &dbits, sizeof(dbits));
+  }
+  std::vector<uint16_t> a_bf(M * K);
+  for (auto& v : a_bf) v = vt::F32ToBF16((static_cast<float>(rng() % 401) - 200.0f) / 100.0f);
+  MESSAGE("packed bytes=", packed.size(), " — building the CPU reference");
+  std::vector<float> w_f32(static_cast<size_t>(N) * K);
+  vt::cpu::BlockToFloat(vt::DType::kQ6_K)(packed.data(), w_f32.data(), N * K);
+  std::vector<float> ref(static_cast<size_t>(M) * N);
+  for (int64_t n = 0; n < N; ++n) {
+    float acc = 0.0f;
+    for (int64_t k = 0; k < K; ++k)
+      acc += widen(a_bf[static_cast<size_t>(k)]) *
+             widen(vt::F32ToBF16(w_f32[static_cast<size_t>(n) * K + k]));
+    ref[static_cast<size_t>(n)] = acc;
+  }
+  w_f32.clear();
+  w_f32.shrink_to_fit();
+  void* mem_a = backend.Alloc(M * K * sizeof(uint16_t));
+  void* mem_b = backend.Alloc(packed.size());
+  void* mem_o = backend.Alloc(M * N * sizeof(float));
+  backend.Copy(q, mem_a, a_bf.data(), a_bf.size() * sizeof(uint16_t));
+  backend.Copy(q, mem_b, packed.data(), packed.size());
+  Tensor a_t = Tensor::Contiguous(mem_a, vt::DType::kBF16,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {M, K});
+  Tensor b_t = Tensor::Contiguous(mem_b, vt::DType::kQ6_K,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {N, K});
+  Tensor o_t = Tensor::Contiguous(mem_o, vt::DType::kF32,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {M, N});
+  vt::MatmulBT(q, o_t, a_t, b_t);
+  std::vector<float> out(static_cast<size_t>(M) * N, 0.0f);
+  backend.Copy(q, out.data(), mem_o, out.size() * sizeof(float));
+  backend.Free(mem_a);
+  backend.Free(mem_b);
+  backend.Free(mem_o);
+  float worst = 0.0f, mag_worst = 0.0f;
+  int64_t sane = 0;
+  for (int64_t i = 0; i < M * N; ++i) {
+    const float o = out[static_cast<size_t>(i)], r = ref[static_cast<size_t>(i)];
+    const float d = std::fabs(o - r);
+    worst = std::max(worst, d);
+    mag_worst = std::max(mag_worst, std::fabs(o));
+    if (std::isfinite(o) && std::fabs(o) < 1e5f) ++sane;
+  }
+  MESSAGE("production-scale: sane=", sane, "/", M * N,
+          " worst_abs=", worst, " max |out|=", mag_worst);
+  CHECK(sane == M * N);
   CHECK(worst < 1e4f);
 }
 TEST_CASE("kTENSTORRENT keep-quant decode stages zero words during capture") {

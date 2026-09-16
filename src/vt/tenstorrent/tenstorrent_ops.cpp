@@ -2039,8 +2039,33 @@ ttnn::Tensor EnsureKeepQuantWords(const Tensor& packed, DType enc, int64_t rows,
                ") — warm the keep-quant arm eagerly first");
   EnsureHost(packed);
   const uint8_t* bytes = packed.Ptr<uint8_t>();
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: the exact-zero logits could come
+  // from a weight whose HOST MASTER is zeros (never-read mmap view) or whose
+  // STAGED WORDS are zeros. Print both, once per weight, behind
+  // VT_DEBUG_SAMPLED=2.
   const int64_t b64 = rows * nb;
   const int64_t block_bytes = BlockBytes(enc);
+  static const int kStageProbe = [] {
+    const char* e = std::getenv("VT_DEBUG_SAMPLED");
+    return e != nullptr && e[0] == '2' ? 2 : 0;
+  }();
+  if (kStageProbe == 2) {
+    uint64_t nz_bytes = 0;
+    const int64_t probe_blocks = std::min<int64_t>(b64, 64);
+    for (int64_t b = 0; b < probe_blocks; ++b)
+      for (int j = 0; j < block_bytes; ++j)
+        if (bytes[b * block_bytes + j] != 0) ++nz_bytes;
+    std::fprintf(stderr,
+                 "[TT-KQSTAGE] enc=%s rows=%lld nb=%lld master nz=%llu/%d "
+                 "b0=%02x%02x%02x%02x ptr=%p\n",
+                 Name(enc), static_cast<long long>(rows),
+                 static_cast<long long>(nb),
+                 static_cast<unsigned long long>(nz_bytes),
+                 static_cast<int>(block_bytes * probe_blocks),
+                 bytes[3], bytes[2], bytes[1], bytes[0],
+                 static_cast<const void*>(packed.data));
+    std::fflush(stderr);
+  }
   std::vector<int32_t> words;
   words.reserve(static_cast<size_t>(b64) * static_cast<size_t>(wpb));
   std::vector<uint8_t> padded(static_cast<size_t>(wpb) * 4u, 0u);
@@ -2062,6 +2087,17 @@ ttnn::Tensor EnsureKeepQuantWords(const Tensor& packed, DType enc, int64_t rows,
                                   static_cast<uint32_t>(wpb)}),
              ttnn::DataType::INT32, ttnn::Layout::ROW_MAJOR),
       &device);
+  if (kStageProbe == 2) {
+    auto st = staged.to_vector<int32_t>();
+    uint64_t nz_w = 0;
+    for (int32_t w : st)
+      if (w != 0) ++nz_w;
+    std::fprintf(stderr,
+                 "[TT-KQSTAGE] staged words nz=%llu/%lld w0=%d\n",
+                 static_cast<unsigned long long>(nz_w),
+                 static_cast<long long>(st.size()), st.empty() ? 0 : st[0]);
+    std::fflush(stderr);
+  }
   {
     std::lock_guard<std::mutex> g(KeepQuantWordMutex());
     KeepQuantWordShadows()[packed.data] =
