@@ -1700,7 +1700,9 @@ if(VLLM_CPP_TENSTORRENT)
     src/vllm/platforms/tenstorrent.cpp
     src/vt/tenstorrent/tenstorrent_device.cpp
     src/vt/tenstorrent/tenstorrent_backend.cpp)
-  add_library(vllm_tenstorrent_ops OBJECT src/vt/tenstorrent/tenstorrent_ops.cpp)
+  add_library(vllm_tenstorrent_ops OBJECT
+    src/vt/tenstorrent/tenstorrent_ops.cpp
+    src/vt/tenstorrent/tenstorrent_residency.cpp)
   target_include_directories(vllm_tenstorrent_ops PRIVATE
     ${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/include ${CMAKE_SOURCE_DIR}/src)
   target_link_libraries(vllm_tenstorrent_ops PRIVATE TTNN::TTNN)
