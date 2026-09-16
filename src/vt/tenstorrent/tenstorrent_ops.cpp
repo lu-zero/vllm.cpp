@@ -190,9 +190,11 @@ namespace {
 // Bisection diagnostic: logs op entry during capture (VT_TT_TRACE_DEBUG).
 #define TT_OP_TRACE(name)                                          \
   do {                                                             \
-    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr &&             \
-        tt_capture_active())                                       \
-      std::fprintf(stderr, "[TT-OP] %s\n", name);                  \
+    static const bool kOpTrace = [] {                              \
+      const char* e = std::getenv("VT_TT_TRACE_DEBUG");            \
+      return e != nullptr && e[0] != '0';                          \
+    }();                                                           \
+    if (kOpTrace) std::fprintf(stderr, "[TT-OP] %s\n", name);      \
   } while (0)
 
 // ---- Host/device residency -------------------------------------------------
@@ -2991,6 +2993,47 @@ void MatmulBTQuantGroupedKernel(Queue&, Tensor& out, const Tensor& act,
   const int64_t E = weight.shape[0] / N;
   const int64_t nb = K / elems;
   if (P == 0 || N == 0) return;
+
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: the e2e logits are exactly zero
+  // through a kernel proven correct at unit and production scale. Print what
+  // the arm RECEIVES so a zero activation is told apart from a zero output.
+  static const int kActProbe = [] {
+    const char* e = std::getenv("VT_DEBUG_SAMPLED");
+    return e != nullptr && e[0] == '2' ? 2 : 0;
+  }();
+  if (kActProbe == 2) {
+    std::vector<uint16_t> ah(static_cast<size_t>(Pa * K));
+    EnsureHost(act);
+    if (act.dtype == DType::kBF16) {
+      std::memcpy(ah.data(), act.Ptr<uint16_t>(), ah.size() * sizeof(uint16_t));
+    } else {
+      const float* af = act.Ptr<float>();
+      for (size_t i = 0; i < ah.size(); ++i)
+        ah[i] = vt::F32ToBF16(af[i]);
+    }
+    double sum = 0.0;
+    float mx = 0.0f, mn = 0.0f;
+    int64_t nz = 0;
+    bool first = true;
+    for (uint16_t u : ah) {
+      const uint32_t bits = static_cast<uint32_t>(u) << 16;
+      float x;
+      std::memcpy(&x, &bits, 4);
+      if (first) { mx = mn = x; first = false; }
+      sum += x;
+      mx = std::max(mx, x);
+      mn = std::min(mn, x);
+      if (x != 0.0f) ++nz;
+    }
+    std::fprintf(stderr,
+                 "[TT-KQACT] %s act %lldx%lld nz=%lld/%lld max=%.6f "
+                 "min=%.6f sum=%.4f ptr=%p\n",
+                 enc_name.c_str(), static_cast<long long>(Pa),
+                 static_cast<long long>(K), static_cast<long long>(nz),
+                 static_cast<long long>(Pa * K), mx, mn, sum,
+                 static_cast<const void*>(act.data));
+    std::fflush(stderr);
+  }
 
   MeshDevice& device = SharedMeshDevice();
   {  // W4d W0 (#3042) attribution: grouped arm shape.
@@ -6599,6 +6642,33 @@ void GreedyArgmaxKernel(Queue&, Tensor& token_ids, const Tensor& logits) {
   EnsureHost(logits);
   const int64_t n = logits.shape[0], v = logits.shape[1];
   const float* lp = logits.Ptr<float>();
+  // The all-zero-logits e2e gate (ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5):
+  // VT_DEBUG_SAMPLED=2 prints per-step logits statistics so the engine-level
+  // zero can be told apart from a sampler/argmax defect. Read once.
+  static const int kDebugLogits = [] {
+    const char* e = std::getenv("VT_DEBUG_SAMPLED");
+    return e != nullptr && e[0] == '2' ? 2 : (e != nullptr && e[0] == '1' ? 1 : 0);
+  }();
+  if (kDebugLogits == 2) {
+    for (int64_t i = 0; i < n; ++i) {
+      double sum = 0.0;
+      float mx = lp[static_cast<size_t>(i) * v], mn = mx;
+      int64_t nz = 0;
+      for (int64_t j = 0; j < v; ++j) {
+        const float x = lp[static_cast<size_t>(i) * v + j];
+        sum += x;
+        mx = std::max(mx, x);
+        mn = std::min(mn, x);
+        if (x != 0.0f) ++nz;
+      }
+      std::fprintf(stderr,
+                   "[TT-LOGITS] row=%lld nz=%lld/%lld max=%.6f min=%.6f "
+                   "sum=%.4f\n",
+                   static_cast<long long>(i), static_cast<long long>(nz),
+                   static_cast<long long>(v), mx, mn, sum);
+    }
+    std::fflush(stderr);
+  }
   int64_t* out = token_ids.Ptr<int64_t>();
   for (int64_t i = 0; i < n; ++i) {
     const float* row = lp + i * v;

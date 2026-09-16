@@ -43,3 +43,30 @@ Unit-scale discriminator (`-tc="*lm_head decode shapes*"`):
 - M=1, N=64, nb=20, SINGLE chunk (override 0): CORRECT magnitude (worst_abs 1031, K=5120 bf16 dot).
 
 So the defect is the MULTI-CHUNK path at nb=20, not the K=5120 matmul itself, not repeated calls, not M. Per chunk: B = chunk_rows x nb = 80 words; the single-chunk case takes the sl_alias branch (slice returns the whole tensor) while multi-chunk slices + TTReclaimPlanes({&sl,&wf,&wbf}). Prime suspect: a plane reclaimed while still aliased in the chunk loop, or the slice of the word shadow at row offsets c0*nb.
+
+## Engine attribution (2026-09-16, debug hooks VT_DEBUG_SAMPLED=2 / VT_TT_TRACE_DEBUG)
+
+- The logits are EXACTLY 0.0 across all 248320 entries at every step
+  ([TT-LOGITS] nz=0/248320) — the signature of a zero activation OR a zero
+  weight, not numeric corruption.
+- Activations entering quant matmuls are LIVE for the first ~9 calls
+  (through block 2) and ZERO from block 3 on. The death point in the op
+  timeline: block 3's MoE down-proj enters MatmulBTQuant and never reaches
+  MatmulBTQuantGrouped — it dispatched to the int8-dot kernel (Q3_K is
+  served unconditionally by int8-dot at tenstorrent_ops.cpp:2862).
+- BUT forcing VT_TT_KEEPQUANT_INT8DOT=1 (all encodings through int8-dot)
+  ALSO yields all-zero logits. Both arms fail in-engine; the grouped arm is
+  proven correct at unit AND production scale (N=32760, chunk=3276,
+  B=65520, 10-way concat: sane, worst_abs 2253).
+- Slot trace on the 17x5120 hidden slot: committed 4x per forward
+  (dc=1), EnsureHost downloads from the right slot — first forward reads
+  live bytes, later forwards read zeros. The producers write zeros.
+
+Next suspects, in order: (1) the word-shadow STAGING of specific weights —
+if a weight's staged i32 words are zeros (staged from a stale/zeroed host
+master, e.g. an mmap'd GGUF tensor never read into the staging source), every
+matmul through it emits exact zeros while the kernel stays correct; (2) the
+engine's weight-view plumbing for this GGUF (ResidentWeight for the
+lm_head/down weights); (3) the residual path around the first dead op.
+Probe: checksum the staged `words` (row 0) inside the kernels behind
+VT_DEBUG_SAMPLED=2, and checksum the packed host master before staging.
