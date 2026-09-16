@@ -234,3 +234,23 @@ slot map before force-freeing, or (c) slot invalidation on dealloc.
   committing op of the first zero; then walk the operand chain one op at a
   time (the SIGGATE probe showed attn/gate live at call 1 — find which
   operand of which call is the first zero and read its producer).
+
+## The first zero commit is in the GDN state path (2026-09-16, op-named run)
+
+Op-named walk-back (/tmp/walkback.log): the first zero [1,30720] bf16
+commit sits between the ops `GdnStateScatter` and `GdnPostConv` of a GDN
+block — i.e. the GDN state write or the post-conv preamble. The op
+sequence per block: RmsNorm, MatmulBTQuant x2, MatmulBT x2 (in-projs),
+GdnStateGather, CausalConv1dFwd, GdnStateScatter, [FIRST ZERO COMMIT],
+GdnPostConv, GdnStateGather, GdnPrefill, ...
+
+Interpretation: if the scatter writes the updated recurrent state as zeros
+(or the conv state output is zero), every later block's gather reads zeros,
+GdnPrefill computes on zeros, and the whole stream past that block dies —
+exactly the propagation observed.
+
+NEXT (mechanical): probe the outputs of CausalConv1dFwd and GdnStateScatter
+(checksum behind VT_DEBUG_SAMPLED=2), and compare the chain against the CPU
+oracle at the in-engine shape (T=17). The GDN ops are pinned by the suite at
+test shapes (185/185) — the failing configuration is the real [1,30720]-class
+state plane and/or the state-cache slot addressing in-engine.
