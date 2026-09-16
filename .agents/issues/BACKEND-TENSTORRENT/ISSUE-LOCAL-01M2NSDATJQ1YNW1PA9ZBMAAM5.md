@@ -271,3 +271,31 @@ GdnPostConvKernel at T=17 for the fix. Note the kernel reads its conv
 input via EnsureDevice2D/EnsureHost — check whether the zero output's
 input view (a row-strided view of the conv tensor) is being served from
 stale host bytes.
+
+## DEFECT LOCALIZED: GdnPostConvKernel's first in-engine call (2026-09-16)
+
+[TT-GPC] probe (/tmp/gpc_probe.log):
+- Call 1: q live (17408/34816), **k nz=2/34816 (ALL ZEROS)**, **v
+  nz=8170/104448 with max=50,593,792 (uninitialized memory garbage)**, g/beta
+  live. The k zeros + v garbage propagate: the hidden stream dies and every
+  later read is zero.
+- Calls 2+: q live, **k EXACTLY half-zero (17408/34816)**, v exactly
+  half-live — a consistent half-corruption (a buffer half never written or
+  read at the wrong offset).
+
+The defect is inside GdnPostConvKernel (tenstorrent_ops.cpp:~4424) on this
+APEX in-engine shape: k (the L2Norm device chain over the k2 columns) and v
+(the plain slice copy of the conv tensor) are broken while q (same L2Norm
+chain over q2) is live — the q/k asymmetry localizes it further: k2's slice
+or its L2Norm differs from q2's.
+
+NEXT:
+1. Rerun with VT_DUMP_TRUST=<dir> — the kernel already has TrustDump at the
+   commit site (call 0 dumps k_conv_in/q/k/v/g/beta + g-chain intermediates
+   as .f32). Diff k/v against the cpu_ops GdnPostConvKernel oracle at T=17.
+2. Compare the k2 slice derivation vs q2's (offsets: key_dim vs
+   key_dim+2*key_dim... the comment says q/k are [0,key_dim) and
+   [key_dim,2*key_dim) slices, v the rest) and the l2() geometry (t*hk, dk).
+3. The 27B head counts differ from the 0.8B vehicle the kernel was written
+   and pinned against — check hk/hv/dk/dv and the [17, ...] non-tile-aligned
+   M in the reshape/l2 chain for an offset that only breaks at this config.

@@ -4590,6 +4590,32 @@ void GdnPostConvKernel(Queue& q, Tensor& q_out, Tensor& k_out, Tensor& v_out,
   CommitDeviceLogical2D(q_out, l2(q2), t * hk, dk);
   CommitDeviceLogical2D(k_out, l2(k2), t * hk, dk);
   CommitDeviceLogical2D(v_out, ttnn::reshape(v2, ttnn::Shape({t * hv, dv})), t * hv, dv);
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: identify which GdnPostConv
+  // output is the zero origin ([1,30720] bf16 class).
+  static const int kGpcProbe = [] {
+    const char* e = std::getenv("VT_DEBUG_SAMPLED");
+    return e != nullptr && e[0] == '2' ? 2 : 0;
+  }();
+  if (kGpcProbe == 2) {
+    auto host_ck = [](const char* nm, const Tensor& v) {
+      uint64_t nz = 0;
+      float mx = 0.0f;
+      for (int64_t i = 0; i < v.Numel(); ++i) {
+        const float f = LoadElemF32(v, i);
+        if (f != 0.0f) ++nz;
+        mx = std::max(mx, f);
+      }
+      std::fprintf(stderr, "[TT-GPC] %s nz=%llu/%lld max=%.6f\n", nm,
+                   static_cast<unsigned long long>(nz),
+                   static_cast<long long>(v.Numel()), mx);
+    };
+    host_ck("q", q_out);
+    host_ck("k", k_out);
+    host_ck("v", v_out);
+    host_ck("g", g_out);
+    host_ck("beta", beta_out);
+    std::fflush(stderr);
+  }
 
   // g/beta in f32 (the row's "f32 intermediates" doctrine: softplus(x) with
   // threshold 20, exp(a_log) and sigmoid must not round their inputs).
