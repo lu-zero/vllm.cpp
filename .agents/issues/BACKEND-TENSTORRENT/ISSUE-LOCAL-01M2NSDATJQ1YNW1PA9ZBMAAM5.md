@@ -95,3 +95,23 @@ item named kSigmoidGateBf16 as a hardcoded-geometry consumer predating
 the doctrine). Probe: checksum dev_attn/dev_gate inside
 SigmoidGateBf16Kernel behind VT_DEBUG_SAMPLED=2; read the serve path at
 :7613 against the AttnQkNormRopeGate doctrine.
+
+## SigmoidGateBf16 exonerated as the CAUSE (2026-09-16, probe + fix attempt)
+
+- Probe: the gate's operands are LIVE at the first full-attention layer and
+  ALREADY ZERO at the next one — the zeros arrive from upstream, the serve
+  path faithfully serves them.
+- A doctrine-aligned fix of the serve path's eager reshape (ROW_MAJOR
+  round-trip) changed nothing — reverted as unproven. SigmoidGateBf16 is a
+  victim, not the cause.
+- Refined timeline: full-attention layers are RARE in this hybrid (the op
+  trace shows one AttnQkNormRopeGate+SigmoidGateBf16 sequence among GDN
+  blocks). The FIRST zero anywhere in the stream is the KQACT call 10
+  (block 3's 17x5120 GDN in-proj activation). Between KQACT call 9 (block 2
+  down-proj input, live) and call 10 sit: block 2's down-proj (grouped arm),
+  its commit, the residual add, and block 3's pre-GDN RmsNorm.
+- Next probes: checksum the down-proj OUTPUT commit (out stats behind the
+  probe in MatmulBTQuantGroupedKernel), and find the residual-add op (no Add
+  op appears in the TT op trace — it may run on device through a fused op,
+  on host, or inside RmsNorm; whichever it is, it consumed zeros or
+  committed zeros).
