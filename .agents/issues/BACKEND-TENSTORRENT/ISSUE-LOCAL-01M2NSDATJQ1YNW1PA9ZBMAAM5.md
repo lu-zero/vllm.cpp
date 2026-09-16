@@ -18,7 +18,24 @@ The token-correctness gate (ISSUE-LOCAL-01M2NMSNSS6R8T0EW1WYHHVA0Z) caught: the 
 
 -
 
-## Narrowed repro (2026-09-16, red test on row/BACKEND-TENSTORRENT-CHUNKCAP)
+## CORRECTION (2026-09-16, later same day)
+
+The nb=20 "garbage" was a TEST BUG: the discriminator allocated packed(N*2)
+blocks while declaring the tensor {N, K=5120} (1280 blocks) — an out-of-bounds
+read, whose drifting 1e9 values are exactly the uninit-memory signature. With
+the allocation fixed, the chunked arm is CORRECT at unit scale across chunk
+overrides 4 and 20, M in {1,2}, nb in {2,20} (worst_abs 1354, in envelope),
+and the decode is bit-exact at rows=4/nb=20 (B=80). The keep-quant kernel and
+the TTReclaimPlanes chunk loop are exonerated at unit scale.
+
+The e2e all-zero logits stand (VT_DEBUG_SAMPLED tok=0, committed device tensor
+zero). Remaining repro axes: production scale (N=248320, 76 chunks of 3276
+rows, B=65520 decode, 76-way concat) or the engine context around the head
+(DBuf pooled logits, ResidentWeight staging of the real lm_head pointer, the
+real activation source — a zero hidden state would also produce zero logits
+through a correct kernel).
+
+## Original narrowed-repro section (SUPERSEDED by the correction above)
 
 Unit-scale discriminator (`-tc="*lm_head decode shapes*"`):
 - M=1/2, N=64, nb=2 (K=512), chunk override 4 (16 chunks): CORRECT (worst_abs 239, within envelope), stable across 5 repeated calls.

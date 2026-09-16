@@ -6501,13 +6501,11 @@ TEST_CASE("kTENSTORRENT E=1 chunked quant matmul at lm_head decode shapes: M=1 m
     std::memcpy(&f, &bits, 4);
     return f;
   };
-
-  // The 27B lm_head decode shape class: M in {1, 2} (per-step decode rows),
-  // N/K at production scale is [248320, 5120]; here scaled to device-test
-  // size but with the chunk override forcing the MULTI-CHUNK path (16 chunks
-  // of 4 rows) the e2e run exercises 76 times per step. Red: the e2e gate
-  // measured all-zero logits committed at [1,248320] (ISSUE-LOCAL-
-  // 01M2NSDATJQ1YNW1PA9ZBMAAM5).
+  // Discriminator axis: repeat the nb=20 case at chunk overrides 4 (wb
+  // [4,5120]) and 20 (wb [20,5120]) — the chunk SHAPE changes, B scales
+  // with it, the concat count changes with it.
+  for (int64_t chunk_override : {4, 20}) {
+    vt::tenstorrent::KeepQuantChunkRowsOverrideForTest(chunk_override);
   for (int64_t M : {1, 2}) {
     for (int64_t kBlocks : {2, 20}) {  // nb=2 (unit scale) and nb=20 (27B K=5120)
     constexpr int64_t N = 64;
@@ -6515,8 +6513,8 @@ TEST_CASE("kTENSTORRENT E=1 chunked quant matmul at lm_head decode shapes: M=1 m
     const int64_t kBlockElems = vt::BlockElems(vt::DType::kQ6_K);
     const int64_t K = kBlocks * kBlockElems;
     std::mt19937 rng(20260916u);
-    std::vector<uint8_t> packed(N * 2 * kBlockBytes);
-    for (int64_t b = 0; b < N * 2; ++b) {
+    std::vector<uint8_t> packed(N * kBlocks * kBlockBytes);
+    for (int64_t b = 0; b < N * kBlocks; ++b) {
       uint8_t* blk = packed.data() + b * kBlockBytes;
       for (int i = 0; i < 128; ++i) blk[0 + i] = static_cast<uint8_t>(rng() & 0xFF);
       for (int i = 0; i < 64; ++i) blk[128 + i] = static_cast<uint8_t>(rng() & 0xFF);
@@ -6585,6 +6583,54 @@ TEST_CASE("kTENSTORRENT E=1 chunked quant matmul at lm_head decode shapes: M=1 m
     backend.Free(mem_o);
     }
   }
+  }
+}
+TEST_CASE("kTENSTORRENT keep-quant decode probe: rows=4 nb=20 Q6_K (the chunk-B the matmul repro feeds)") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  Backend& backend = vt::GetBackend(vt::DeviceType::kTENSTORRENT);
+  Queue q = backend.CreateQueue();
+  auto decode = reinterpret_cast<vt::KeepQuantDecodeFn>(
+      vt::GetOp(vt::OpId::kKeepQuantDecode, vt::DeviceType::kTENSTORRENT));
+  constexpr int64_t rows = 4, nb = 20;
+  const int64_t kBlockBytes = vt::BlockBytes(vt::DType::kQ6_K);
+  const int64_t K = nb * vt::BlockElems(vt::DType::kQ6_K);
+  std::mt19937 rng(20260918u);
+  std::vector<uint8_t> packed(rows * nb * kBlockBytes);
+  for (int64_t b = 0; b < rows * nb; ++b) {
+    uint8_t* blk = packed.data() + b * kBlockBytes;
+    for (int i = 0; i < 128; ++i) blk[0 + i] = static_cast<uint8_t>(rng() & 0xFF);
+    for (int i = 0; i < 64; ++i) blk[128 + i] = static_cast<uint8_t>(rng() & 0xFF);
+    for (int i = 0; i < 16; ++i) blk[192 + i] = static_cast<uint8_t>(rng() & 0xFF);
+    const uint16_t dbits = vt::F32ToF16(0.1f + 0.2f * static_cast<float>(rng() % 16) / 16.0f);
+    std::memcpy(blk + 208, &dbits, sizeof(dbits));
+  }
+  std::vector<float> ref(rows * K);
+  vt::cpu::BlockToFloat(vt::DType::kQ6_K)(packed.data(), ref.data(), rows * K);
+  void* mem_p = backend.Alloc(packed.size());
+  void* mem_o = backend.Alloc(rows * K * sizeof(float));
+  backend.Copy(q, mem_p, packed.data(), packed.size());
+  Tensor p_t = Tensor::Contiguous(mem_p, vt::DType::kQ6_K,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {rows, nb});
+  Tensor o_t = Tensor::Contiguous(mem_o, vt::DType::kF32,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {rows, K});
+  decode(q, o_t, p_t);
+  std::vector<float> out(rows * K, 0.0f);
+  backend.Copy(q, out.data(), mem_o, out.size() * sizeof(float));
+  backend.Free(mem_p);
+  backend.Free(mem_o);
+  int bad = 0;
+  float worst = 0.0f;
+  for (int64_t i = 0; i < rows * K; ++i) {
+    const float d = std::fabs(out[static_cast<size_t>(i)] - ref[static_cast<size_t>(i)]);
+    if (d != 0.0f) ++bad;
+    worst = std::max(worst, d);
+  }
+  MESSAGE("decode probe rows=4 nb=20: bad=", bad, "/", rows * K,
+          " worst_abs=", worst);
+  CHECK(bad == 0);
 }
 TEST_CASE("kTENSTORRENT E=1 quant matmul nb=20 SINGLE chunk: K=5120 matmul vs multi-chunk") {
   if (!TenstorrentPresent()) {
