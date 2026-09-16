@@ -4614,6 +4614,16 @@ void AttnQkNormRopeGateKernel(Queue&, Tensor& q_out, Tensor& k_out,
       dev_k = NormalizeDevF32Tile(std::move(kf_shadow),
                                   static_cast<uint32_t>(t * hkv),
                                   static_cast<uint32_t>(dh));
+      // NormalizeDevF32Tile preserves the shadow's native [t, hkv*dh] geometry
+      // (PR #3206 L1 fix). Reshape to the intended [t*hkv, dh] — safe on TILE
+      // (view_device guard at tensor_ops.cpp:398: layout != ROW_MAJOR
+      // short-circuits before the page_size rebuild that corrupts ROW_MAJOR).
+      {
+        const auto k_target = ttnn::Shape({static_cast<uint32_t>(t * hkv),
+                                            static_cast<uint32_t>(dh)});
+        if (dev_k.logical_shape() != k_target)
+          dev_k = CaptureSafeReshape(dev_k, k_target);
+      }
     } else {
       VT_CHECK(!tt_capture_active(),
                "tenstorrent kAttnQkNormRopeGate: qgate/kf arrived without a "
@@ -6712,10 +6722,28 @@ void RmsNormGatedKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& gate
   }
   ttnn::Tensor act =
       args.sigmoid_gate ? ttnn::sigmoid(dev_g) : ttnn::silu(dev_g);
+  // Reshape act to [rows, d] to match rms_norm(dev_x) output. The gate
+  // shadow's native geometry (e.g. [256, 6144] for APEX's gated-norm
+  // activation) is preserved by NormalizeDevF32Tile (the L1 overflow fix:
+  // a free reshape to [1, n] overflows L1, and view_device on ROW_MAJOR
+  // with a changed last dim corrupts data). act is TILE layout here
+  // (NormalizeDevF32Tile's final to_layout(TILE), preserved by the
+  // elementwise sigmoid/silu), so CaptureSafeReshape's member view_device
+  // takes the TILE safe path (tensor_ops.cpp:398: layout != ROW_MAJOR
+  // short-circuits before the page_size rebuild that corrupts ROW_MAJOR).
+  // Same numel (256*6144 == 12288*128), same tile count (1536), so the
+  // reshape is a pure metadata view — no bytes move, no device program.
+  {
+    const auto target_shape = ttnn::Shape({rows, d});
+    if (act.logical_shape() != target_shape) {
+      act = CaptureSafeReshape(act, target_shape);
+    }
+  }
   if (std::getenv("VT_TT_SLOT_TRACE") != nullptr) {
     std::fprintf(stderr,
-                 "[TT-RNG] rows=%u d=%u x=%s g=%s\n", rows, d,
-                 DevShapeStr(dev_x).c_str(), DevShapeStr(dev_g).c_str());
+                 "[TT-RNG] rows=%u d=%u x=%s g=%s act=%s\n", rows, d,
+                 DevShapeStr(dev_x).c_str(), DevShapeStr(dev_g).c_str(),
+                 DevShapeStr(act).c_str());
     std::fflush(stderr);
   }
   ttnn::Tensor dev_y = ttnn::multiply(ttnn::rms_norm(dev_x, args.eps, dev_w), act);
