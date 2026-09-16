@@ -7071,6 +7071,28 @@ void CausalConv1dFwdKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& w
       }
     }
   }
+  static const int kGdnProbe2 = [] {
+    const char* e = std::getenv("VT_DEBUG_SAMPLED");
+    return e != nullptr && e[0] == '2' ? 2 : 0;
+  }();
+  if (kGdnProbe2 == 2) {
+    auto host_ck = [](const char* nm, const Tensor& v) {
+      uint64_t nz = 0;
+      float mx = 0.0f;
+      for (int64_t i = 0; i < v.Numel(); ++i) {
+        const float f = LoadElemF32(v, i);
+        if (f != 0.0f) ++nz;
+        mx = std::max(mx, f);
+      }
+      std::fprintf(stderr, "[TT-GDN] %s nz=%llu/%lld max=%.6f\n", nm,
+                   static_cast<unsigned long long>(nz),
+                   static_cast<long long>(v.Numel()), mx);
+    };
+    host_ck("conv_out", out);
+    host_ck("conv_state", conv_state);
+    host_ck("conv_x", x);
+    std::fflush(stderr);
+  }
   CommitHost(out);
   CommitHost(conv_state);
 }
@@ -8890,8 +8912,25 @@ void GdnStateScatterKernel(Queue&, Tensor& cache, const Tensor& working,
                      static_cast<uint32_t>(work_row / ssf)}),
         ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
   }
+
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: the GDN state path is the zero
+  // origin; checksum the outputs behind VT_DEBUG_SAMPLED=2.
+  static const int kGdnProbe = [] {
+    const char* e = std::getenv("VT_DEBUG_SAMPLED");
+    return e != nullptr && e[0] == '2' ? 2 : 0;
+  }();
+  auto gdn_checksum = [&](const char* nm, const ttnn::Tensor& v) {
+    auto h = ttnn::to_layout(v, ttnn::Layout::ROW_MAJOR).to_vector<float>();
+    uint64_t nz = 0;
+    float mx = 0.0f;
+    for (float x : h) { if (x != 0.0f) ++nz; mx = std::max(mx, x); }
+    std::fprintf(stderr, "[TT-GDN] %s nz=%llu/%llu max=%.6f\n", nm,
+                 static_cast<unsigned long long>(nz),
+                 static_cast<unsigned long long>(h.size()), mx);
+  };
   ttnn::Tensor newc = ScatterRowsExact(cache2d, idxv, rows2d, slots,
                                        cache_row, ssf, device);
+  if (kGdnProbe == 2) gdn_checksum("scatter", newc);
   CommitDeviceLogical2D(cache, std::move(newc), static_cast<uint32_t>(slots),
                         static_cast<uint32_t>(cache_row));
 }

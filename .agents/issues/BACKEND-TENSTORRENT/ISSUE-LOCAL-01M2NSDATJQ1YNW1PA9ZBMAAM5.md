@@ -254,3 +254,20 @@ NEXT (mechanical): probe the outputs of CausalConv1dFwd and GdnStateScatter
 oracle at the in-engine shape (T=17). The GDN ops are pinned by the suite at
 test shapes (185/185) — the failing configuration is the real [1,30720]-class
 state plane and/or the state-cache slot addressing in-engine.
+
+## GDN conv/scatter exonerated; GdnPostConv is the origin candidate (2026-09-16)
+
+[TT-GDN] probes: conv_out, conv_state, conv_x, scatter newc — ALL LIVE at
+every probed call. The [1,30720] bf16 zero commit is NOT the scatter (its
+newc is f32 and live). The remaining producer at that position:
+**GdnPostConv**, whose five outputs (q_out/k_out/v_out/g_out/beta_out) are
+unprobed, and whose v/beta commit shape class matches [1,30720] bf16.
+
+NEXT: checksum GdnPostConv's five outputs behind VT_DEBUG_SAMPLED=2 at the
+T=17 recipe (same gdn_checksum pattern; the outputs are vt::Tensors —
+use the host_ck LoadElemF32 helper). Which output is zero names the
+broken slice/gather inside the kernel; compare against cpu_ops
+GdnPostConvKernel at T=17 for the fix. Note the kernel reads its conv
+input via EnsureDevice2D/EnsureHost — check whether the zero output's
+input view (a row-strided view of the conv tensor) is being served from
+stale host bytes.
