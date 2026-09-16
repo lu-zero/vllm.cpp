@@ -48,11 +48,17 @@ if (!tt_capture_active())
   chunk = std::min(chunk, std::max<int64_t>(plane_bytes / (K * 16), 1));
 ```
 
-Eager-only by decision (2026-09-16): the vehicle capture survey measured the
-other failure mode — many small chunks overflow the 52,428,800 B trace
-region (485 chunks = 1,566,662,656 B; 2-4 chunks capture clean) — so the
-captured arm keeps the command-stream bound. The 27B e2e runs eager; when a
-captured 27B arm is attempted, the per-chunk stream cost needs its own lever.
+The policy is sticky PER WEIGHT, not per call: a captured replay must
+hash-match the eager warm-up's stream, and a per-call capture flag makes
+warm-up and capture diverge (the slice extent differs, the capture-time
+`SliceDeviceOperation` misses the program cache, and the poisoned capture
+state cascades). The first decode of a weight is always eager — a
+capture-time arrival with a cold shadow refuses at `EnsureKeepQuantWords`
+(`tenstorrent_ops.cpp:2034`) — so the flag is recorded eagerly and replayed
+verbatim under capture. The cap therefore also applies to captured arms
+whose first use was eager; when a captured arm trips the trace region
+(~3.3 MB stream per chunk, vehicle survey), that is the named lever to
+revisit, not a silent policy fork.
 
 The cap is conservative for the other encodings: Q4_K/Q5_K share the repair
 path; Q8_0's `{B,32}` planes are already tile-aligned so its largest TILE

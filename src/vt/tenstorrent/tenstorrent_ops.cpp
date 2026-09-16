@@ -3089,6 +3089,37 @@ void MatmulBTQuantGroupedKernel(Queue&, Tensor& out, const Tensor& act,
     // trade VT_TT_TRACE_REGION_MB records on its axis.
     if (plane_env_set)
       chunk = std::min(chunk, std::max<int64_t>(plane_bytes / (K * 4), 1));
+    // The repair lambda (DecodeKeepQuantWordsF32) tiles the {B,16,16}
+    // product planes to {B,32,32} — 4x the f32 plane the budget above
+    // counts, the 27B-head OOM (ISSUE-LOCAL-01M2N8DKVKM2J03FCVBSKYVHXK:
+    // 2.5 GB demanded, 238 MB largest free block). Cap eager chunks at the
+    // tiled plane — plane_bytes/(K*16) reproduces the proven 3,276-row
+    // chunk on the head.
+    //
+    // The policy is STICKY PER WEIGHT, not per call: a captured replay must
+    // hash-match the eager warm-up's stream, and a per-call capture flag
+    // makes warm-up and capture diverge (the slice extent differs, the
+    // capture-time SliceDeviceOperation misses the program cache, and every
+    // later test poisons — the suite regression this replaced). The first
+    // decode of a weight is always eager — a capture-time arrival with a
+    // cold shadow refuses at EnsureKeepQuantWords — so the flag is recorded
+    // eagerly and replayed verbatim under capture.
+    bool tile_cap;
+    {
+      std::lock_guard<std::mutex> g(KeepQuantWordMutex());
+      static auto* tile_cap_policy =
+          new std::unordered_map<intptr_t, bool>();
+      auto key = reinterpret_cast<intptr_t>(weight.data);
+      auto it = tile_cap_policy->find(key);
+      if (it != tile_cap_policy->end()) {
+        tile_cap = it->second;
+      } else {
+        tile_cap = !tt_capture_active();
+        tile_cap_policy->emplace(key, tile_cap);
+      }
+    }
+    if (tile_cap)
+      chunk = std::min(chunk, std::max<int64_t>(plane_bytes / (K * 16), 1));
     AllocTraceSnapshot(device, "KQuantGrouped/chunk-loop/pre");
     std::vector<ttnn::Tensor> partials;
     partials.reserve(static_cast<size_t>((N + chunk - 1) / chunk));
