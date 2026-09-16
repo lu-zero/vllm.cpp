@@ -148,3 +148,19 @@ SigmoidGateBf16Kernel behind VT_DEBUG_SAMPLED=2; read the serve path at
   rms_norm at this shape (compare the captured 0.8B arm, which pins rms_norm
   at other shapes); live output => CommitDevice2D/slot — diff what
   CommitDevice2D stores vs what EnsureHost downloads for that slot.
+
+## rms_norm outputs LIVE; the death is in the model plumbing between (2026-09-16)
+
+- [TT-NORMOUT] probe: EVERY rms_norm device output is live pre-commit
+  (nz~87040/87040, all norms, whole run). ttnn::rms_norm is fine at
+  [17,5120].
+- DECISIVE: the consumer's activation pointer (0xfff0c811fdc0 in the
+  KQACT runs) is a DIFFERENT TENSOR than the norm's out slot (0xffef9011fdc0
+  in the NORMOUT runs). There is an intermediate copy/view between the norm
+  output and the matmul input, and THAT copy produces the zeros.
+- Next: run with VT_TT_SLOT_TRACE=1 + VT_DEBUG_SAMPLED=2 and correlate the
+  act tensor's pointer to its producer events (register/ensure/commit) to
+  find the copy op; then read the model plumbing (qwen3_5.cpp) for how the
+  norm output reaches the matmul (a DBuf/ view/ CastBf16?) and probe it.
+  The drift signature (values differ run to run) says the copy reads
+  unallocated/reused memory.

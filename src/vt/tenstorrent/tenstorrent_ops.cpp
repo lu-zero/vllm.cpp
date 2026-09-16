@@ -4211,6 +4211,29 @@ void RmsNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& weight,
     CommitDevice2D(*residual, to_norm);
   }
   ttnn::Tensor dev_y = ttnn::rms_norm(to_norm, args.eps, dev_w);
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: the consumer reads this norm's
+  // output as zeros from block 2 on while the input (to_norm) is probed
+  // live. Checksum the rms_norm result BEFORE the commit: zero => the ttnn
+  // rms_norm at [17,5120]; live => the CommitDevice2D/slot path.
+  static const int kNormProbe = [] {
+    const char* e = std::getenv("VT_DEBUG_SAMPLED");
+    return e != nullptr && e[0] == '2' ? 2 : 0;
+  }();
+  if (kNormProbe == 2) {
+    ttnn::Tensor hn =
+        ttnn::to_layout(dev_y, ttnn::Layout::ROW_MAJOR);
+    auto hv = hn.to_vector<float>();
+    uint64_t nz = 0;
+    float mx = 0.0f;
+    for (float v : hv) { if (v != 0.0f) ++nz; mx = std::max(mx, v); }
+    std::fprintf(stderr,
+                 "[TT-NORMOUT] nz=%llu/%llu max=%.6f ptr=%p\n",
+                 static_cast<unsigned long long>(nz),
+                 static_cast<unsigned long long>(hv.size()), mx,
+                 static_cast<const void*>(out.data));
+    std::fflush(stderr);
+    TTReclaimPlanes(SharedMeshDevice(), {&hn});
+  }
   CommitDevice2D(out, std::move(dev_y));
 }
 
