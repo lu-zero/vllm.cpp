@@ -192,3 +192,27 @@ drop, or a second tensor aliasing the same host pointer). Also worth
 checking: the probe itself (to_vector downloads) perturbs the run — compare
 a probe-off run's sampled tokens to confirm the death is not probe-induced
 (one run, VT_DEBUG_SAMPLED unset, --output-token-ids).
+
+## Probe-off control: the death is real (2026-09-16)
+
+A run with NO probes (`--output-token-ids`, no env) still dumps all-zero ids.
+The defect is independent of the measurement.
+
+## Converged hypothesis: slot holds a force-freed buffer
+
+Everything else is eliminated (see the probe chain above). The remaining
+explanation that fits ALL observations — live commits, zero later downloads,
+values drifting run-to-run, decode dying earlier than prefill (less work
+before the first reuse), probes not required — is: a TTReclaimPlanes
+force-deallocate frees a buffer that a BufferSlot still references (via an
+aliased view stored in s->device — e.g. the EnsureDevice2D reshape arms store
+reshaped views, the exact-shape arm stores the producer tensor itself), the
+allocator recycles the block, and the slot's next EnsureHost download reads
+recycled (zeroed) memory while the slot still says device_current.
+
+Next instrumentation: log every TTReclaimPlanes force-deallocate (plane
+logical shape + ~size) behind VT_TT_SLOT_TRACE=2, and log the same identity
+for the slot's stored tensor in CommitDevice2D/EnsureHost download. Correlate
+a zero slot's stored-tensor identity against the free list. Then the fix is
+one of: (a) not storing aliased views in slots, (b) reclaim checking the
+slot map before force-freeing, or (c) slot invalidation on dealloc.
