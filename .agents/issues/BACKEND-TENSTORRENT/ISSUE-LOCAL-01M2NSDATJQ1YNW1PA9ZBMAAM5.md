@@ -164,3 +164,31 @@ SigmoidGateBf16Kernel behind VT_DEBUG_SAMPLED=2; read the serve path at
   norm output reaches the matmul (a DBuf/ view/ CastBf16?) and probe it.
   The drift signature (values differ run to run) says the copy reads
   unallocated/reused memory.
+
+## EnsureDevice2D same-numel arm exonerated too (2026-09-16, last probe)
+
+Fixing the eager same-numel reshape arm (ROW_MAJOR round-trip instead of the
+free TILE reshape) changed nothing — decode-step acts still read zero and the
+logits stay zero. Reverted as unproven. The poisoning is NOT (only) the slot
+reshape.
+
+## Where the investigation stands (handoff)
+
+Eliminated by direct probes: grouped arm (unit + production scale),
+int8-dot (production shape bit-exact), weight staging (all live),
+SigmoidGateBf16/ServeActF32, residual add ([TT-RESADD] all live),
+ttnn::rms_norm + its commit ([TT-NORMOUT] all live pre-commit),
+EnsureDevice2D slot reshape.
+
+The one hard fact still standing: the SAME tensor slot commits live data and
+the consumer later EnsureHost-reads zeros from that very slot, with values
+that drift run to run (uninit/reuse signature). Something between the last
+live probe and the read replaces or rebinds the slot's device tensor without
+a probe on it. The next session should bisect the slot-history timeline:
+with VT_TT_SLOT_TRACE=1, take the zero slot's pointer, list EVERY event line
+in order, and probe/inspect each mutation (FindSlot writes outside the
+probed ops — e.g. EnsureHostBytes, DownloadToHost, the recycled-address
+drop, or a second tensor aliasing the same host pointer). Also worth
+checking: the probe itself (to_vector downloads) perturbs the run — compare
+a probe-off run's sampled tokens to confirm the death is not probe-induced
+(one run, VT_DEBUG_SAMPLED unset, --output-token-ids).
