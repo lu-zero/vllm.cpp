@@ -17,3 +17,12 @@ The token-correctness gate (ISSUE-LOCAL-01M2NMSNSS6R8T0EW1WYHHVA0Z) caught: the 
 ## Resolution
 
 -
+
+## Narrowed repro (2026-09-16, red test on row/BACKEND-TENSTORRENT-CHUNKCAP)
+
+Unit-scale discriminator (`-tc="*lm_head decode shapes*"`):
+- M=1/2, N=64, nb=2 (K=512), chunk override 4 (16 chunks): CORRECT (worst_abs 239, within envelope), stable across 5 repeated calls.
+- M=1/2, N=64, nb=20 (K=5120), chunk override 4: **GARBAGE** — worst_abs 5.7e9 / 1.2e10, values drift run to run (uninitialized/reused memory signature).
+- M=1, N=64, nb=20, SINGLE chunk (override 0): CORRECT magnitude (worst_abs 1031, K=5120 bf16 dot).
+
+So the defect is the MULTI-CHUNK path at nb=20, not the K=5120 matmul itself, not repeated calls, not M. Per chunk: B = chunk_rows x nb = 80 words; the single-chunk case takes the sl_alias branch (slice returns the whole tensor) while multi-chunk slices + TTReclaimPlanes({&sl,&wf,&wbf}). Prime suspect: a plane reclaimed while still aliased in the chunk loop, or the slice of the word shadow at row offsets c0*nb.

@@ -6484,6 +6484,180 @@ TEST_CASE("kTENSTORRENT kMatmulBTQuant admits the registered keep-quant set via 
 // refresh). The counter (KeepQuantCaptureStagingWrites) is the observable:
 // warm eagerly, reset, capture + replay, require ZERO staging writes and
 // replay bytes identical to the eager run.
+TEST_CASE("kTENSTORRENT E=1 chunked quant matmul at lm_head decode shapes: M=1 multi-chunk output is not zero (ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5)") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  Backend& backend = vt::GetBackend(vt::DeviceType::kTENSTORRENT);
+  Queue q = backend.CreateQueue();
+  vt::tenstorrent::KeepQuantChunkRowsOverrideForTest(4);
+  struct ChunkReset {
+    ~ChunkReset() { vt::tenstorrent::KeepQuantChunkRowsOverrideForTest(0); }
+  } chunk_reset;
+  auto widen = [](uint16_t u) {
+    uint32_t bits = static_cast<uint32_t>(u) << 16;
+    float f;
+    std::memcpy(&f, &bits, 4);
+    return f;
+  };
+
+  // The 27B lm_head decode shape class: M in {1, 2} (per-step decode rows),
+  // N/K at production scale is [248320, 5120]; here scaled to device-test
+  // size but with the chunk override forcing the MULTI-CHUNK path (16 chunks
+  // of 4 rows) the e2e run exercises 76 times per step. Red: the e2e gate
+  // measured all-zero logits committed at [1,248320] (ISSUE-LOCAL-
+  // 01M2NSDATJQ1YNW1PA9ZBMAAM5).
+  for (int64_t M : {1, 2}) {
+    for (int64_t kBlocks : {2, 20}) {  // nb=2 (unit scale) and nb=20 (27B K=5120)
+    constexpr int64_t N = 64;
+    const int64_t kBlockBytes = vt::BlockBytes(vt::DType::kQ6_K);
+    const int64_t kBlockElems = vt::BlockElems(vt::DType::kQ6_K);
+    const int64_t K = kBlocks * kBlockElems;
+    std::mt19937 rng(20260916u);
+    std::vector<uint8_t> packed(N * 2 * kBlockBytes);
+    for (int64_t b = 0; b < N * 2; ++b) {
+      uint8_t* blk = packed.data() + b * kBlockBytes;
+      for (int i = 0; i < 128; ++i) blk[0 + i] = static_cast<uint8_t>(rng() & 0xFF);
+      for (int i = 0; i < 64; ++i) blk[128 + i] = static_cast<uint8_t>(rng() & 0xFF);
+      for (int i = 0; i < 16; ++i) blk[192 + i] = static_cast<uint8_t>(rng() & 0xFF);
+      const uint16_t dbits = vt::F32ToF16(0.1f + 0.2f * static_cast<float>(rng() % 16) / 16.0f);
+      std::memcpy(blk + 208, &dbits, sizeof(dbits));
+    }
+    std::vector<uint16_t> a_bf(M * K);
+    for (auto& v : a_bf) v = vt::F32ToBF16((static_cast<float>(rng() % 401) - 200.0f) / 100.0f);
+
+    std::vector<float> w_f32(N * K);
+    vt::cpu::BlockToFloat(vt::DType::kQ6_K)(packed.data(), w_f32.data(), N * K);
+    std::vector<float> ref(M * N);
+    for (int64_t m = 0; m < M; ++m)
+      for (int64_t n = 0; n < N; ++n) {
+        float acc = 0.0f;
+        for (int64_t k = 0; k < K; ++k)
+          acc += widen(a_bf[static_cast<size_t>(m) * K + k]) *
+                 widen(vt::F32ToBF16(w_f32[static_cast<size_t>(n) * K + k]));
+        ref[static_cast<size_t>(m) * N + n] = acc;
+      }
+
+    void* mem_a = backend.Alloc(M * K * sizeof(uint16_t));
+    void* mem_b = backend.Alloc(packed.size());
+    void* mem_o = backend.Alloc(M * N * sizeof(float));
+    backend.Copy(q, mem_a, a_bf.data(), a_bf.size() * sizeof(uint16_t));
+    backend.Copy(q, mem_b, packed.data(), packed.size());
+    Tensor a_t = Tensor::Contiguous(mem_a, vt::DType::kBF16,
+                                    Device{vt::DeviceType::kTENSTORRENT, 0}, {M, K});
+    Tensor b_t = Tensor::Contiguous(mem_b, vt::DType::kQ6_K,
+                                    Device{vt::DeviceType::kTENSTORRENT, 0}, {N, K});
+    Tensor o_t = Tensor::Contiguous(mem_o, vt::DType::kF32,
+                                    Device{vt::DeviceType::kTENSTORRENT, 0}, {M, N});
+    // The e2e calls the SAME weight repeatedly (prefill sample + per decode
+    // step). A per-call corruption (a reclaim killing live state, a stale
+    // shadow) shows up on calls AFTER the first.
+    for (int rep = 0; rep < 5; ++rep) {
+      vt::MatmulBT(q, o_t, a_t, b_t);
+      std::vector<float> out(M * N, 0.0f);
+      backend.Copy(q, out.data(), mem_o, out.size() * sizeof(float));
+      int nonzero = 0;
+      for (int64_t i = 0; i < M * N; ++i)
+        if (out[static_cast<size_t>(i)] != 0.0f) ++nonzero;
+      CHECK_MESSAGE(nonzero > static_cast<int>(M * N) / 2,
+                    "M=" << M << " nb=" << kBlocks << " rep=" << rep
+                         << ": all-zero logits (nonzero=" << nonzero << " of "
+                         << M * N << ") — ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5");
+      if (rep == 0) {
+        float worst = 0.0f;
+        for (int64_t i = 0; i < M * N; ++i)
+          worst = std::max(worst,
+                           std::fabs(out[static_cast<size_t>(i)] -
+                                     ref[static_cast<size_t>(i)]));
+        MESSAGE("M=", M, " nb=", kBlocks, ": nonzero=", nonzero, "/", M * N,
+                " worst_abs=", worst);
+        // The envelope pin: the multi-chunk nb=20 defect produces 1e9-scale
+        // garbage; a sane bf16-accumulated K=5120 dot stays orders below.
+        CHECK_MESSAGE(worst < 1e4f,
+                      "M=" << M << " nb=" << kBlocks << ": worst_abs=" << worst
+                           << " — the chunked arm corrupted the output "
+                              "(ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5)");
+      }
+    }
+    backend.Free(mem_a);
+    backend.Free(mem_b);
+    backend.Free(mem_o);
+    }
+  }
+}
+TEST_CASE("kTENSTORRENT E=1 quant matmul nb=20 SINGLE chunk: K=5120 matmul vs multi-chunk") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  Backend& backend = vt::GetBackend(vt::DeviceType::kTENSTORRENT);
+  Queue q = backend.CreateQueue();
+  vt::tenstorrent::KeepQuantChunkRowsOverrideForTest(0);
+  struct ChunkReset {
+    ~ChunkReset() { vt::tenstorrent::KeepQuantChunkRowsOverrideForTest(0); }
+  } chunk_reset;
+  auto widen = [](uint16_t u) {
+    uint32_t bits = static_cast<uint32_t>(u) << 16;
+    float f;
+    std::memcpy(&f, &bits, 4);
+    return f;
+  };
+  constexpr int64_t M = 1, N = 64, kBlocks = 20;
+  const int64_t kBlockBytes = vt::BlockBytes(vt::DType::kQ6_K);
+  const int64_t kBlockElems = vt::BlockElems(vt::DType::kQ6_K);
+  const int64_t K = kBlocks * kBlockElems;
+  std::mt19937 rng(20260917u);
+  std::vector<uint8_t> packed(N * kBlocks * kBlockBytes);
+  for (int64_t b = 0; b < N * kBlocks; ++b) {
+    uint8_t* blk = packed.data() + b * kBlockBytes;
+    for (int i = 0; i < 128; ++i) blk[0 + i] = static_cast<uint8_t>(rng() & 0xFF);
+    for (int i = 0; i < 64; ++i) blk[128 + i] = static_cast<uint8_t>(rng() & 0xFF);
+    for (int i = 0; i < 16; ++i) blk[192 + i] = static_cast<uint8_t>(rng() & 0xFF);
+    const uint16_t dbits = vt::F32ToF16(0.1f + 0.2f * static_cast<float>(rng() % 16) / 16.0f);
+    std::memcpy(blk + 208, &dbits, sizeof(dbits));
+  }
+  std::vector<uint16_t> a_bf(M * K);
+  for (auto& v : a_bf) v = vt::F32ToBF16((static_cast<float>(rng() % 401) - 200.0f) / 100.0f);
+  std::vector<float> w_f32(N * K);
+  vt::cpu::BlockToFloat(vt::DType::kQ6_K)(packed.data(), w_f32.data(), N * K);
+  std::vector<float> ref(M * N);
+  for (int64_t n = 0; n < N; ++n) {
+    float acc = 0.0f;
+    for (int64_t k = 0; k < K; ++k)
+      acc += widen(a_bf[static_cast<size_t>(k)]) *
+             widen(vt::F32ToBF16(w_f32[static_cast<size_t>(n) * K + k]));
+    ref[static_cast<size_t>(n)] = acc;
+  }
+  void* mem_a = backend.Alloc(M * K * sizeof(uint16_t));
+  void* mem_b = backend.Alloc(packed.size());
+  void* mem_o = backend.Alloc(M * N * sizeof(float));
+  backend.Copy(q, mem_a, a_bf.data(), a_bf.size() * sizeof(uint16_t));
+  backend.Copy(q, mem_b, packed.data(), packed.size());
+  Tensor a_t = Tensor::Contiguous(mem_a, vt::DType::kBF16,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {M, K});
+  Tensor b_t = Tensor::Contiguous(mem_b, vt::DType::kQ6_K,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {N, K});
+  Tensor o_t = Tensor::Contiguous(mem_o, vt::DType::kF32,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {M, N});
+  vt::MatmulBT(q, o_t, a_t, b_t);
+  std::vector<float> out(M * N, 0.0f);
+  backend.Copy(q, out.data(), mem_o, out.size() * sizeof(float));
+  backend.Free(mem_a);
+  backend.Free(mem_b);
+  backend.Free(mem_o);
+  float worst = 0.0f;
+  int nonzero = 0;
+  for (int64_t i = 0; i < M * N; ++i) {
+    if (out[static_cast<size_t>(i)] != 0.0f) ++nonzero;
+    worst = std::max(worst, std::fabs(out[static_cast<size_t>(i)] -
+                                      ref[static_cast<size_t>(i)]));
+  }
+  MESSAGE("single-chunk nb=20: nonzero=", nonzero, "/", M * N,
+          " worst_abs=", worst);
+  CHECK(nonzero > static_cast<int>(M * N) / 2);
+  CHECK(worst < 1e4f);
+}
 TEST_CASE("kTENSTORRENT keep-quant decode stages zero words during capture") {
   if (!TenstorrentPresent()) {
     MESSAGE("SKIPPED: no Tenstorrent device on this box");
