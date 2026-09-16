@@ -115,3 +115,19 @@ SigmoidGateBf16Kernel behind VT_DEBUG_SAMPLED=2; read the serve path at
   op appears in the TT op trace — it may run on device through a fused op,
   on host, or inside RmsNorm; whichever it is, it consumed zeros or
   committed zeros).
+
+## Grouped outputs LIVE; residual add located (2026-09-16, final probes)
+
+- All probed grouped down-proj outputs are LIVE pre-commit
+  ([TT-KQOUT] nz=full on every call incl. the 17x5120 hidden-stream shapes).
+  The keep-quant arm commits live data through the death window.
+- The residual add has NO op of its own: it lives INSIDE RmsNormKernel —
+  the TT RmsNorm takes a residual parameter (residual += x; out =
+  rms_norm(residual)), reached from the model's block boundary and via
+  FusedChainKernel (tenstorrent_ops.cpp:4188-4212, which dispatches
+  kFusedAddRmsNormStd to the same RmsNormKernel call). That is why no Add
+  appears in the TT op trace.
+- Next probe: checksum x and *residual inside RmsNormKernel when residual
+  is non-null (VT_DEBUG_SAMPLED=2), at the block 2->3 boundary. The
+  suspects are the ttnn add at the [17,5120] non-tile-aligned M (TILE pads
+  M to 32), or the residual commit/download geometry after the add.
