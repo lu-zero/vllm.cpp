@@ -131,3 +131,20 @@ SigmoidGateBf16Kernel behind VT_DEBUG_SAMPLED=2; read the serve path at
   is non-null (VT_DEBUG_SAMPLED=2), at the block 2->3 boundary. The
   suspects are the ttnn add at the [17,5120] non-tile-aligned M (TILE pads
   M to 32), or the residual commit/download geometry after the add.
+
+## Residual add exonerated; corruption narrowed to rms_norm output/commit (2026-09-16)
+
+- [TT-RESADD] probe: every residual add's operands AND sum are LIVE through
+  the whole run (387 probe lines), yet the KQACT call 10 (the next RmsNorm's
+  output feeding the GDN in-proj) still reads zero and the logits stay zero.
+- The corruption is therefore INSIDE RmsNormKernel's device path AFTER the
+  residual add: either the ttnn::rms_norm output is zero (at [17,5120]
+  non-tile-aligned M?), or the CommitDevice2D of `out` records a wrong/empty
+  device tensor so the consumer's EnsureHost downloads zeros.
+- The same norm consumed a LIVE add output (probed), so the input side is
+  clean.
+- NEXT (first thing): checksum the rms_norm device output in RmsNormKernel
+  before CommitDevice2D, behind VT_DEBUG_SAMPLED=2. Zero output => ttnn
+  rms_norm at this shape (compare the captured 0.8B arm, which pins rms_norm
+  at other shapes); live output => CommitDevice2D/slot — diff what
+  CommitDevice2D stores vs what EnsureHost downloads for that slot.

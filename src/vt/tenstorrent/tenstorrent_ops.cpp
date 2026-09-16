@@ -3273,6 +3273,38 @@ void MatmulBTQuantGroupedKernel(Queue&, Tensor& out, const Tensor& act,
       TTReclaimPlanes(device, {&assembled});
       assembled = std::move(atl);
     }
+    // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: the stream's zeros start right
+    // after a grouped down-proj commit. Checksum the output BEFORE the commit
+    // to split "the arm computed zeros" from "the commit/ consumers corrupted".
+    static const int kOutProbe = [] {
+      const char* e = std::getenv("VT_DEBUG_SAMPLED");
+      return e != nullptr && e[0] == '2' ? 2 : 0;
+    }();
+    if (kOutProbe == 2) {
+      ttnn::Tensor h = ttnn::to_layout(assembled, ttnn::Layout::ROW_MAJOR);
+      auto hv = h.to_vector<float>();
+      double sum = 0.0;
+      float mx = 0.0f, mn = 0.0f;
+      uint64_t nz = 0;
+      bool first = true;
+      for (float x : hv) {
+        if (first) { mx = mn = x; first = false; }
+        sum += x;
+        mx = std::max(mx, x);
+        mn = std::min(mn, x);
+        if (x != 0.0f) ++nz;
+      }
+      std::fprintf(stderr,
+                   "[TT-KQOUT] %s out %lldx%lld nz=%llu/%llu max=%.6f "
+                   "min=%.6f sum=%.4f ptr=%p\n",
+                   enc_name.c_str(), static_cast<long long>(P),
+                   static_cast<long long>(N),
+                   static_cast<unsigned long long>(nz),
+                   static_cast<unsigned long long>(hv.size()), mx, mn, sum,
+                   static_cast<const void*>(out.data));
+      std::fflush(stderr);
+      TTReclaimPlanes(device, {&h});
+    }
     CommitDeviceLogical2D(out, std::move(assembled), static_cast<uint32_t>(P),
                           static_cast<uint32_t>(N));
     // The committed slot owns assembled's buffer through the moved handle
@@ -4145,8 +4177,37 @@ void RmsNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& weight,
   }
   ttnn::Tensor to_norm = dev_x;
   if (residual != nullptr) {
+    // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: the block 2->3 boundary dies
+    // here or downstream — checksum both operands and the sum.
+    static const int kResProbe = [] {
+      const char* e = std::getenv("VT_DEBUG_SAMPLED");
+      return e != nullptr && e[0] == '2' ? 2 : 0;
+    }();
     ttnn::Tensor dev_r = EnsureDevice2D(*residual, device);
+    if (kResProbe == 2) {
+      for (const auto& [nm, tv] : {std::pair{"x", &dev_x},
+                                   std::pair{"res", &dev_r}}) {
+        auto h = ttnn::to_layout(*tv, ttnn::Layout::ROW_MAJOR).to_vector<float>();
+        uint64_t nz = 0;
+        float mx = 0.0f;
+        for (float v : h) { if (v != 0.0f) ++nz; mx = std::max(mx, v); }
+        std::fprintf(stderr, "[TT-RESADD] in %s nz=%llu/%llu max=%.6f\n", nm,
+                     static_cast<unsigned long long>(nz),
+                     static_cast<unsigned long long>(h.size()), mx);
+      }
+      std::fflush(stderr);
+    }
     to_norm = ttnn::add(dev_x, dev_r);
+    if (kResProbe == 2) {
+      auto h = ttnn::to_layout(to_norm, ttnn::Layout::ROW_MAJOR).to_vector<float>();
+      uint64_t nz = 0;
+      float mx = 0.0f;
+      for (float v : h) { if (v != 0.0f) ++nz; mx = std::max(mx, v); }
+      std::fprintf(stderr, "[TT-RESADD] out nz=%llu/%llu max=%.6f\n",
+                   static_cast<unsigned long long>(nz),
+                   static_cast<unsigned long long>(h.size()), mx);
+      std::fflush(stderr);
+    }
     CommitDevice2D(*residual, to_norm);
   }
   ttnn::Tensor dev_y = ttnn::rms_norm(to_norm, args.eps, dev_w);
