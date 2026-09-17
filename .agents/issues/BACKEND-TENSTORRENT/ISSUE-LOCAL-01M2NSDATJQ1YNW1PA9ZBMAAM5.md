@@ -350,3 +350,28 @@ conv_out probed 174079/174080), the defect is DeviceRows/EnsureDevice2D
 serving the conv slot's stale/zero device tensor to the slice, or the slice
 reading the wrong columns. Then fix per the doctrine and red-unit-test at
 [T=17, hk=16, dk=128, hv=48, dv=128].
+
+## Slices live; the zero appears BETWEEN commit and the next-layer read (2026-09-16)
+
+[TT-KQ2] probe: conv/q2/k2/v2 ALL LIVE on device at every GdnPostConv call
+(k2 34816/34816). Combined with TrustDump (call-0 k_k LIVE through
+EnsureHostBytes at the commit site): the l2 chain, the commit, and the slot
+download at the commit moment are all correct.
+
+The zeros appear when a LATER step downloads the same k_out slot
+([TT-DL] 86x zero). So something between step N's commit and step N+k's
+download frees or rebinds the slot's stored device tensor — the freed-buffer
+hypothesis, now narrowed to the k_out slot specifically.
+
+NEXT (deterministic, no new probes needed):
+1. Take a k_out slot pointer from a zero [TT-DL] in /tmp/walkback.log (which
+   has TT-FREE + commits + downloads interleaved) and list EVERY event for
+   that pointer in order: the commits (live), the frees ([TT-FREE] shape
+   matches), and the zero download. The freeing op names itself.
+2. The likely mechanism: l2()'s intermediates (rows/sq/s/denom/inv) die
+   normally at return, but some OTHER op's TTReclaimPlanes force-frees a
+   plane whose memory the k_out tensor's buffer aliases (allocator reuse of
+   the same block), killing the slot's bytes. The [TT-FREE] shape+time
+   correlation will name it.
+3. Fix candidates once the freeing op is named: drop the aliasing reclaim,
+   or re-order, or store a fresh copy in the slot.
