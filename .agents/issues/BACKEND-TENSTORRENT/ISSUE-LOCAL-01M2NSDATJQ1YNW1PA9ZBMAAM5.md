@@ -557,3 +557,19 @@ upload F32 instead of BF16, rerun the probe. Live tokens ⇒ the mixed-dtype
 call is the defect (fix: stage the weight in the input's dtype, or per the
 tt-metal contract). Still zero ⇒ the weight dtype is exonerated too, and the
 instrumented tt-metal rms_norm cache-hit path is the remaining endgame.
+
+## Weight dtype exonerated (2026-09-16, VT_TT_AFFINE_F32=1)
+
+The e2e probe with the affine staged F32 still produces all-zero ids. The
+mixed-dtype theory is dead. The eliminations now cover every engine-side
+actor around the norm: input (live), weight (live, both dtypes), program
+cache, staging, commits, slot machinery.
+
+The endgame is unambiguous: instrument the pinned tt-metal rms_norm compute
+path directly — print the input buffer address baked into the dispatched
+program vs the actual input address, and the compute-kernel view of the
+input, at each call, in one instrumented tt-metal build, running the APEX
+probe. Revert the instrumentation after. That answers whether tt-metal's
+rms_norm itself computes zeros at [17,5120] from live data (an upstream
+bug to fix or work around at the pin) — the only hypothesis left standing
+after the full elimination chain.

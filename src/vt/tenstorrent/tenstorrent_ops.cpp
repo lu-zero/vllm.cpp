@@ -4032,8 +4032,18 @@ ttnn::Tensor EnsureAffine1D(const Tensor& t, uint32_t d, MeshDevice& device) {
   for (uint32_t i = 0; i < d; ++i) host[i] = LoadElemF32(t, i);
   if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
     std::fprintf(stderr, "[TT-UP] EnsureAffine1D from_vector WRITE during capture\n");
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5 experiment lever: stage the
+  // affine in F32 instead of BF16 — the norm input is f32, and a mixed
+  // f32-in/bf16-weight rms_norm is the zero-output suspect.
+  static const bool kAffineF32 = [] {
+    const char* e = std::getenv("VT_TT_AFFINE_F32");
+    return e != nullptr && e[0] != '0';
+  }();
+  const tt::tt_metal::DataType affine_dt =
+      kAffineF32 ? tt::tt_metal::DataType::FLOAT32
+                 : tt::tt_metal::DataType::BFLOAT16;
   ttnn::Tensor dev = ttnn::Tensor::from_vector<float>(
-      host, SpecOf(tt::tt_metal::Shape({1, d}), ttnn::DataType::BFLOAT16, ttnn::Layout::TILE),
+      host, SpecOf(tt::tt_metal::Shape({1, d}), affine_dt, ttnn::Layout::TILE),
       &device);
   std::lock_guard<std::mutex> g(SlotMutex());
   BufferSlot* s = FindSlot(t.data);
