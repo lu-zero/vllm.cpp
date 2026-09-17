@@ -709,3 +709,32 @@ MeshWorkloadSpecFactoryAdapter ~line 1049+); identify which variant
 LayerNormDeviceOperation's factory resolves to (it has create_program_artifacts
 + program_factory_t variant), then read THAT variant's cache-hit path. The fix
 goes wherever the refresh is skipped. All probe/build tooling is committed.
+
+## Final narrowing (2026-09-17): rms_norm dispatches through a path with NO cache-hit refresh at all
+
+- The standalone repro (same ttnn::rms_norm, same factory) WORKS with the same
+  never-called hooks — because the allocator accidentally reuses the same
+  buffer every call (fresh input allocated at the same block). The engine's
+  buffers MOVE (in_addr differs per call: 470816512/475245312/471746304) →
+  the never-refreshed cached program reads recycled zeros.
+- The standalone repro's [TT-LN-OVR] print NEVER fires even there — the
+  factory override is not part of this op's call path at all on the old pin.
+- The engine installs no GraphTracker hooks (graph_capture_blocks_dispatch()
+  = false), so the framework's refresh at device_operation.hpp:296 SHOULD
+  run — it doesn't. Conclusion: ttnn::rms_norm on the old pin takes a
+  LAUNCH PATH where neither apply_descriptor nor override_runtime_arguments
+  is invoked on cache hits, and LayerNormDeviceOperation implements no
+  override of its own.
+
+NEXT SESSION:
+1. Determine the exact launch path: does ttnn::rms_norm at this pin go through
+   launch_operation_with_adapter (mesh adapter) or the legacy operation launch?
+   (grep the rmsnorm.cpp call chain; add a temporary print in both paths.)
+2. Add the address refresh in the correct place: either the DeviceOperation
+   override (legacy path) or the factory hook (adapter path). The refresh body:
+   patch reader/writer runtime args with the current input/gamma/output
+   addresses (the copy-op pattern from f3088579).
+3. Red-first artifact: /tmp/rms_repro3_oldpin extended — two rms_norm calls
+   with the input at DIFFERENT addresses (allocate a filler between to force
+   the move; v1's filler trick) → second call returns zeros = red. Green after
+   the refresh is added.
