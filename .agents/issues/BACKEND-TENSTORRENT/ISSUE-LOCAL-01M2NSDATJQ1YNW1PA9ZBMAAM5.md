@@ -788,3 +788,25 @@ mesh_device_operation_adapter.hpp:1009+), with the body building
 ProgramRunArgs (tensor-only) and calling UpdateProgramRunArgs(program,
 run_args). The shared_variables_t form-b signature was wrong for this
 adapter; delete it.
+
+## Attempt 4 (final, 2026-09-18): form-(b) override with shared_variables_t — STILL never called
+
+Added `struct shared_variables_t {}` to LayerNormMultiCoreProgramFactory and
+re-signatured the override to the exact form-(b) shape
+(program, shared_vars, attrs, tensor_args, ret) with a [TT-LN-OVR] print:
+still zero prints, ids still all-zero. The adapter's dispatch never reaches
+the factory's override for this op, even with the correct form-(b) shape and
+a fresh lib64.
+
+The remaining trace (next session, fresh context): WHY the dispatch skips the
+factory override. Candidates: (1) the resolve_program_factory/dispatch visits
+map layernorm's factory to a variant whose adapter has a no-op or different
+override (read the full visitor list in device_operation.hpp:239-262 and the
+variant element types actually instantiated — print typeid names); (2) the
+op's cached program is enqueued via a path that never calls
+dispatch_to_mesh_workload_factory's hook block at all (e.g. trace-replay
+enqueue, or the enqueue_mesh_workload tail re-applies the ORIGINAL run_params
+— whose tensor_args hold the first call's mesh_tensor handles, whose
+addresses are re-read AT ENQUEUE from the stored handles — i.e. the handles
+point at the first call's buffers: the addresses are re-derived from STALE
+HANDLES, which is the defect itself).
