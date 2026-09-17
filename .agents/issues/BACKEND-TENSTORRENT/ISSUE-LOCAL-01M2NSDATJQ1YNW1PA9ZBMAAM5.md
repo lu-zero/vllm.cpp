@@ -685,3 +685,27 @@ never printed either, so the cache-hit path for this op reaches neither the
 factory override nor UpdateTensorArgs — i.e. the cached program is enqueued
 WITHOUT any runtime-arg refresh, which IS the zero-output mechanism; find
 the dispatch branch that skips the refresh and why layernorm takes it.
+
+## Attempt 3 (final, 2026-09-17): properly-built lib — the override STILL never fires
+
+With a verified-fresh _ttnncpp.so (ninja-rebuilt after touch, containing both
+the [TT-LN-OVR] print and the [TT-TA] UpdateTensorArgs instrumentation): the
+probe run prints NEITHER. The layernorm factory's override_runtime_arguments
+is genuinely never invoked by the framework's cache-hit path, and
+UpdateTensorArgs is never reached for this op either. All-zero ids persist.
+
+This isolates the defect precisely: the cache-hit dispatch for the rms_norm
+program (LayerNormDeviceOperation via the mesh adapter) reaches NEITHER the
+factory's override hook NOR the tensor-args refresh — the cached program is
+enqueued with the FIRST call's runtime args, reading the first call's buffers
+(recycled → zeros). The missing piece is which code path the dispatch takes
+for this operation and why it skips the refresh hooks that other operations
+(copy, rotary embedding-indexed) implement.
+
+NEXT SESSION: trace the variant dispatch — mesh_device_operation_adapter.hpp
+defines multiple inner adapter variants (DirectDescriptorFactory,
+ProgramSpecMeshWorkloadFactoryAdapter ~line 769, CustomProgramSpec...,
+MeshWorkloadSpecFactoryAdapter ~line 1049+); identify which variant
+LayerNormDeviceOperation's factory resolves to (it has create_program_artifacts
++ program_factory_t variant), then read THAT variant's cache-hit path. The fix
+goes wherever the refresh is skipped. All probe/build tooling is committed.
