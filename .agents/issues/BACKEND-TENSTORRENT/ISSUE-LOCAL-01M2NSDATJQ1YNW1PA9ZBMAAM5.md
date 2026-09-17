@@ -738,3 +738,29 @@ NEXT SESSION:
    with the input at DIFFERENT addresses (allocate a filler between to force
    the move; v1's filler trick) → second call returns zeros = red. Green after
    the refresh is added.
+
+## DECISIVE (2026-09-17, late): rms_norm does NOT take the mesh-adapter path
+
+With a verified-fresh lib64/_ttnncpp.so containing the TT-DISPATCH print in
+handle_mesh_adapter_cache_hit: zero prints. ttnn::rms_norm never enters
+handle_mesh_adapter_cache_hit — the earlier "hooks never called" results were
+partly a STALE-LIB64 artifact (lib64/_ttnncpp.so was a Sep-12 copy; the build
+outputs land in ttnn/ and lib64 is only updated by the install/copy step),
+but the conclusion stands corrected: rms_norm takes the LEGACY
+tt-metal operation launch path (ttnn::prim::layer_norm ->
+ttnn::device_operation::launch<LayerNormDeviceOperation> — or an older
+dispatch), whose cache-hit handling differs and never refreshes runtime args
+for this op.
+
+NEXT SESSION (mechanical):
+1. Instrument the legacy launch path: tt_metal/impl/program/program_cache +
+   the legacy operation launch (ttnn::device_operation::launch) — print
+   whether the program cache is consulted and whether any
+   override_runtime_arguments is invoked on hits.
+2. LayerNormDeviceOperation on this pin implements NO override; add one in
+   the form the legacy path expects (check the legacy contract — likely
+   `static void override_runtime_arguments(program, cached_variables, attrs,
+   tensor_args, ret)` on the OPERATION class or its factory), mirroring the
+   copy-op patch.
+3. Red-first: the rms_norm-twice-at-different-addresses repro (/tmp/rms_repro3.cpp
+   + a filler allocation between calls to force divergence).
