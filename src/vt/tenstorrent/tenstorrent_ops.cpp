@@ -4290,9 +4290,10 @@ void RmsNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& weight,
         ttnn::to_layout(to_norm, ttnn::Layout::ROW_MAJOR).to_vector<float>();
     uint64_t inz = 0;
     for (float x : hin) if (x != 0.0f) ++inz;
-    std::fprintf(stderr, "[TT-NORMBR] pre nz=%llu/%llu\n",
+    std::fprintf(stderr, "[TT-NORMBR] pre nz=%llu/%llu in_addr=%lu\n",
                  static_cast<unsigned long long>(inz),
-                 static_cast<unsigned long long>(hin.size()));
+                 static_cast<unsigned long long>(hin.size()),
+                 to_norm.mesh_tensor().address());
     std::fflush(stderr);
   }
   // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5 experiment: pad the rows to the

@@ -667,3 +667,21 @@ UpdateProgramRunArgs with the fresh tensor args is the fix. Alternatively add
 `cached_program_t` and use form (a). The m2 artifact's run_params rebuild for
 the override may also need the kernel_run_args (per-core scalars) — rotary's
 override shows tensor-only run_args is accepted by UpdateProgramRunArgs.
+
+## Attempt 2: the factory override is NEVER called (2026-09-17, final)
+
+Re-signatured the layernorm override to the adapter's form (b) —
+(program, shared_variables_t&, attrs, tensor_args, ret) with an empty
+shared_variables_t on the factory. Built, ran: **zero [TT-LN-OVR] prints** —
+the adapter's cache-hit path never dispatches to the factory's override for
+this operation. The zeros are not a missing factory refresh.
+
+NEXT: identify which adapter variant layernorm resolves to
+(resolve_program_factory in mesh_device_operation_adapter.hpp) and trace
+THAT variant's cache-hit handling of tensor addresses — the refresh for this
+op happens (or fails) in the adapter/framework layer, not the factory. The
+program_run_args.cpp UpdateTensorArgs instrumentation (TT_METAL_TA_DEBUG=1)
+never printed either, so the cache-hit path for this op reaches neither the
+factory override nor UpdateTensorArgs — i.e. the cached program is enqueued
+WITHOUT any runtime-arg refresh, which IS the zero-output mechanism; find
+the dispatch branch that skips the refresh and why layernorm takes it.
