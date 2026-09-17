@@ -810,3 +810,27 @@ enqueue, or the enqueue_mesh_workload tail re-applies the ORIGINAL run_params
 addresses are re-read AT ENQUEUE from the stored handles — i.e. the handles
 point at the first call's buffers: the addresses are re-derived from STALE
 HANDLES, which is the defect itself).
+
+## FINAL STATE (2026-09-18, session limit): the dispatch chain has one missing link
+
+Confirmed by TT-DISPATCH instrumentation: handle_mesh_adapter_cache_hit runs
+(54,388 dispatches, all taking apply_descriptor) — but UpdateTensorArgs never
+runs for ANY op, and the layernorm factory's form-(b) override never fires.
+The dispatch chain is: handle_mesh_adapter_cache_hit → adapter's
+override_runtime_arguments (mesh_device_operation_adapter.hpp:~285) →
+apply_override_runtime_arguments (mesh_device_operation_utils.hpp:97) →
+user factory's form-(a)/(b) override. One link between the adapter's
+override and the user factory silently fails for layernorm.
+
+NEXT SESSION (30 min of work, fresh context):
+1. Print inside the ADAPTER's override_runtime_arguments
+   (mesh_device_operation_adapter.hpp:~285) — does it fire for layernorm?
+2. Print inside apply_override_runtime_arguments — which form is selected,
+   and does the form-(b) call reach my LayerNormMultiCoreProgramFactory
+   override?
+3. The mismatch will be in the requires-probe conditions or the
+   shared_variables_t resolution — fix the factory's hook to match, rebuild
+   tt-metal (ninja ttnn tt_metal + COPY ttnn/_ttnncpp.so lib64/ — THE STALE
+   LIB64 TRAP), and rerun.
+4. Then: APEX gate rerun expecting REAL tokens → suite 77/77 → PRs → close
+   ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5 → bench record → stage 2 → #1003.
