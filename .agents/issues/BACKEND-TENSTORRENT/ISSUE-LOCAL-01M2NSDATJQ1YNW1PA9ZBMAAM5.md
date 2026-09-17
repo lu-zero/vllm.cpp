@@ -460,3 +460,25 @@ NEXT (red-first artifact + fix):
 3. Fix candidates: bypass/update the program cache for this op at changed
    input addresses, or upstream the tt-metal fix. The engine-side workaround
    (hold the input buffer stable) is not acceptable as the fix.
+
+## Minimal repro GREEN: the failure needs engine context (2026-09-16)
+
+The standalone A→free→filler→B→rms_norm repro (/tmp/rms_repro, compiled
+against the pinned tt-metal) is GREEN: both rms_norm calls return live
+output. Simple buffer recycling at a changed address does not reproduce.
+
+The failing configuration therefore needs more of the engine: ~12+ other
+program types interleaved between rms_norm calls (program cache holding
+many entries), the real op mix, or the engine's queue state. Note the
+program cache is the remaining suspect: 12 rms_norm calls correct, then
+permanent zeros after the cache has absorbed the first ~6 blocks' worth of
+other programs — an eviction/collision/address-update bug in the cache-hit
+path under cache pressure.
+
+NEXT: reproduce with cache pressure — extend the repro (or write a second
+one) that interleaves M other distinct-shape ops (add/matmul/slice at
+varied shapes) between rms_norm calls until the output goes zero, then
+bisect the interleaved set. Alternatively instrument the pinned tt-metal's
+rms_norm compute program cache-hit path directly (print the input buffer
+address baked into the program vs the actual input address at each call)
+— one instrumented tt-metal build answers it definitively.
