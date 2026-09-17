@@ -764,3 +764,27 @@ NEXT SESSION (mechanical):
    copy-op patch.
 3. Red-first: the rms_norm-twice-at-different-addresses repro (/tmp/rms_repro3.cpp
    + a filler allocation between calls to force divergence).
+
+## Adapter-variant census (2026-09-17, dispatch instrumentation)
+
+With TT_METAL_DISPATCH_DEBUG=1: 54,388 cache-hit dispatches, ALL taking
+`apply_descriptor` — but `UpdateTensorArgs` is NEVER called for ANY op in the
+run (TT-TA total = 0). So every op in this engine resolves to the
+`CustomProgramSpecMeshWorkloadFactoryAdapter` variant (or similar) whose
+`apply_descriptor` calls the FACTORY's own `override_runtime_arguments(attrs,
+tensor_args, ret, coord)` — and the layernorm factory's re-signatured form
+`override_runtime_arguments(program, shared_vars, attrs, tensor_args, ret)`
+does not match the CustomProgramSpec probe's expected signature
+`(attrs, tensor_args, ret, coord)` — the CustomProgramSpecFactoryConcept
+requires the factory to define override_runtime_arguments in the 4-arg form.
+
+THE FIX IS NOW EXACT: re-signature LayerNormMultiCoreProgramFactory's
+override to the CustomProgramSpec form —
+`override_runtime_arguments(const LayerNormParams& attrs, const
+LayerNormInputs& tensor_args, Tensor& ret, const
+std::optional<MeshCoordinate>& coord)` returning void (or ProgramRunArgs —
+check CustomProgramSpecFactoryConcept's exact return requirement at
+mesh_device_operation_adapter.hpp:1009+), with the body building
+ProgramRunArgs (tensor-only) and calling UpdateProgramRunArgs(program,
+run_args). The shared_variables_t form-b signature was wrong for this
+adapter; delete it.
