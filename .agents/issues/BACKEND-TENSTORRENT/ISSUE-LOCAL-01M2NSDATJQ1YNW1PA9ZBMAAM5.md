@@ -642,3 +642,28 @@ Red-first artifact: a unit test calling rms_norm twice with inputs at different
 addresses (the /tmp/rms_repro3.cpp pattern) — red on the pin, green after.
 Consider reporting upstream: this operation-contract violation affects every
 layernorm-family user of the framework whose buffers move.
+
+## Fix attempt 1: the override compiled but was never called (2026-09-17)
+
+Added `override_runtime_arguments` to LayerNormMultiCoreProgramFactory (both
+declaration and definition; tt-metal rebuilt, fresh JIT cache). The APEX probe
+still produced all-zero ids. Two possibilities:
+1. The adapter's dispatch never reaches the factory's override: the framework
+   probes specific signatures (see mesh_device_operation_adapter.hpp's
+   apply_override_runtime_arguments: form (a) `cached_program_t&` + 4 args if
+   the factory defines cached_program_t; form (b) `(program, shared_vars,
+   attrs, tensor_args, ret)` — my 5-arg copy-style signature
+   (program, attrs, tensor_args, ret, coord) matches NEITHER probe, so the
+   adapter treats the factory as hookless).
+2. Or the override ran and the addresses were patched but zeros persist (less
+   likely — no [COPY-OVERRIDE]-style evidence was printed; my override has no
+   print yet).
+
+NEXT: give the factory a `shared_variables_t` (empty struct) and match probe
+form (b)'s exact signature/order — `override_runtime_arguments(Program&,
+shared_variables_t&, const LayerNormParams&, const LayerNormInputs&, Tensor&)`
+— plus a debug print inside; one probe run confirms the call fires; then
+UpdateProgramRunArgs with the fresh tensor args is the fix. Alternatively add
+`cached_program_t` and use form (a). The m2 artifact's run_params rebuild for
+the override may also need the kernel_run_args (per-core scalars) — rotary's
+override shows tensor-only run_args is accepted by UpdateProgramRunArgs.
