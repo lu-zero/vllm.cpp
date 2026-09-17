@@ -502,3 +502,24 @@ to_norm = ttnn::add(dev_x, dev_r) with both device tensors). If v3 is still
 green, bisect toward the real mix or instrument the tt-metal rms_norm
 cache-hit path (baked input address vs actual) directly — that answers it
 in one instrumented run.
+
+## Repro v3 (bf16 weight + chained add) GREEN (2026-09-16)
+
+With the corrected bf16 unit weight, v3 runs 32 blocks green. The dtype
+mirror alone is insufficient. Remaining differentiator: the engine's full
+program mix (keep-quant kernels' many programs) and/or its slot-commit
+interleaving.
+
+The efficient endgame: instrument the pinned tt-metal's rms_norm
+compute cache-hit path directly (tt_metal/ttnn normalization rmsnorm
+program factory: print the input buffer address baked into the cached
+program vs the actual input address at each call). One instrumented
+tt-metal build answers definitively whether the cached program reads a
+stale address; then the fix lands tt-metal-side or as a cache-management
+workaround. Revert the instrumentation after.
+
+Interim user-facing note: VT_TT_KEEPQUANT... no — the workaround to test on
+the engine is disabling the rms_norm program cache hit (device
+program_cache off for the norm, or a cache-avoiding rms_norm variant) —
+if the e2e then produces live tokens, the diagnosis is confirmed end to
+end before any tt-metal change.
