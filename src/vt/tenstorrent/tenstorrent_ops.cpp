@@ -4295,7 +4295,30 @@ void RmsNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& weight,
                  static_cast<unsigned long long>(hin.size()));
     std::fflush(stderr);
   }
-  ttnn::Tensor dev_y = ttnn::rms_norm(to_norm, args.eps, dev_w);
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5 experiment: pad the rows to the
+  // tile height before the norm (M=17 is non-tile-aligned) and slice back.
+  // VT_TT_NORM_PAD=1; live output here convicts the non-tile-aligned M.
+  static const bool kNormPad = [] {
+    const char* e = std::getenv("VT_TT_NORM_PAD");
+    return e != nullptr && e[0] != '0';
+  }();
+  ttnn::Tensor dev_y;
+  if (kNormPad) {
+    const uint32_t r = to_norm.logical_shape()[0];
+    const uint32_t rp = (r + 31u) / 32u * 32u;
+    ttnn::Tensor tail = ttnn::zeros(
+        ttnn::Shape({rp - r, to_norm.logical_shape()[1]}),
+        to_norm.dtype(), to_norm.layout(), std::ref(SharedMeshDevice()));
+    ttnn::Tensor padded = ttnn::concat(
+        std::vector<ttnn::Tensor>{to_norm, tail}, /*dim=*/0);
+    ttnn::Tensor yn = ttnn::rms_norm(padded, args.eps, dev_w);
+    dev_y = ttnn::slice(yn, ttsl::SmallVector<uint32_t>{0u, 0u},
+                        ttsl::SmallVector<uint32_t>{r,
+                                                    to_norm.logical_shape()[1]},
+                        ttsl::SmallVector<uint32_t>{1u, 1u});
+  } else {
+    dev_y = ttnn::rms_norm(to_norm, args.eps, dev_w);
+  }
   if (kBracket == 2) {
     auto hy =
         ttnn::to_layout(dev_y, ttnn::Layout::ROW_MAJOR).to_vector<float>();

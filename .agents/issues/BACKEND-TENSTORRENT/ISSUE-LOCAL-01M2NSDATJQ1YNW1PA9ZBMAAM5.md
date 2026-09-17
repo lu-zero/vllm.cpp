@@ -573,3 +573,18 @@ probe. Revert the instrumentation after. That answers whether tt-metal's
 rms_norm itself computes zeros at [17,5120] from live data (an upstream
 bug to fix or work around at the pin) — the only hypothesis left standing
 after the full elimination chain.
+
+## Norm pad exonerated (2026-09-16, VT_TT_NORM_PAD=1)
+
+Padding the norm input rows to the tile height (concat + slice) before
+rms_norm changes nothing — ids still all-zero. Non-tile-aligned M is
+exonerated.
+
+## SANCTION REQUEST: instrument the pinned tt-metal
+
+Every engine-side lever is exhausted (see the full elimination chain). The
+one remaining path is instrumenting ~/Sources/tt/tt-metal's rms_norm device
+code (print the input buffer address baked into the dispatched program vs
+the actual input address, and the kernel's view of the input, per call),
+running the APEX probe once, and reverting the instrumentation. This touches
+the pinned oracle source and needs the developer's go-ahead.
