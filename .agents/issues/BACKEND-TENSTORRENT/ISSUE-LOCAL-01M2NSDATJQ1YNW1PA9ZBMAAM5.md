@@ -542,3 +542,18 @@ kernel whose weight dtype must match the input (f32) — a dtype mismatch
 reads near-zero garbage weights → exact-zero outputs. This fits EVERYTHING
 (live input, live host weight bytes, exact zeros, first calls fine if the
 first calls took a different warm path).
+
+## Weight-dtype state (2026-09-16): EnsureAffine1D stages bf16; tt-metal may support mixed
+
+Confirmed: EnsureAffine1D (tenstorrent_ops.cpp:4016) uploads the norm weight
+as BF16, so the engine calls rms_norm(f32 input, bf16 weight) — mixed
+dtypes. The pinned tt-metal factory derives gamma's DataFormat from the
+gamma tensor's own dtype (layernorm_op_multi_core.cpp:244) — so mixed MAY be
+supported at the factory level; the kernel-level reality is unverified.
+
+DECISIVE EXPERIMENT (one build + one ~7 min run): gate EnsureAffine1D's
+staging dtype behind VT_DEBUG_SAMPLED=2-style env (or VT_TT_AFFINE_F32=1) to
+upload F32 instead of BF16, rerun the probe. Live tokens ⇒ the mixed-dtype
+call is the defect (fix: stage the weight in the input's dtype, or per the
+tt-metal contract). Still zero ⇒ the weight dtype is exonerated too, and the
+instrumented tt-metal rms_norm cache-hit path is the remaining endgame.
