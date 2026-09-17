@@ -375,3 +375,32 @@ NEXT (deterministic, no new probes needed):
    correlation will name it.
 3. Fix candidates once the freeing op is named: drop the aliasing reclaim,
    or re-order, or store a fresh copy in the slot.
+
+## The origin moves to the GDN in-proj output; async-recycle hypothesis (2026-09-16)
+
+The dying block's timeline (walkback.log ~3419-3495, k slot
+0xfff1c524e3c0): its k_out commits were LIVE through block N, and the first
+zero commit coincides with the block whose **[17,10240] GDN in-proj output
+downloads as zero immediately after CausalConv1dFwd** — before the k_out
+commit. The conv, state, k/v/q of that block and everything after are
+inheritance.
+
+Pattern: commit -> FIRST download already zero. Run-dependent (probes shift
+it, control run dies without them), values drift (uninit). This is the
+ASYNC-RECYCLE class: an output buffer is reclaimed (normal refcount
+destruction, no finish()) before the queued op executes — the allocator
+hands the block to a later allocation, and the op's output lands in memory
+now owned elsewhere (or its input is read after its bytes were recycled).
+The keep-quant chunk loop's TTReclaimPlanes calls finish() before
+force-freeing, but NORMAL destruction of expression temporaries (e.g. the
+l2() chain, or the model's DBuf pools) does not sync.
+
+NEXT:
+1. Probe the [17,10240] in-proj output immediately after ITS commit
+   (to_vector download) — live-then-zero-later confirms recycle-after-commit;
+   zero-immediately means its input was already dead (keep walking back —
+   the same first-download-zero test per op).
+2. If recycle confirmed: instrument normal ttnn tensor destruction around
+   the suspect ops, or test the fix candidate — a queue finish() before the
+   in-proj output's last reference dies (or holding it until the consumer
+   syncs). Compare tt-metal's allocator contract for async-safe reuse.
