@@ -588,3 +588,27 @@ code (print the input buffer address baked into the dispatched program vs
 the actual input address, and the kernel's view of the input, per call),
 running the APEX probe once, and reverting the instrumentation. This touches
 the pinned oracle source and needs the developer's go-ahead.
+
+## tt-metal pin bump: upstream dev20260916 HANGS on basic dispatch (2026-09-17)
+
+The minimal rms_norm repro (compiled against the new pin) HANGS on the P150 —
+zero output, killed at 120s, while the same program takes ~2s on the pinned
+dev20260911. The hang is in basic op dispatch, independent of our engine
+entirely. Our two dispatch patches are exonerated (reverted, same hang).
+Upstream regression in tenstorrent/tt-metal between v0.79.0-dev20260911 and
+v0.79.0-dev20260916 (or aarch64-specific). Also: dev20260917 is aarch64-
+BROKEN (x86-only streaming profiler in mesh_device.cpp, #55967).
+
+State: branch pin-v0.79.0-dev20260916 in ~/Sources/tt/tt-metal built in
+build_new (local debug mods recorded: SFPI version check → warning, SFPI
+7.77.0 aarch64-debian tarball staged, tracy WASM gated via
+TT_BUILD_TRACY_WASM=OFF, copy cache-hit patch ported to the new
+program-factory API). Old pin preserved: branch old-pin-20260916-backup +
+build_old_pin; build_Release is a symlink to build_new (swap back by
+removing the symlink and restoring).
+
+NEXT (pin-bump path): bisect upstream dev20260911..dev20260916 for the
+dispatch hang (build+run per step, each ~10-20 min), or report the hang
+upstream to tt-metal with this finding. INTERIM: the zero-logits bug
+investigation continues on the WORKING old pin — instrument its rms_norm
+path (baked vs actual input address per call) as planned.
