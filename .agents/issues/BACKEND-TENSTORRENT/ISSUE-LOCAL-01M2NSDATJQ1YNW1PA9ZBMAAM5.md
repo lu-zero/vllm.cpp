@@ -299,3 +299,27 @@ NEXT:
 3. The 27B head counts differ from the 0.8B vehicle the kernel was written
    and pinned against — check hk/hv/dk/dv and the [17, ...] non-tile-aligned
    M in the reshape/l2 chain for an offset that only breaks at this config.
+
+## CORRECTION: the [TT-GPC] probe was invalid; dtype mismatch is the prime suspect (2026-09-16)
+
+The TrustDump rerun shows call-0 q/k/v ALL LIVE at the commit site (device
+truth via Backend::Copy after EnsureHostBytes: k_q 34816/34816, k_k
+34816/34816, k_v 104447/104448, conv_in 174079/174080; shapes [17,16,128] /
+[17,48,128] — hk=16 dk=128 hv=48 dv=128, key_dim 2048 tile-aligned, so the
+slice-misalignment theory is also out). The [TT-GPC] probe read raw HOST
+bytes via LoadElemF32 WITHOUT EnsureHost — after CommitDeviceLogical2D those
+are legitimately stale (host_current=false), so its zeros were an artifact.
+Lesson recorded: probes must download device truth (to_vector) or EnsureHost
+first.
+
+The VALID device-truth signal stands: the first zero [TT-DL] is the GDN
+STATE CACHE slot (0xffeea102f280, [1,30720] **bf16**, dt=1) — committed by
+GdnStateScatter's CommitDeviceLogical2D(cache, newc, ...). But the scatter's
+own [TT-GDN] probe showed newc LIVE as F32. A live f32 newc committing into
+a bf16 cache slot (or a bf16 reinterpreted as f32 on the way back) is the
+prime suspect: a dtype mismatch in the GDN state-cache path. GdnPrefill then
+reads zero state, and the stream dies past the first GDN block.
+
+NEXT: read GdnStateScatterKernel/GdnStateGatherKernel/EnsureGdnCacheDevice
+for the cache dtype handling (cache bf16 vs newc f32), compare with
+cpu_ops, and red unit test the scatter at the in-engine cache dtype.
