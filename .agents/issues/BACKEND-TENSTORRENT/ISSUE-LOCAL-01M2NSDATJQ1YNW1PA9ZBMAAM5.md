@@ -323,3 +323,30 @@ reads zero state, and the stream dies past the first GDN block.
 NEXT: read GdnStateScatterKernel/GdnStateGatherKernel/EnsureGdnCacheDevice
 for the cache dtype handling (cache bf16 vs newc f32), compare with
 cpu_ops, and red unit test the scatter at the in-engine cache dtype.
+
+## Zero-download census names k_out (2026-09-16, walkback.log correlation)
+
+Scripted correlation of every zero [TT-DL] to its committing op (walkback
+log, op+slot interleaved):
+- **86x GdnPostConv [272x128] — the k_out tensor. THE ORIGIN.** (Consistent
+  with the GPC probe's call-1 k nz=2/34816; only that probe's v-garbage
+  reading was an artifact.)
+- 48x GdnStateGather [1x30720] — the state cache; likely legit (initial
+  state zeros + propagated dead state), inherited.
+- 43x MatmulBTQuant [17x10240] / RmsNormGated [816x128] / CastBf16 /
+  AttnQkNormRopeGate / MatmulBTQuantGrouped — all downstream inheritance.
+- NO slot goes live->zero without an intervening commit: the slot machinery
+  and the force-reclaims are exonerated. The producers write zeros.
+
+Config (from the TrustDump headers): hk=16 dk=128 (key_dim 2048,
+tile-aligned), hv=48 dv=128, conv_dim 10240, t=17. The k2 column slice
+[2048,4096) of the TILE dev_conv IS aligned, so plain misalignment is out;
+the zero is in k2's content (the conv tensor's k region as seen on device)
+or in l2(k2).
+
+NEXT: probe k2 and q2 INSIDE GdnPostConvKernel (to_vector device downloads)
+— if k2 is zero while the conv tensor's host bytes are live (they are:
+conv_out probed 174079/174080), the defect is DeviceRows/EnsureDevice2D
+serving the conv slot's stale/zero device tensor to the slice, or the slice
+reading the wrong columns. Then fix per the doctrine and red-unit-test at
+[T=17, hk=16, dk=128, hv=48, dv=128].
