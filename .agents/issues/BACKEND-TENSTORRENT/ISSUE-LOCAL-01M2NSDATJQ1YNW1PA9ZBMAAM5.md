@@ -612,3 +612,33 @@ dispatch hang (build+run per step, each ~10-20 min), or report the hang
 upstream to tt-metal with this finding. INTERIM: the zero-logits bug
 investigation continues on the WORKING old pin — instrument its rms_norm
 path (baked vs actual input address per call) as planned.
+
+## ROOT CAUSE FOUND: rms_norm (layernorm) program factory has no address-patching hook (2026-09-17)
+
+The pinned tt-metal's framework contract (ttnn/api/ttnn/device_operation.hpp:~286-300):
+on a program-cache HIT the framework calls `WorkloadFactory::apply_descriptor` if the
+factory implements it, ELSE `WorkloadFactory::override_runtime_arguments` — if the
+factory implements NEITHER, the cached program's runtime args are NEVER updated.
+
+`LayerNormMultiCoreProgramFactory` (and the sharded factory) implement NEITHER
+(ttnn/cpp/ttnn/operations/normalization/layernorm/device/ — no matches for either
+hook). So the cached rms_norm program keeps the FIRST call's input/gamma/output
+addresses forever. Every later call with a different input buffer reads the first
+call's long-recycled (zeroed) memory → exact zeros.
+
+This explains every observation:
+- 0.8B suite green: light allocator pressure → stable addresses → first-call
+  addresses stay valid.
+- 27B zeros from norm call ~13: allocator pressure crosses a threshold, the input
+  buffer moves, the cached program reads the old zeroed block.
+- Exact zeros, run-to-run drift, first calls live.
+
+THE FIX (tt-metal-side): implement `override_runtime_arguments` on
+LayerNormMultiCoreProgramFactory (and LayerNormShardedProgramFactory) patching the
+reader/writer/compute runtime args with the current input/gamma/output buffer
+addresses — mirroring the copy-op patch we already carry (scratch commit
+f3088579db0, ported example in the pin-v0.79.0-dev20260916 branch's copy factory).
+Red-first artifact: a unit test calling rms_norm twice with inputs at different
+addresses (the /tmp/rms_repro3.cpp pattern) — red on the pin, green after.
+Consider reporting upstream: this operation-contract violation affects every
+layernorm-family user of the framework whose buffers move.
