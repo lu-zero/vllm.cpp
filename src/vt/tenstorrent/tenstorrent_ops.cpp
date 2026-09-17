@@ -1659,6 +1659,21 @@ void CommitDeviceLogical2D(Tensor& out, ttnn::Tensor dev, uint32_t rows, uint32_
   s->host_current = false;
   s->conv_transposed = false;  // logical [rows, cols] — oracle layout
   s->device_reserved = false;  // real bytes committed — the reservation is spent
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: post-commit download of the
+  // [17,10240] GDN in-proj output — live here but zero at the consumer's
+  // read proves a between-commit-and-read overwrite (recycle); zero here
+  // proves the compute produced zeros.
+  if (slot_trace_level() >= 2 && rows == 17 && cols == 10240) {
+    ttnn::Tensor chk =
+        ttnn::to_layout(s->device.value(), ttnn::Layout::ROW_MAJOR);
+    auto hv2 = chk.to_vector<float>();
+    uint64_t nz = 0;
+    for (float x : hv2) if (x != 0.0f) ++nz;
+    std::fprintf(stderr, "[TT-COMMITDL] rows=%u cols=%u nz=%llu/%llu\n",
+                 rows, cols, static_cast<unsigned long long>(nz),
+                 static_cast<unsigned long long>(hv2.size()));
+    std::fflush(stderr);
+  }
 }
 
 void CommitDevice2D(Tensor& out, ttnn::Tensor dev) {
@@ -4238,6 +4253,20 @@ void RmsNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& weight,
     }
     CommitDevice2D(*residual, to_norm);
   }
+  static const int kWProbe = [] {
+    const char* e = std::getenv("VT_DEBUG_SAMPLED");
+    return e != nullptr && e[0] == '2' ? 2 : 0;
+  }();
+  if (kWProbe == 2) {
+    auto hw =
+        ttnn::to_layout(dev_w, ttnn::Layout::ROW_MAJOR).to_vector<float>();
+    uint64_t wnz = 0;
+    for (float x : hw) if (x != 0.0f) ++wnz;
+    std::fprintf(stderr, "[TT-NORMW] nz=%llu/%llu\n",
+                 static_cast<unsigned long long>(wnz),
+                 static_cast<unsigned long long>(hw.size()));
+    std::fflush(stderr);
+  }
   ttnn::Tensor dev_y = ttnn::rms_norm(to_norm, args.eps, dev_w);
   // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: the consumer reads this norm's
   // output as zeros from block 2 on while the input (to_norm) is probed
@@ -4576,6 +4605,28 @@ void GdnPostConvKernel(Queue& q, Tensor& q_out, Tensor& k_out, Tensor& v_out,
   ttnn::Tensor v2 = ttnn::slice(dev_conv, ttsl::SmallVector<uint32_t>{0, 2 * key_dim},
                                 ttsl::SmallVector<uint32_t>{t, conv_dim},
                                 ttsl::SmallVector<uint32_t>{1, 1});
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: k_out commits zeros while q_out
+  // (the same l2 chain) is live. Checksum the SLICES on device to split
+  // slice-content vs the L2Norm chain.
+  static const int kSliceProbe = [] {
+    const char* e = std::getenv("VT_DEBUG_SAMPLED");
+    return e != nullptr && e[0] == '2' ? 2 : 0;
+  }();
+  if (kSliceProbe == 2) {
+    for (const auto& [nm, tv] : {std::pair{"conv", &dev_conv},
+                                 std::pair{"q2", &q2},
+                                 std::pair{"k2", &k2},
+                                 std::pair{"v2", &v2}}) {
+      auto h = ttnn::to_layout(*tv, ttnn::Layout::ROW_MAJOR).to_vector<float>();
+      uint64_t nz = 0;
+      float mx = 0.0f;
+      for (float x : h) { if (x != 0.0f) ++nz; mx = std::max(mx, x); }
+      std::fprintf(stderr, "[TT-KQ2] %s nz=%llu/%llu max=%.6f\n", nm,
+                   static_cast<unsigned long long>(nz),
+                   static_cast<unsigned long long>(h.size()), mx);
+    }
+    std::fflush(stderr);
+  }
   // Heads are laid contiguously along the sliced cols, so [t, hk*dk] ->
   // [t*hk, dk] is a pure logical re-view; each row is one head's Dk vector.
   auto l2 = [&](const ttnn::Tensor& cols) {

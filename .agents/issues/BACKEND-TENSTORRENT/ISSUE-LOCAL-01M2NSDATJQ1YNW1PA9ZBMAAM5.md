@@ -404,3 +404,33 @@ NEXT:
    the suspect ops, or test the fix candidate — a queue finish() before the
    in-proj output's last reference dies (or holding it until the consumer
    syncs). Compare tt-metal's allocator contract for async-safe reuse.
+
+## Norm-weight exonerated; the remaining paradox, precisely stated (2026-09-16, final)
+
+[TT-NORMW]: the norm weight is live at ALL 129 calls (nz=5120/5120). And
+[TT-NORMOUT] re-read: 117 of 129 norm outputs are ZERO AT COMMIT (the
+earlier "all live" reading only covered the first six calls).
+
+So: rms_norm(to_norm, eps, dev_w) emits exact zeros from call ~7 on, where
+to_norm was probed live (RESADD) and dev_w is probed live (NORMW). Under
+synchronous execution that is impossible — so one of: (a) to_norm's buffer
+is written between the add and the rms_norm execution (an aliasing write —
+find who), (b) execution is NOT synchronous (fd command queue batching) and
+to_norm's buffer is recycled before rms_norm executes (the async-recycle
+class), or (c) the NORMOUT/RESADD probes themselves shift the race (control
+run says the death is real regardless).
+
+NEXT SESSION — a clean minimal discriminator:
+1. In RmsNormKernel, download to_norm AGAIN immediately before the rms_norm
+   call (after the probes), and checksum dev_y immediately after — bracket
+   the rms_norm with input+output truth in the SAME run. If input live and
+   output zero in one bracketed pair, the op itself (or its dispatch) is the
+   defect — take it to a minimal tt-metal repro (add -> rms_norm, same
+   shapes [17,5120] bf16/f32) outside the engine.
+2. Check dispatch: whether these ops run through fd_mesh_command_queue
+   batching (async) — if so, test a finish() before the rms_norm as a
+   workaround to confirm ordering.
+3. The minimal tt-metal repro is also the red-first artifact for the fix PR.
+
+Everything else is eliminated (see the probe chain above). The probes and
+the correlation scripts are all committed on this branch.
