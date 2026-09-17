@@ -4267,7 +4267,35 @@ void RmsNormKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& weight,
                  static_cast<unsigned long long>(hw.size()));
     std::fflush(stderr);
   }
+  // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: bracket — re-download the input
+  // immediately before the op and checksum the output immediately after, in
+  // the same run. Input live + output zero in one bracket convicts the op
+  // (or its dispatch); input zero convicts upstream.
+  static const int kBracket = [] {
+    const char* e = std::getenv("VT_DEBUG_SAMPLED");
+    return e != nullptr && e[0] == '2' ? 2 : 0;
+  }();
+  if (kBracket == 2) {
+    auto hin =
+        ttnn::to_layout(to_norm, ttnn::Layout::ROW_MAJOR).to_vector<float>();
+    uint64_t inz = 0;
+    for (float x : hin) if (x != 0.0f) ++inz;
+    std::fprintf(stderr, "[TT-NORMBR] pre nz=%llu/%llu\n",
+                 static_cast<unsigned long long>(inz),
+                 static_cast<unsigned long long>(hin.size()));
+    std::fflush(stderr);
+  }
   ttnn::Tensor dev_y = ttnn::rms_norm(to_norm, args.eps, dev_w);
+  if (kBracket == 2) {
+    auto hy =
+        ttnn::to_layout(dev_y, ttnn::Layout::ROW_MAJOR).to_vector<float>();
+    uint64_t onz = 0;
+    for (float x : hy) if (x != 0.0f) ++onz;
+    std::fprintf(stderr, "[TT-NORMBR] post nz=%llu/%llu\n",
+                 static_cast<unsigned long long>(onz),
+                 static_cast<unsigned long long>(hy.size()));
+    std::fflush(stderr);
+  }
   // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: the consumer reads this norm's
   // output as zeros from block 2 on while the input (to_norm) is probed
   // live. Checksum the rms_norm result BEFORE the commit: zero => the ttnn

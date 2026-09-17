@@ -434,3 +434,29 @@ NEXT SESSION — a clean minimal discriminator:
 
 Everything else is eliminated (see the probe chain above). The probes and
 the correlation scripts are all committed on this branch.
+
+## THE OP IS CONVICTED: ttnn::rms_norm reads a stale address from the program cache (2026-09-16)
+
+[TT-NORMBR] bracket probe (same run, same tensors): 129 brackets —
+**117 with the input downloaded LIVE immediately before rms_norm and the
+output ALL ZERO immediately after**; zero brackets with a dead input; the
+first live-in/zero-out at bracket #13, permanent from there (brackets 1-12
+are live->live).
+
+Mechanism that fits: the rms_norm program is cached on first use with the
+input's device address; calls 2-12 reused the same buffer (addresses
+stable); from call 13 the allocator hands the input a different block and
+the cached program still reads the OLD, recycled (zeroed) address. This
+also explains why the 0.8B suite passes (light allocator pressure, stable
+addresses) and why the death is run-dependent with exact zeros (recycled
+DRAM).
+
+NEXT (red-first artifact + fix):
+1. Minimal repro outside the engine: allocate A -> rms_norm(A) -> free A ->
+   allocate B (different address) -> rms_norm(B) -> expect zeros (red).
+2. Confirm against pinned tt-metal: check rms_norm's program-cache address
+   handling (whether the input runtime arg is updated on cache hit), and
+   check our call for anything pinning the input as a constant.
+3. Fix candidates: bypass/update the program cache for this op at changed
+   input addresses, or upstream the tt-metal fix. The engine-side workaround
+   (hold the input buffer stable) is not acceptable as the fix.
