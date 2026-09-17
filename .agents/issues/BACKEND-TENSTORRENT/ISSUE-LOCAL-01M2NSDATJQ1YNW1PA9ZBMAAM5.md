@@ -482,3 +482,23 @@ bisect the interleaved set. Alternatively instrument the pinned tt-metal's
 rms_norm compute program cache-hit path directly (print the input buffer
 address baked into the program vs the actual input address at each call)
 — one instrumented tt-metal build answers it definitively.
+
+## Cache-pressure repro v2 GREEN with cache ON (2026-09-16)
+
+Repro v2 (program cache enabled + 6 varied-shape zero/add ops per block, 32
+blocks) stays green. The remaining engine ingredients the repro lacks, in
+likelihood order:
+1. **Dtype mirror**: the engine calls rms_norm(f32 or mixed input,
+   **bf16 weight** via EnsureAffine1D's raw-bf16 cache) — v2 used f32/f32.
+   Mirror: bf16 weight, input = the ADD output (ttnn::add result, not a
+   from_vector upload).
+2. The engine's to_norm is a chained op output (add of two device tensors),
+   possibly with a slot-commit between the add and the norm.
+3. The full engine program mix (quant kernels' many programs) — grow the
+   interleaved set toward the real op census.
+
+Next: mirror (1)+(2) in repro v3 (bf16 weight via from_vector of bf16,
+to_norm = ttnn::add(dev_x, dev_r) with both device tensors). If v3 is still
+green, bisect toward the real mix or instrument the tt-metal rms_norm
+cache-hit path (baked input address vs actual) directly — that answers it
+in one instrumented run.
