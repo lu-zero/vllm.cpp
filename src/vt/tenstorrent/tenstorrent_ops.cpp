@@ -9838,7 +9838,13 @@ static size_t ShadowLogicalBytes(const ttnn::Tensor& t) {
   if (!tt_capture_active() && !host_free) return false;
   static bool once = [&] {
     // Enable program cache once on the first host-free path use — ttnn trace
-    // requires every captured op to be program-cache-warm.
+    // requires every captured op to be program-cache-warm. VT_TT_PROGRAM_
+    // CACHE=0 opts out (attribution lever for the rms_norm zero-output bug,
+    // ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5 — expect a large eager
+    // slowdown).
+    if (const char* pc = std::getenv("VT_TT_PROGRAM_CACHE");
+        pc != nullptr && std::string_view(pc) == "0")
+      return true;
     MeshDevice& device = SharedMeshDevice();
     device.enable_program_cache();
     return true;
@@ -9957,7 +9963,9 @@ bool MemsetDeviceIfCapture(void* p, int value, size_t bytes) {
       if (bytes > 0 && (bytes % 2) == 0) {
         uint32_t cols = static_cast<uint32_t>(bytes / 2);
         MeshDevice& md = SharedMeshDevice();
-        md.enable_program_cache();
+        { const char* pc = std::getenv("VT_TT_PROGRAM_CACHE");
+          if (!(pc != nullptr && std::string_view(pc) == "0"))
+            md.enable_program_cache(); }
         auto shape = ttnn::Shape({1u, cols});
         ZeroCachePrime(shape, ttnn::DataType::BFLOAT16,
                        ttnn::Layout::TILE, md);
@@ -9971,7 +9979,9 @@ bool MemsetDeviceIfCapture(void* p, int value, size_t bytes) {
       return false;
     }
     MeshDevice& device_fresh = SharedMeshDevice();
-    device_fresh.enable_program_cache();
+    { const char* pc = std::getenv("VT_TT_PROGRAM_CACHE");
+      if (!(pc != nullptr && std::string_view(pc) == "0"))
+        device_fresh.enable_program_cache(); }
     uint32_t cols = 0;
     {
       std::lock_guard<std::mutex> g(SlotMutex());

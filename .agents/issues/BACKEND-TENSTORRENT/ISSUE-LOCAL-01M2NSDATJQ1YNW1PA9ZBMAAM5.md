@@ -523,3 +523,22 @@ the engine is disabling the rms_norm program cache hit (device
 program_cache off for the norm, or a cache-avoiding rms_norm variant) —
 if the e2e then produces live tokens, the diagnosis is confirmed end to
 end before any tt-metal change.
+
+## Program cache exonerated (2026-09-16, VT_TT_PROGRAM_CACHE=0 lever)
+
+Added an env opt-out around all three enable_program_cache() sites. The e2e
+probe with the program cache DISABLED still produces all-zero ids. The
+program cache (enablement, eviction, address staleness on cache hits) is
+exonerated.
+
+The remaining suspects are narrowed to the rms_norm EXECUTION itself on this
+config/input: (a) the ttnn rms_norm compute at [17,5120] f32-in + bf16
+weight + gemma... — note the engine passes a BF16 weight where the pinned
+tt-metal rms_norm may expect the weight in the input's dtype or f32 (a
+dtype-agnostic kernel reading bf16 bytes as f32 would produce near-zero
+values: bf16 1.0 = 0x3F80 read as f32 is a denormal ~2.4e-41 ≈ 0!). CHECK
+THIS FIRST: whether the engine's rms_norm weight is passed as BF16 to a
+kernel whose weight dtype must match the input (f32) — a dtype mismatch
+reads near-zero garbage weights → exact-zero outputs. This fits EVERYTHING
+(live input, live host weight bytes, exact zeros, first calls fine if the
+first calls took a different warm path).
