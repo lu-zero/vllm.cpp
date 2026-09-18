@@ -6179,6 +6179,144 @@ TEST_CASE("kTENSTORRENT kMatmulBTQuant Q3_K serves the int8-dot arm on the DEFAU
           "with VT_TT_KEEPQUANT_INT8DOT unset");
 }
 
+// ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5: the 27B prefill shapes that broke the
+// int8-dot arm. Both encodings the 27B checkpoint stores on this route, the two
+// production tile widths (down-proj K=17408 N=5120, gate/up K=5120 N=17408) and
+// the M=256 prefill row count, one shape each per encoding, M=256 fixed. The
+// bar is the default-path Q3_K pin's: the device result is BIT-EXACT against
+// the CPU integer vec_dot oracle per (m, n), and the outputs are finite and
+// non-degenerate.
+TEST_CASE("kTENSTORRENT int8-dot 27B prefill shapes M=256 (ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5)") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  REQUIRE(vt::OpRegistered(vt::OpId::kMatmulBTQuant, vt::DeviceType::kTENSTORRENT));
+
+  Backend& backend = vt::GetBackend(vt::DeviceType::kTENSTORRENT);
+  Queue q = backend.CreateQueue();
+
+  auto quant_act = vt::cpu::BlockFromFloat(vt::DType::kQ8_K);
+  REQUIRE(quant_act != nullptr);
+
+  const int64_t M = 256;
+  struct Shape {
+    const char* label;
+    int64_t N;
+    int64_t nb;
+  };
+  const Shape shapes[] = {
+      {"down-proj K=17408", 5120, 68},
+      {"gate/up K=5120", 17408, 20},
+  };
+
+  for (const vt::DType enc : {vt::DType::kQ3_K, vt::DType::kIQ3_XXS}) {
+    const int64_t kBlockBytes = vt::BlockBytes(enc);
+    const int64_t kBlockElems = vt::BlockElems(enc);
+    if (enc == vt::DType::kQ3_K) {
+      REQUIRE(kBlockBytes == 110);
+      REQUIRE(kBlockElems == 256);
+    } else {
+      REQUIRE(kBlockBytes == 98);
+      REQUIRE(kBlockElems == 256);
+    }
+    auto vec_dot = vt::cpu::BlockVecDot(enc);
+    REQUIRE(vec_dot != nullptr);
+
+    // The default-path Q3_K test's packed generator and PRNG style, fixed seed.
+    std::mt19937 rng(20260921u);
+    auto rand_byte = [&rng]() { return static_cast<uint8_t>(rng() & 0xFF); };
+    auto rand_f16_signed = [&rng](float lo, float span) {
+      return (lo + span * static_cast<float>(rng() % 64) / 64.0f) *
+             ((rng() % 2) != 0 ? 1.0f : -1.0f);
+    };
+    auto fill_block = [&](uint8_t* blk) {
+      if (enc == vt::DType::kQ3_K) {
+        // block_q3_K = { u8 hmask[32]; u8 qs[64]; u8 scales[12]; f16 d } (110B).
+        for (int i = 0; i < 32; ++i) blk[0 + i] = rand_byte();   // hmask
+        for (int i = 0; i < 64; ++i) blk[32 + i] = rand_byte();  // qs
+        for (int i = 0; i < 12; ++i) blk[96 + i] = rand_byte();  // scales
+        const uint16_t d_bits = vt::F32ToF16(rand_f16_signed(0.05f, 0.35f));
+        std::memcpy(blk + 108, &d_bits, sizeof(d_bits));
+      } else {
+        // block_iq3_xxs = { f16 d; u8 qs[96] } (98 bytes).
+        const uint16_t d_bits = vt::F32ToF16(rand_f16_signed(0.05f, 0.35f));
+        std::memcpy(blk + 0, &d_bits, sizeof(d_bits));
+        for (int i = 0; i < 96; ++i) blk[2 + i] = rand_byte();  // qs
+      }
+    };
+
+    for (const Shape& sh : shapes) {
+      const int64_t N = sh.N;
+      const int64_t K = sh.nb * kBlockElems;
+      std::vector<uint8_t> packed(N * sh.nb * kBlockBytes);
+      for (int64_t b = 0; b < N * sh.nb; ++b)
+        fill_block(packed.data() + b * kBlockBytes);
+      std::vector<float> a_f32(M * K);
+      for (auto& v : a_f32) v = (static_cast<float>(rng() % 401) - 200.0f) / 100.0f;
+      std::vector<uint16_t> a_bf(M * K);
+      for (size_t i = 0; i < a_f32.size(); ++i) a_bf[i] = vt::F32ToBF16(a_f32[i]);
+      std::vector<float> a_q32(M * K);
+      for (size_t i = 0; i < a_f32.size(); ++i) a_q32[i] = vt::BF16ToF32(a_bf[i]);
+
+      // CPU integer oracle: quantize each activation row once, one nrc==1
+      // vec_dot per (m, n) pair.
+      const size_t y_row_bytes = vt::cpu::QuantActRowBytes(enc, K);
+      std::vector<uint8_t> y(M * y_row_bytes);
+      for (int64_t m = 0; m < M; ++m)
+        quant_act(a_q32.data() + m * K, y.data() + m * y_row_bytes, K);
+      std::vector<float> oracle(M * N);
+      for (int64_t m = 0; m < M; ++m)
+        for (int64_t n = 0; n < N; ++n)
+          vec_dot(static_cast<int>(K), &oracle[static_cast<size_t>(m) * N + n],
+                  /*bs=*/0, packed.data() + static_cast<size_t>(n) * sh.nb * kBlockBytes,
+                  /*bx=*/0, y.data() + m * y_row_bytes, /*by=*/0, /*nrc=*/1);
+
+      void* mem_a = backend.Alloc(a_bf.size() * sizeof(uint16_t));
+      void* mem_b = backend.Alloc(packed.size());
+      void* mem_o = backend.Alloc(std::max<size_t>(M * N, 16) * sizeof(float));
+      backend.Copy(q, mem_a, a_bf.data(), a_bf.size() * sizeof(uint16_t));
+      backend.Copy(q, mem_b, packed.data(), packed.size());
+      Tensor a_t = Tensor::Contiguous(mem_a, vt::DType::kBF16,
+                                      Device{vt::DeviceType::kTENSTORRENT, 0}, {M, K});
+      Tensor b_t = Tensor::Contiguous(mem_b, enc,
+                                      Device{vt::DeviceType::kTENSTORRENT, 0}, {N, K});
+      Tensor o_t = Tensor::Contiguous(mem_o, vt::DType::kF32,
+                                      Device{vt::DeviceType::kTENSTORRENT, 0}, {M, N});
+      vt::MatmulBT(q, o_t, a_t, b_t);
+      std::vector<float> out(std::max<size_t>(M * N, 16), 0.0f);
+      backend.Copy(q, out.data(), mem_o, out.size() * sizeof(float));
+      backend.Free(mem_a);
+      backend.Free(mem_b);
+      backend.Free(mem_o);
+
+      const char* enc_name = (enc == vt::DType::kQ3_K) ? "Q3_K" : "IQ3_XXS";
+      INFO(enc_name, " ", sh.label,
+           " N=", N, " nb=", sh.nb, " K=", K, " M=", M);
+      int64_t bad = 0;
+      int64_t zero = 0;
+      int64_t infs = 0;
+      for (int64_t i = 0; i < static_cast<int64_t>(M * N); ++i) {
+        const float dev = out[static_cast<size_t>(i)];
+        const float ref = oracle[static_cast<size_t>(i)];
+        if (std::memcmp(&dev, &ref, sizeof(float)) != 0) {
+          if (bad < 4)
+            MESSAGE("diff m=", i / N, " n=", i % N, " dev=", dev, " oracle=", ref);
+          ++bad;
+        }
+        if (dev == 0.0f) ++zero;
+        if (std::isinf(dev)) ++infs;
+      }
+      MESSAGE("enc=", enc_name, " ", sh.label, ": bad=", bad,
+              " zero=", zero, " infs=", infs, " / ", M * N);
+      CHECK(bad == 0);
+      CHECK(zero < (M * N) / 2);
+      CHECK(std::memcmp(out.data(), oracle.data(), M * N * sizeof(float)) == 0);
+    }
+  }
+  MESSAGE("27B prefill shapes M=256: both encodings bit-exact vs the CPU vec_dot");
+}
+
 // KEEPQUANT W3 (issue #2959): the decode set generalizes to the other GGUF
 // k-quants the q4km vehicle actually stores — Q5_K (attn_qkv/ssm_out), Q6_K
 // (token_embd, tied LM head, half of ffn_down/attn_v) and Q8_0 (ssm_alpha/
