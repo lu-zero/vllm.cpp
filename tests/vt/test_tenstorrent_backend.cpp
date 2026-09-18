@@ -2804,6 +2804,93 @@ TEST_CASE("kTENSTORRENT kGdnDecode matches the CPU f32 oracle (rank-1 step, both
     }
   }
 
+  // --- Large-dynamic-range state (fidelity arm): the real APEX prefill-final
+  // GDN state carries mixed O(10^2)/O(10^-3) elements, and on that
+  // distribution the composed rank-1 step's matmuls (run without an f32
+  // ComputeConfig) lose 10-30% per layer. The small-range arm above hides the
+  // defect inside its 2% elementwise envelope. Here the state draws
+  // ±10^uniform(-3,2) and — critically — v is built ON MANIFOLD: the delta
+  // rule's correction v - S@k is deliberately small in the real model (the
+  // state has already absorbed the stream), so the reduced-precision error in
+  // dot = S@k (relative ~2^-11 under tf32 MACs) stops being a rounding footnote
+  // and becomes a first-order error in v' = (v-dot)*beta, and hence in the
+  // committed state. The gate is a tight rel-RMS envelope on the state (0.2%;
+  // the f32-safe chunked adapter measures ~0.01% on identical inputs).
+  {
+    const int64_t B = 1, Hk = 2, Hv = 8;
+    std::vector<float> q, k, v, g, beta;
+    gen(75000u, B, Hk, Hv, q, k, v, g, beta);
+    std::vector<float> st(static_cast<size_t>(B * Hv * Dv * Dk));
+    {
+      uint32_t s = 76000u;
+      for (float& x : st) {
+        const float mag =
+            std::pow(10.0f, -3.0f + 5.0f * (GdnLcg(s) + 0.5f));  // 10^[-3, 2]
+        x = (GdnLcg(s) < 0.0f ? -1.0f : 1.0f) * mag;
+      }
+    }
+    // On-manifold v: v[b,h,r] = (S[b,h,r,:] @ k[b,0,:]) * (1 + eps), eps ~ 1%
+    // — the stream the state has already absorbed, plus a fresh-token
+    // correction. Host-side in double so only the DEVICE's dot precision is
+    // under test.
+    for (int64_t b = 0; b < B; ++b)
+      for (int64_t h = 0; h < Hv; ++h) {
+        uint32_t s = static_cast<uint32_t>(77000u + b * 17 + h);
+        for (int64_t r = 0; r < Dv; ++r) {
+          double dot = 0.0;
+          for (int64_t j = 0; j < Dk; ++j)
+            dot += static_cast<double>(
+                       st[static_cast<size_t>(((b * Hv) + h) * Dv * Dk + r * Dk + j)]) *
+                   static_cast<double>(k[static_cast<size_t>((b * Hk + h / (Hv / Hk)) * Dk + j)]);
+          v[static_cast<size_t>((b * Hv + h) * Dv + r)] =
+              static_cast<float>(dot) * (1.0f + 0.01f * (2.0f * GdnLcg(s)));
+        }
+      }
+    std::vector<float> st_cpu = st, st_tt = st;
+    std::vector<float> out_cpu(static_cast<size_t>(B * Hv * Dv), 0.0f),
+        out_tt(static_cast<size_t>(B * Hv * Dv), 0.0f);
+    step(cpu, DeviceType::kCPU, B, Hk, Hv, q, k, v, g, beta, st_cpu, nullptr, out_cpu);
+    step(*vt::TryGetBackend(DeviceType::kTENSTORRENT), DeviceType::kTENSTORRENT, B, Hk,
+         Hv, q, k, v, g, beta, st_tt, nullptr, out_tt);
+    auto rel_rms = [](const std::vector<float>& got, const std::vector<float>& ref) {
+      double num = 0.0, den = 0.0;
+      for (size_t i = 0; i < ref.size(); ++i) {
+        const double d = static_cast<double>(got[i]) - static_cast<double>(ref[i]);
+        num += d * d;
+        den += static_cast<double>(ref[i]) * static_cast<double>(ref[i]);
+      }
+      return std::sqrt(num) / std::sqrt(den + 1e-30);
+    };
+    const double st_rr = rel_rms(st_tt, st_cpu);
+    const double out_rr = rel_rms(out_tt, out_cpu);
+    // Diagnostics: where the reduced-precision error lands (small elements).
+    GdnDiffStats d_small = [&] {
+      GdnDiffStats d;
+      for (size_t i = 0; i < st_cpu.size(); ++i) {
+        if (std::fabs(st_cpu[i]) >= 0.1f) continue;
+        const float a = std::fabs(st_tt[i] - st_cpu[i]);
+        d.max_abs = std::max(d.max_abs, a);
+        if (std::fabs(st_cpu[i]) > 1e-5f)
+          d.max_rel = std::max(d.max_rel, a / std::fabs(st_cpu[i]));
+      }
+      return d;
+    }();
+    // Tight elementwise envelope on the state: 0.2% relative + a 1e-5 abs
+    // floor (f32 compute agrees with the scalar f32 oracle at ~1e-6 relative;
+    // the chunked f32-safe adapter measures ~0.01% on identical inputs). A
+    // whole-state rel-RMS gate would NOT catch the defect: the reduced-
+    // precision error lands in the small-magnitude elements (the correction
+    // signal), and the large elements dominate the RMS.
+    const float tol = 0.002f, abs_floor = 1e-5f;
+    GdnDiffStats ds = CompareVsOracle(st_tt, st_cpu, tol, abs_floor);
+    MESSAGE("kGdnDecode wide-range state: state rel_rms=", st_rr,
+            " out rel_rms=", out_rr, " max_rel(|ref|<0.1)=",
+            d_small.max_rel, " state tol=", tol, " abs_floor=", abs_floor,
+            " state max_abs=", ds.max_abs, " max_rel=", ds.max_rel);
+    CHECK(std::isfinite(ds.max_abs));
+    CHECK(ds.within);
+  }
+
   // --- Indexed form: state is the FULL cache; slot idx[bt] per token.
   {
     const int64_t B = 3, Hk = 2, Hv = 8, slots = 5;

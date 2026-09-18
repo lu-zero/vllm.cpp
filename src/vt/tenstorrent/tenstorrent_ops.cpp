@@ -7305,15 +7305,28 @@ DecodeStepResult GdnDecodeStepComposed(const ttnn::Tensor& S, const ttnn::Tensor
   // hit path doesn't call to_device.
   ttnn::Tensor decay = ttnn::exp(ttnn::reshape(dev_g, ttnn::Shape({bh, 1, 1})));
   ttnn::Tensor Sd = ttnn::multiply(S, decay);
-  ttnn::Tensor kcol = ttnn::reshape(dev_k, ttnn::Shape({bh, dk, 1}));
-  ttnn::Tensor dot = ttnn::matmul(Sd, kcol);
+  ttnn::Tensor krow = ttnn::reshape(dev_k, ttnn::Shape({bh, 1, dk}));
+  // f32-safe reductions: ttnn::matmul on this pin TRUNCATES f32 operands to
+  // tf32 in its MACs on Blackhole, and the ComputeConfig does NOT lift it —
+  // HiFi4 + fp32_dest_acc_en + math_approx off leaves the result bit-identical
+  // to the plain call (probed on the wide-range fidelity arm's distribution:
+  // matmul max_abs 0.53 vs a double reference, broadcast multiply + ttnn::sum
+  // 4e-5). The truncated dot error lands in the small-magnitude elements of
+  // the delta-rule correction (v - S@k) and compounds across the GDN layers —
+  // pinned by the wide-range arm in tests/vt/test_tenstorrent_backend.cpp.
+  // The eltwise multiply is exact f32 SFPU and ttnn::sum accumulates f32, so
+  // the three GEMMs route through broadcast multiply + sum (the outer product
+  // has no reduction at all — one exact product per element):
+  ttnn::Tensor dot = ttnn::sum(ttnn::multiply(Sd, krow), ttsl::SmallVector<int>{2},
+                               /*keep_dim=*/true);
   ttnn::Tensor vcol = ttnn::reshape(dev_v, ttnn::Shape({bh, dv, 1}));
   ttnn::Tensor beta = ttnn::reshape(dev_b, ttnn::Shape({bh, 1, 1}));
   ttnn::Tensor vp = ttnn::multiply(ttnn::subtract(vcol, dot), beta);
-  ttnn::Tensor krow = ttnn::reshape(dev_k, ttnn::Shape({bh, 1, dk}));
-  ttnn::Tensor S2 = ttnn::add(Sd, ttnn::matmul(vp, krow));
+  ttnn::Tensor S2 = ttnn::add(Sd, ttnn::multiply(vp, krow));
   ttnn::Tensor qs = ttnn::multiply(dev_q, scale);
-  ttnn::Tensor o = ttnn::matmul(S2, ttnn::reshape(qs, ttnn::Shape({bh, dk, 1})));
+  ttnn::Tensor o = ttnn::sum(
+      ttnn::multiply(S2, ttnn::reshape(qs, ttnn::Shape({bh, 1, dk}))),
+      ttsl::SmallVector<int>{2}, /*keep_dim=*/true);
   return {std::move(o), std::move(S2)};
 }
 
