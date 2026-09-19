@@ -141,6 +141,14 @@ const QuantTypeTraits* FindQuantTraits(DType dtype) {
           MakeTraits(DType::kIQ1_XXXS, DType::kQ8_K);
       return &t;
     }
+    // IQ1_M (1.75 bpw, ggml id 29) is what the 4 attention-gate tensors of
+    // the `ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF` IQ3_XXS artifact use. Same
+    // keep-quant contract as IQ1_S (ggml-cpu.c pairs it with Q8_K
+    // activations); the TT keep-quant wiring itself stays owed.
+    case DType::kIQ1_M: {
+      static const QuantTypeTraits t = MakeTraits(DType::kIQ1_M, DType::kQ8_K);
+      return &t;
+    }
     // ggml-cpu.c:277-282 — MXFP4 -> Q8_0 activations (NOT Q8_K: MXFP4's 32-elem
     // blocks pair with the legacy 32-elem Q8_0 encoding). The UD-IQ2_M ffn_down
     // routed-expert slabs; keep-quant, no from_float into it.

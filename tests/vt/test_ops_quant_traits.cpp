@@ -300,8 +300,10 @@ TEST_CASE("the decode-only class is Q8_K and IQ3_S: exactly one FILE type expand
   }
   // The sweep found something. A `BlockDTypeFromGgmlTypeId` that started
   // refusing every id would otherwise pass the loop above vacuously.
+  // IQ1_M (ggml id 29) joined with BOTH a decoder and a dot kernel, so the
+  // sweep count moved 17 -> 18 when it landed.
   CAPTURE(swept);
-  CHECK(swept == 17);
+  CHECK(swept == 18);
 
   // The decode-only FILE member, named and asserted in BOTH directions. Sizes
   // written out from llama.cpp @ b10451 ggml-common.h:413-422, NOT copied from

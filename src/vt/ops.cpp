@@ -77,6 +77,7 @@ ScalarTypeId ToScalarType(DType dtype) {
     case DType::kIQ2_S:
     case DType::kIQ1_S:
     case DType::kIQ1_XXXS:
+    case DType::kIQ1_M:
     case DType::kIQ4_NL:
     case DType::kMXFP4:
     case DType::kIQ2_XS:
