@@ -2782,12 +2782,37 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
           // is B*H padded to 32, D is already aligned), and the buffer
           // is large enough. The logical [1, B, H, D] reinterprets the
           // same flat data; sdpa_decode reads per-batch head slices.
+          //
+          // That trick is only legal at B == 1: its padded dim 1 (1) sits
+          // below the logical dim 1 (B) for any B > 1, and a padded shape
+          // that covers [1, B, pad32(H), D] exceeds the buffer —
+          // tt::tt_metal::view then fatals "MeshBuffer must be large
+          // enough to hold the tensor" on every EAGER batched decode step
+          // (concurrency >= 2; ISSUE-LOCAL-01M2X9XSS0N7WB5BTJ0326B892 —
+          // the fatal was silently caught and the op fell to the host Q
+          // path). No metadata view of the [rows, D] buffer represents
+          // the per-batch head tiling at B > 1, so materialize the
+          // correct [1, B, H, D] TILE tensor through the free reshape's
+          // device program. That program calls to_device — forbidden
+          // during trace capture — so a captured batched step takes the
+          // host Q path (the contract the old fatal enforced, loudly).
           const auto ps2d = dev_q_2d.padded_shape();
-          dev_q = ttnn::multiply(
-              ttnn::experimental::view(
-                  dev_q_2d, ttnn::Shape({1u, Bu, hu, du}),
-                  ttnn::Shape({1u, 1u, ps2d[0], ps2d[1]})),
-              1.0f);
+          (void)ps2d;
+          if (tt_capture_active() && Bu > 1)
+            throw std::runtime_error(
+                "tenstorrent PA: batched (B>1) Q 4D materialization is "
+                "not capture-safe; the host Q path must serve this step");
+          if (Bu == 1) {
+            dev_q = ttnn::multiply(
+                ttnn::experimental::view(
+                    dev_q_2d, ttnn::Shape({1u, Bu, hu, du}),
+                    ttnn::Shape({1u, 1u, ps2d[0], ps2d[1]})),
+                1.0f);
+          } else {
+            dev_q = ttnn::multiply(
+                ttnn::reshape(dev_q_2d, ttnn::Shape({1u, Bu, hu, du})),
+                1.0f);
+          }
         }
         // sdpa_decode requires bf16 (the host arm below builds bf16 too).
         // The rope shadow behind this view is f32 for heads outside every
@@ -3045,8 +3070,18 @@ bool TryPagedAttentionDeviceDecode(Tensor& out, const Tensor& query, const Tenso
     if (identity_order && total_q == num_reqs) {
       try {
         const uint32_t flat_cols = static_cast<uint32_t>(hq * d);
-        ttnn::Tensor flat = CaptureSafeReshape(dev_out,
-            ttnn::Shape({Bu, flat_cols}));
+        // B == 1: CaptureSafeReshape's metadata view (padded volume equals
+        // the buffer) keeps the captured decode replay capture-safe. B > 1:
+        // no metadata view of the [1, B, pad32(H), D] buffer can represent
+        // [B, H*D] — a covering padded shape exceeds the buffer, the
+        // "MeshBuffer must be large enough" fatal of
+        // ISSUE-LOCAL-01M2X9XSS0N7WB5BTJ0326B892 — so materialize the
+        // flattened tensor through the free reshape's device program; a
+        // captured batched step falls back to the host scatter below.
+        ttnn::Tensor flat =
+            tt_capture_active()
+                ? CaptureSafeReshape(dev_out, ttnn::Shape({Bu, flat_cols}))
+                : ttnn::reshape(dev_out, ttnn::Shape({Bu, flat_cols}));
         CommitDeviceLogical2D(out, std::move(flat), Bu, flat_cols);
         // Verify the committed output matches the PA output
         {

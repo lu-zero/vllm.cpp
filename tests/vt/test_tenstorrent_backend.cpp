@@ -41,6 +41,12 @@ using vt::DeviceType;
 using vt::Queue;
 using vt::Tensor;
 
+namespace vt::tenstorrent {
+// Tenstorrent residency probe (tenstorrent_internal.h); declared here to keep
+// the test TU free of internal includes.
+bool DeviceShadowExact(const Tensor& t, uint32_t rows, uint32_t cols);
+}  // namespace vt::tenstorrent
+
 namespace {
 
 bool TenstorrentPresent() { return vt::TryGetBackend(DeviceType::kTENSTORRENT) != nullptr; }
@@ -1510,6 +1516,141 @@ TEST_CASE("kTENSTORRENT kPagedAttention pure-decode matches host within BF16 env
     }
   }
   // Device BF16 SDPA or host path — generous envelope.
+  CHECK(max_abs < 0.5f);
+}
+
+// Batched (B=2) pure decode. RED-FIRST for
+// ISSUE-LOCAL-01M2X9XSS0N7WB5BTJ0326B892: the eager (uncaptured) device
+// decode path flattened the sdpa output [1,B,H,D] TILE to [B, H*D] through
+// the free ttnn::reshape, which derives padded = logical and computes a
+// physical shape up to 16x the buffer — "MeshBuffer must be large enough to
+// hold the tensor" on every concurrency>=2 decode step, silently caught, and
+// the op fell back to the host oracle. The B=1 case above never saw it: its
+// decode step replays a captured graph. The device-path requirement is the
+// red signal: the broken reshape forces CommitHost (no device shadow).
+TEST_CASE("kTENSTORRENT kPagedAttention pure-decode batched B=2 keeps the device path") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  REQUIRE(vt::OpRegistered(vt::OpId::kPagedAttention, DeviceType::kTENSTORRENT));
+
+  constexpr int64_t Hq = 4, Hkv = 2, D = 128, Bsz = 32, Seq = 64, B = 2;
+  constexpr int64_t NBlocksPerReq = Seq / Bsz;  // 2
+  constexpr int64_t NBlocks = B * NBlocksPerReq;
+  constexpr int64_t Page = Hkv * D;
+  const size_t cache_elems = static_cast<size_t>(NBlocks * Bsz * Page);
+  Backend& backend = vt::GetBackend(DeviceType::kTENSTORRENT);
+
+  std::vector<float> host_q(static_cast<size_t>(B * Hq * D));
+  std::vector<float> host_kc(cache_elems), host_vc(cache_elems);
+  for (size_t i = 0; i < host_q.size(); ++i)
+    host_q[i] = (static_cast<float>((i * 7) % 19) - 9.0f) * 0.05f;
+  for (size_t i = 0; i < host_kc.size(); ++i) {
+    host_kc[i] = (static_cast<float>((i * 5) % 15) - 7.0f) * 0.03f;
+    host_vc[i] = (static_cast<float>((i * 3) % 13) - 6.0f) * 0.02f;
+  }
+  // Request r owns physical blocks {2r, 2r+1} — distinct pages per request.
+  std::vector<int32_t> block_table(static_cast<size_t>(B * NBlocksPerReq));
+  for (int64_t r = 0; r < B; ++r)
+    for (int64_t c = 0; c < NBlocksPerReq; ++c)
+      block_table[static_cast<size_t>(r * NBlocksPerReq + c)] =
+          static_cast<int32_t>(r * NBlocksPerReq + c);
+  std::vector<int32_t> seq_lens{static_cast<int32_t>(Seq),
+                                static_cast<int32_t>(Seq)};
+  std::vector<int32_t> qsl{0, 1, 2};
+  std::vector<float> host_out(static_cast<size_t>(B * Hq * D), 0.0f);
+
+  void* mem_q = backend.Alloc(host_q.size() * sizeof(float));
+  void* mem_out = backend.Alloc(host_out.size() * sizeof(float));
+  void* mem_kc = backend.Alloc(host_kc.size() * sizeof(float));
+  void* mem_vc = backend.Alloc(host_vc.size() * sizeof(float));
+  void* mem_bt = backend.Alloc(block_table.size() * sizeof(int32_t));
+  void* mem_sl = backend.Alloc(seq_lens.size() * sizeof(int32_t));
+  void* mem_qsl = backend.Alloc(qsl.size() * sizeof(int32_t));
+  Queue q = backend.CreateQueue();
+  backend.Copy(q, mem_q, host_q.data(), host_q.size() * sizeof(float));
+  backend.Copy(q, mem_kc, host_kc.data(), host_kc.size() * sizeof(float));
+  backend.Copy(q, mem_vc, host_vc.data(), host_vc.size() * sizeof(float));
+  backend.Copy(q, mem_bt, block_table.data(), block_table.size() * sizeof(int32_t));
+  backend.Copy(q, mem_sl, seq_lens.data(), seq_lens.size() * sizeof(int32_t));
+  backend.Copy(q, mem_qsl, qsl.data(), qsl.size() * sizeof(int32_t));
+
+  Tensor tq = Tensor::Contiguous(mem_q, vt::DType::kF32,
+                                 Device{DeviceType::kTENSTORRENT, 0}, {B, Hq, D});
+  Tensor tout = Tensor::Contiguous(mem_out, vt::DType::kF32,
+                                   Device{DeviceType::kTENSTORRENT, 0}, {B, Hq, D});
+  Tensor tkc = Tensor::Contiguous(mem_kc, vt::DType::kF32,
+                                  Device{DeviceType::kTENSTORRENT, 0},
+                                  {NBlocks, Bsz, Hkv, D});
+  Tensor tvc = Tensor::Contiguous(mem_vc, vt::DType::kF32,
+                                  Device{DeviceType::kTENSTORRENT, 0},
+                                  {NBlocks, Bsz, Hkv, D});
+  Tensor tbt = Tensor::Contiguous(mem_bt, vt::DType::kI32,
+                                  Device{DeviceType::kTENSTORRENT, 0}, {B, NBlocksPerReq});
+  Tensor tsl =
+      Tensor::Contiguous(mem_sl, vt::DType::kI32, Device{DeviceType::kTENSTORRENT, 0}, {B});
+  Tensor tqsl = Tensor::Contiguous(mem_qsl, vt::DType::kI32,
+                                   Device{DeviceType::kTENSTORRENT, 0}, {B + 1});
+
+  vt::PagedAttentionArgs args;
+  args.scale = 1.0f / std::sqrt(static_cast<float>(D));
+  args.causal = true;
+  auto pa = reinterpret_cast<vt::PagedAttentionFn>(
+      vt::GetOp(vt::OpId::kPagedAttention, DeviceType::kTENSTORRENT));
+  pa(q, tout, tq, tkc, tvc, tbt, tsl, tqsl, args);
+
+  // THE RED SIGNAL: the device decode path commits its flattened [B, H*D]
+  // result into out's slot; the host fallback (the crash's silent landing
+  // zone) commits host bytes and drops the device shadow.
+  REQUIRE(vt::tenstorrent::DeviceShadowExact(tout, static_cast<uint32_t>(B),
+                                             static_cast<uint32_t>(Hq * D)));
+
+  backend.Copy(q, host_out.data(), mem_out, host_out.size() * sizeof(float));
+  backend.Free(mem_q);
+  backend.Free(mem_out);
+  backend.Free(mem_kc);
+  backend.Free(mem_vc);
+  backend.Free(mem_bt);
+  backend.Free(mem_sl);
+  backend.Free(mem_qsl);
+
+  // Host NHD oracle per request (same envelope as the B=1 case above).
+  const int64_t qpk = Hq / Hkv;
+  float max_abs = 0.0f;
+  for (int64_t r = 0; r < B; ++r) {
+    for (int64_t h = 0; h < Hq; ++h) {
+      const int64_t g = h / qpk;
+      const int64_t qoff = (r * Hq + h) * D;
+      float m = -std::numeric_limits<float>::infinity();
+      std::vector<float> scores(static_cast<size_t>(Seq));
+      for (int64_t j = 0; j < Seq; ++j) {
+        float dot = 0.0f;
+        const int64_t kbase =
+            (r * NBlocksPerReq + j / Bsz) * (Bsz * Page) + (j % Bsz) * Page + g * D;
+        for (int64_t e = 0; e < D; ++e)
+          dot += host_q[static_cast<size_t>(qoff + e)] *
+                 host_kc[static_cast<size_t>(kbase + e)];
+        scores[static_cast<size_t>(j)] = dot * args.scale;
+        m = std::max(m, scores[static_cast<size_t>(j)]);
+      }
+      float denom = 0.0f;
+      for (int64_t j = 0; j < Seq; ++j) {
+        scores[static_cast<size_t>(j)] = std::exp(scores[static_cast<size_t>(j)] - m);
+        denom += scores[static_cast<size_t>(j)];
+      }
+      const float inv = 1.0f / denom;
+      for (int64_t e = 0; e < D; ++e) {
+        float acc = 0.0f;
+        for (int64_t j = 0; j < Seq; ++j)
+          acc += scores[static_cast<size_t>(j)] * inv *
+                 host_vc[static_cast<size_t>(
+                     (r * NBlocksPerReq + j / Bsz) * (Bsz * Page) +
+                     (j % Bsz) * Page + g * D + e)];
+        max_abs = std::max(max_abs, std::fabs(host_out[static_cast<size_t>(qoff + e)] - acc));
+      }
+    }
+  }
   CHECK(max_abs < 0.5f);
 }
 
