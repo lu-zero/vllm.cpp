@@ -7611,8 +7611,19 @@ TEST_CASE("kTENSTORRENT E=1 grouped keep-quant capture survives the 50 MiB trace
                                     << " B of trace region against 52428800 B");
     CHECK(std::memcmp(dumps[static_cast<size_t>(pass)].data(), eager.data(),
                       eager.size() * sizeof(float)) == 0);
-  backend.Free(mem_i);
-}
+  }
+  CHECK(std::memcmp(dumps[1].data(), dumps[0].data(),
+                    eager.size() * sizeof(float)) == 0);
+  MESSAGE("capture x2 byte-identity: PASS; trace demand pass0=", demand[0],
+          " B pass1=", demand[1], " B (region 52428800 B)");
+  // Cleanup, once (the teardown double-free: an earlier revision indented
+  // backend.Free(mem_i) INSIDE this pass loop, freeing the same buffer twice
+  // per run before the trailing free — a plain triple free that glibc catches
+  // nondeterministically, depending on the heap layout the run happens to
+  // produce, which is why the abort looked flaky and "at tt-metal teardown").
+  backend.Free(mem_a);
+  backend.Free(mem_w);
+  backend.Free(mem_o);
   backend.Free(mem_i);
 }
 
