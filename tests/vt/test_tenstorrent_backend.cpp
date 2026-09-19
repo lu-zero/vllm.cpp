@@ -7302,6 +7302,129 @@ TEST_CASE("kTENSTORRENT kMatmulBTQuantGrouped matches the CPU grouped provider i
   }
 }
 
+// THE DECODE f32-EXACT LEG: M=1 (decode) wide-range Q4_K grouped GEMV vs a
+// double-accumulated f32-domain CPU oracle over the exact BlockToFloat
+// weight decode and the SAME bf16-widened activation the device stages. The
+// pre-fix decode branch typecast BOTH the decoded f32 weight tile and the
+// f32 activation to bf16 and ran a full bf16 TILE matmul; the oracle
+// accumulates in f64 over exact f32 weights. Wide-range activations
+// (state-like ±10^uniform(-3,2)) make that operand rounding first-order:
+// small-magnitude outputs — the elements the elementwise envelope exists to
+// catch — carry a relative error far past the 0.002 gate. Shape mirrors a
+// 27B decode slice (N=1024 per-group intermediate, K=5120 = Qwen3.8-27B
+// hidden_size).
+TEST_CASE("kTENSTORRENT kMatmulBTQuantGrouped decode (P=1) matches the CPU f32 quantized dot within the elementwise envelope") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  REQUIRE(vt::OpRegistered(vt::OpId::kMatmulBTQuantGrouped,
+                           vt::DeviceType::kTENSTORRENT));
+
+  Backend& backend = vt::GetBackend(vt::DeviceType::kTENSTORRENT);
+  Queue q = backend.CreateQueue();
+
+  const vt::DType enc = vt::DType::kQ4_K;
+  const int64_t kBlockBytes = vt::BlockBytes(enc);
+  const int64_t kBlockElems = vt::BlockElems(enc);
+  constexpr int64_t kE = 1, kN = 1024, kNb = 20;  // K = 5120, 27B hidden_size
+  const int64_t K = kNb * kBlockElems;
+
+  std::mt19937 rng(20260913u);
+  std::vector<uint8_t> packed(kE * kN * kNb * kBlockBytes);
+  for (size_t b = 0; b < packed.size() / kBlockBytes; ++b) {
+    uint8_t* blk = packed.data() + b * kBlockBytes;
+    const uint16_t d_bits =
+        vt::F32ToF16((0.05f + 0.35f * static_cast<float>(rng() % 64) / 64.0f) *
+                     ((rng() % 2) != 0 ? 1.0f : -1.0f));
+    const uint16_t dmin_bits =
+        vt::F32ToF16(0.005f + 0.02f * static_cast<float>(rng() % 32) / 32.0f);
+    std::memcpy(blk + 0, &d_bits, sizeof(d_bits));
+    std::memcpy(blk + 2, &dmin_bits, sizeof(dmin_bits));
+    for (int i = 4; i < kBlockBytes; ++i) blk[i] = static_cast<uint8_t>(rng() & 0xFF);
+  }
+  // Wide-range state-like activation: ±10^uniform(-3,2), one row (M=1).
+  std::vector<float> a_f32(K);
+  for (float& x : a_f32) {
+    const float mag = std::pow(10.0f, -3.0f + 5.0f * (static_cast<float>(rng() % 1024) / 1024.0f));
+    x = ((rng() % 2) != 0 ? -1.0f : 1.0f) * mag;
+  }
+  std::vector<uint16_t> a_bf(a_f32.size());
+  for (size_t i = 0; i < a_f32.size(); ++i) a_bf[i] = vt::F32ToBF16(a_f32[i]);
+  std::vector<float> a_q32(a_f32.size());
+  for (size_t i = 0; i < a_f32.size(); ++i) a_q32[i] = vt::BF16ToF32(a_bf[i]);
+  std::vector<int32_t> ids(1, 0);
+
+  // CPU f32-domain oracle: the exact weight decode the device must mirror
+  // (BlockToFloat, W3-pinned bit-exact) dotted against the SAME bf16-widened
+  // activation the device stages, accumulated in double. NOT the q8_K
+  // vec_dot: quantizing the activation to q8_K is the int8-dot arm's domain
+  // (bit-exact, pinned by its own sweep); this arm keeps activations
+  // unquantized, so the q8_K rounding (~0.4-2% elementwise) would swamp the
+  // gate. What the envelope proves is that no bf16 ROUNDING detour remains
+  // on the device dot.
+  auto block_to_float = vt::cpu::BlockToFloat(enc);
+  REQUIRE(block_to_float != nullptr);
+  std::vector<float> w_f32(kE * kN * K);
+  block_to_float(packed.data(), w_f32.data(), kE * kN * K);
+  std::vector<float> oracle(kN, 0.0f);
+  for (int64_t n = 0; n < kN; ++n) {
+    double acc = 0.0;
+    for (int64_t c = 0; c < K; ++c)
+      acc += static_cast<double>(w_f32[static_cast<size_t>(n) * K + c]) *
+             static_cast<double>(a_q32[static_cast<size_t>(c)]);
+    oracle[static_cast<size_t>(n)] = static_cast<float>(acc);
+  }
+
+  void* mem_a = backend.Alloc(a_bf.size() * sizeof(uint16_t));
+  void* mem_w = backend.Alloc(packed.size());
+  void* mem_o = backend.Alloc(kN * sizeof(float));
+  void* mem_i = backend.Alloc(ids.size() * sizeof(int32_t));
+  backend.Copy(q, mem_a, a_bf.data(), a_bf.size() * sizeof(uint16_t));
+  backend.Copy(q, mem_w, packed.data(), packed.size());
+  backend.Copy(q, mem_i, ids.data(), ids.size() * sizeof(int32_t));
+  Tensor a_t = Tensor::Contiguous(mem_a, vt::DType::kBF16,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {1, K});
+  Tensor w_t = Tensor::Contiguous(mem_w, enc,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {kE * kN, K});
+  Tensor o_t = Tensor::Contiguous(mem_o, vt::DType::kF32,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {1, kN});
+  Tensor i_t = Tensor::Contiguous(mem_i, vt::DType::kI32,
+                                  Device{vt::DeviceType::kTENSTORRENT, 0}, {1});
+  vt::MatmulBTQuantGrouped(q, o_t, a_t, w_t, i_t);
+  std::vector<float> out(kN, 0.0f);
+  backend.Copy(q, out.data(), mem_o, out.size() * sizeof(float));
+  backend.Free(mem_a);
+  backend.Free(mem_w);
+  backend.Free(mem_o);
+  backend.Free(mem_i);
+
+  // Elementwise envelope: 0.002 relative + a 1e-5 abs floor (the f32 device
+  // compute agrees with the f32 scalar oracle at ~1e-6 relative; a bf16
+  // operand rounding detour measures far past 0.002 on the small outputs).
+  const double rel_tol = 0.002, abs_floor = 1e-5;
+  double worst_rel = 0.0, worst_abs = 0.0;
+  int64_t bad = 0;
+  for (int64_t i = 0; i < kN; ++i) {
+    const double ref = static_cast<double>(oracle[static_cast<size_t>(i)]);
+    const double d = std::fabs(static_cast<double>(out[static_cast<size_t>(i)]) - ref);
+    const double lim = rel_tol * std::fabs(ref) + abs_floor;
+    worst_rel = std::max(worst_rel, d / (std::fabs(ref) + 1e-30));
+    worst_abs = std::max(worst_abs, d);
+    if (d > lim) {
+      if (bad < 4)
+        MESSAGE("diff n=", i, " dev=", out[static_cast<size_t>(i)],
+                " oracle=", oracle[static_cast<size_t>(i)], " |d|=", d,
+                " lim=", lim);
+      ++bad;
+    }
+  }
+  MESSAGE("grouped decode P=1 Q4_K N=", kN, " K=", K, ": worst_rel=", worst_rel,
+          " worst_abs=", worst_abs, " bad=", bad, "/", kN,
+          " (rel_tol=", rel_tol, " abs_floor=", abs_floor, ")");
+  CHECK_MESSAGE(bad == 0, "grouped decode drift past the elementwise envelope: ",
+                bad, " of ", kN, " outputs (worst_rel=", worst_rel, ")");
+}
 // ---------------------------------------------------------------------------
 // KEEPQUANT W4a wave-3a (#3030): the E=1 (dense) grouped arm becomes
 // capture-compatible and memory-bounded. Three legs:
@@ -7488,14 +7611,8 @@ TEST_CASE("kTENSTORRENT E=1 grouped keep-quant capture survives the 50 MiB trace
                                     << " B of trace region against 52428800 B");
     CHECK(std::memcmp(dumps[static_cast<size_t>(pass)].data(), eager.data(),
                       eager.size() * sizeof(float)) == 0);
-  }
-  CHECK(std::memcmp(dumps[1].data(), dumps[0].data(),
-                    eager.size() * sizeof(float)) == 0);
-  MESSAGE("capture x2 byte-identity: PASS; trace demand pass0=", demand[0],
-          " B pass1=", demand[1], " B (region 52428800 B)");
-  backend.Free(mem_a);
-  backend.Free(mem_w);
-  backend.Free(mem_o);
+  backend.Free(mem_i);
+}
   backend.Free(mem_i);
 }
 

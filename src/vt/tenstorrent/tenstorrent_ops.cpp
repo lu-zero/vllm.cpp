@@ -20,7 +20,6 @@
 
 namespace vt::tenstorrent {
 namespace {
-
 // ---- Paged KV device shadows (ttnn layout) ---------------------------------
 // Host keeps vLLM NHD [nb, block, nkv, d] (LMCache/plane). Device PA needs
 // ttnn order [nb, nkv, block, d] TILE DRAM.
@@ -2126,6 +2125,17 @@ void MatmulBTQuantGroupedKernel(Queue&, Tensor& out, const Tensor& act,
     if (tile_cap)
       chunk = std::min(chunk, std::max<int64_t>(plane_bytes / (K * 16), 1));
     AllocTraceSnapshot(device, "KQuantGrouped/chunk-loop/pre");
+    // Decode (P == 1) keeps the decoded f32 weight tile and widens the
+    // staged activation to f32; the chunk dot runs in exact f32 SFPU (see
+    // below). Prefill (P > 1) keeps the bf16 activation tile for the bf16
+    // TILE matmul. The widen is a device-side typecast of the ALREADY
+    // STAGED activation shadow — never a fresh host upload, which would be
+    // a write inside trace capture — so captured replays see the identical
+    // stream, and the bf16-staged values widen exactly to f32.
+    ttnn::Tensor dev_a_f32exact;
+    const bool f32exact = P == 1;
+    if (f32exact)
+      dev_a_f32exact = ttnn::typecast(dev_a, ttnn::DataType::FLOAT32);
     std::vector<ttnn::Tensor> partials;
     partials.reserve(static_cast<size_t>((N + chunk - 1) / chunk));
     for (int64_t c0 = 0; c0 < N; c0 += chunk) {
@@ -2146,18 +2156,51 @@ void MatmulBTQuantGroupedKernel(Queue&, Tensor& out, const Tensor& act,
       // (the full-suite regression: a dead shadow came back as an
       // unallocated tensor inside slice). Leave sl to the shadow there.
       const bool sl_alias = c0 == 0 && c1 == N;
-      ttnn::Tensor wbf = ttnn::typecast(wf, ttnn::DataType::BFLOAT16);
-      ttnn::Tensor wb = ttnn::to_layout(wbf, ttnn::Layout::TILE);
-      if (sl_alias)
-        TTReclaimPlanes(device, {&wf, &wbf});
-      else
-        TTReclaimPlanes(device, {&sl, &wf, &wbf});
-      ttnn::Tensor part = ttnn::operations::matmul::matmul(
-          dev_a, wb, /*transpose_a=*/false, /*transpose_b=*/true);
-      TTReclaimPlanes(device, {&wb});
+      // Exact f32 dot for the single-activation-row (decode) case. The
+      // bf16 arm rounds BOTH the decoded weight tile and the f32 activation
+      // to bf16 before ttnn::matmul — a full bf16 GEMM where the CPU oracle
+      // computes the quantized dot in f32 — and that rounding is the dominant
+      // remaining decode drift (measured: grouped-arm rel_rms 2-12% vs
+      // int8dot 0.3%; ffn_down max_abs 5.33; lm_head logit max_abs 0.375
+      // against a 0.25-0.34 nat oracle tie gap).
+      ttnn::Tensor part;
+      ttnn::Tensor prod;
+      ttnn::Tensor wft;
+      if (f32exact) {
+        wft = ttnn::to_layout(wf, ttnn::Layout::TILE);
+        if (sl_alias)
+          TTReclaimPlanes(device, {&wf});
+        else
+          TTReclaimPlanes(device, {&sl, &wf});
+        // Exact f32 dot: 2D broadcast multiply (rows,K)x(1,K) — exact f32
+        // SFPU — then an f32 ttnn::sum over the K dim (the accumulation the
+        // CPU oracle computes), rotated back to [1, rows]. prod (the one
+        // large plane in this chain) is reclaimed at the loop bottom; part,
+        // the [rows,1] permute column, may alias prod's buffer and is left
+        // to the refcounted free (it is 4 bytes per row — an orphan is
+        // bounded), so a forced double free of the shared storage cannot
+        // happen.
+        prod = ttnn::multiply(wft, dev_a_f32exact);
+        part = ttnn::permute(
+            ttnn::sum(prod, ttsl::SmallVector<int>{1}, /*keep_dim=*/true),
+            ttsl::SmallVector<int64_t>{1, 0});  // [rows,1] -> [1,rows]
+      } else {
+        ttnn::Tensor wbf = ttnn::typecast(wf, ttnn::DataType::BFLOAT16);
+        ttnn::Tensor wb = ttnn::to_layout(wbf, ttnn::Layout::TILE);
+        if (sl_alias)
+          TTReclaimPlanes(device, {&wf, &wbf});
+        else
+          TTReclaimPlanes(device, {&sl, &wf, &wbf});
+        part = ttnn::operations::matmul::matmul(
+            dev_a, wb, /*transpose_a=*/false, /*transpose_b=*/true);
+        TTReclaimPlanes(device, {&wb});
+      }
       ttnn::Tensor partf = ttnn::typecast(part, ttnn::DataType::FLOAT32);
       ttnn::Tensor partl = ttnn::to_layout(partf, ttnn::Layout::ROW_MAJOR);
-      TTReclaimPlanes(device, {&part, &partf});
+      if (f32exact)
+        TTReclaimPlanes(device, {&wft, &prod});
+      else
+        TTReclaimPlanes(device, {&part, &partf});
       partials.push_back(std::move(partl));
     }
     AllocTraceSnapshot(device, "KQuantGrouped/chunk-loop/post");
