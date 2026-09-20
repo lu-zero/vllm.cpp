@@ -15,6 +15,7 @@
 //   vec_dot_q8_0_q8_0      cpu_quant_dot.cpp:~170 (quants.c:400)
 //   vec_dot_iq3_xxs_q8_K   cpu_quant_dot.cpp:622 (quants.c:999)
 //   vec_dot_iq2_xxs_q8_K   cpu_quant_dot.cpp:577 (quants.c:855)
+//   vec_dot_iq2_xs_q8_K    cpu_quant_dot.cpp:938 (quants.c:948)
 //   vec_dot_iq2_s_q8_K     cpu_quant_dot.cpp:899 (quants.c:947)
 //   vec_dot_iq3_s_q8_K     cpu_quant_dot.cpp (quants.c:1094)
 //   vec_dot_iq4_xs_q8_K    cpu_quant_dot.cpp:1000 (quants.c:1283)
@@ -687,6 +688,63 @@ static inline float kq_vec_dot_iq2_xxs_q8_K(const uint8_t* xblock,
       q8 += 8;
     }
     bsum += sumi * ls;
+  }
+  sumf = sumf + d * static_cast<float>(bsum);
+  }
+  return 0.125f * sumf;
+}
+
+// quants.c:948 — ggml_vec_dot_iq2_xs_q8_K_generic (tenstorrent-gsq-keepquant
+// wave 3). Codebook dot: the block is { f16 d; u16 qs[32]; u8 scales[8] }
+// (74 B) staged as 32 words (the 128-B word grid, the IQ2_XXS footprint). Each
+// of the four q2 u16 per sub-block carries BOTH the 9-bit kq_iq2xs_grid index
+// (`& 511`) and the 7-bit kKsignsIq2xs selector (`>> 9`) — one u16 doing both
+// jobs, the third distinct sign convention in the IQ2 family. The two halves
+// of a sub-block take DIFFERENT scales (ls1 from the low nibble of
+// scales[ib32], ls2 from the high one, each read as 2*n + 1), so upstream
+// folds sumi into bsum TWICE per sub-block — that split is the accumulation
+// order and is kept verbatim. Same int32 lane bound (|q8|<=128, grid<=127,
+// 8 lanes => <= 130048 per sumi, <= 2^24 per bsum term), the 0.125f fold LAST
+// (the grid's fixed 8x magnitude; exact power of two). No divisions; the
+// decoder reads only the true 74 block bytes — the staged pad (bytes
+// 74..127) is never touched.
+static inline float kq_vec_dot_iq2_xs_q8_K(const uint8_t* xblock,
+                                           uint32_t block_word_bytes,
+                                           const uint8_t* yrow, uint32_t nb) {
+  float sumf = 0.0f;
+  for (uint32_t i = 0; i < nb; ++i, xblock += block_word_bytes, yrow += 292) {
+  const float yd = __builtin_bit_cast(float, kq_load32(yrow));
+  const float d = kq_f16_bits_to_f32(kq_load16(xblock)) * yd;
+  const uint8_t* q2 = xblock + 2;
+  const uint8_t* sc = xblock + 2 + 64;
+  const int8_t* q8 = reinterpret_cast<const int8_t*>(yrow + 4);
+  int32_t bsum = 0;
+  for (uint32_t ib32 = 0; ib32 < 8; ++ib32) {
+    const int32_t ls1 = 2 * (sc[ib32] & 0xf) + 1;
+    const int32_t ls2 = 2 * (sc[ib32] >> 4) + 1;
+    int32_t sumi = 0;
+    for (uint32_t l = 0; l < 2; ++l) {
+      const uint16_t q = kq_load16(q2 + 2 * l);
+      const uint8_t* grid =
+          reinterpret_cast<const uint8_t*>(&kq_iq2xs_grid[q & 511]);
+      const uint8_t signs = kKsignsIq2xs[q >> 9];
+      for (uint32_t j = 0; j < 8; ++j)
+        sumi += grid[j] * q8[j] * ((signs & kKmaskIq2xs[j]) ? -1 : 1);
+      q8 += 8;
+    }
+    bsum += sumi * ls1;
+    sumi = 0;
+    for (uint32_t l = 2; l < 4; ++l) {
+      const uint16_t q = kq_load16(q2 + 2 * l);
+      const uint8_t* grid =
+          reinterpret_cast<const uint8_t*>(&kq_iq2xs_grid[q & 511]);
+      const uint8_t signs = kKsignsIq2xs[q >> 9];
+      for (uint32_t j = 0; j < 8; ++j)
+        sumi += grid[j] * q8[j] * ((signs & kKmaskIq2xs[j]) ? -1 : 1);
+      q8 += 8;
+    }
+    bsum += sumi * ls2;
+    q2 += 8;
   }
   sumf = sumf + d * static_cast<float>(bsum);
   }

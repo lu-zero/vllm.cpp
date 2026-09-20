@@ -22,16 +22,18 @@ pass describes **wave W3 of QUANT-GGUF-IQ-TENSTORRENT and is stale**. The
 contradiction resolves against three real admission points:
 
 1. **Device capability set** —
-   `src/vllm/model_executor/model_loader/gguf_keep_quant.cpp:175-225`
+   `src/vllm/model_executor/model_loader/gguf_keep_quant.cpp:175-235`
    (`DeviceKeepQuantSupported`, `case kTENSTORRENT`). The set today is
    `{Q4_K, Q5_K, Q6_K, Q8_0}` (the W3 bit-exact decode set) **plus**
    `{IQ3_XXS, IQ2_XXS, IQ2_S, Q3_K}` — waves 1-3 of
-   QUANT-GGUF-IQ-TENSTORRENT widened it (per-wave comments at :188-221).
-   `tests/vllm/test_gguf_keep_quant.cpp` pins the set (:356-374); widening the
+   QUANT-GGUF-IQ-TENSTORRENT widened it — **plus** `{IQ3_S, IQ4_XS, IQ2_XS}`
+   from waves 1-3 of this row (per-wave comments at :188-228).
+   `tests/vllm/test_gguf_keep_quant.cpp` pins the set (:356-382); widening the
    predicate without widening the kernel reds it.
 2. **Device dispatch** —
-   `src/vt/tenstorrent/tenstorrent_keepquant.cpp:923-926`: `IQ3_XXS`,
-   `IQ2_XXS`, `IQ2_S`, `Q3_K`, `IQ3_S`, `IQ4_XS` route to `MatmulBTQuantInt8DotKernel`
+   `src/vt/tenstorrent/tenstorrent_keepquant.cpp:933-939`: `IQ3_XXS`,
+   `IQ2_XXS`, `IQ2_S`, `Q3_K`, `IQ3_S`, `IQ4_XS`, `IQ2_XS` route to
+   `MatmulBTQuantInt8DotKernel`
    **unconditionally (DEFAULT path, no env)**; `Q4_K/Q5_K/Q6_K/Q8_0` route
    to int8-dot only under `VT_TT_KEEPQUANT_INT8DOT` (opt-in since W4b,
    #3031), otherwise fall through to the W4a E=1 grouped arm
@@ -39,9 +41,10 @@ contradiction resolves against three real admission points:
    `{Q4_K, Q5_K, Q6_K, Q8_0}`).
 3. **On-core decodes** — `src/vt/tenstorrent/kernels/keepquant_kernel_code.h`:
    one ported `kq_vec_dot_*` per encoding
-   (`iq3_xxs` :487, `iq3_s` :539, `iq4_xs` :616, `iq2_xxs` :663, `iq2_s` :704,
-   `q3_k` :757, plus the four k-quants), selected by `enc_sel` 4/5/6/7/8/9 at
-   `tenstorrent_keepquant.cpp:1806-1816`. This is why APEX-I-Nano runs
+   (`iq3_xxs` :488, `iq3_s` :540, `iq4_xs` :617, `iq2_xxs` :664, `iq2_xs` :711,
+   `iq2_s` :762, `q3_k` :815, plus the four k-quants), selected by
+   `enc_sel` 4/5/6/7/8/9/10 at `tenstorrent_keepquant.cpp:1819-1831`. This is
+   why APEX-I-Nano runs
    IQ3_XXS/IQ2_S/IQ2_XXS/Q3_K on TT: they are admitted, dispatched, and
    decoded — the earlier "no IQ types admitted" pass read only the W3
    return list.

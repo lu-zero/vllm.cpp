@@ -375,6 +375,11 @@ TEST_CASE("keep-quant routing on TENSTORRENT admits exactly the registered decod
   // kq_vec_dot_iq4_xs_q8_K — this check flipped FROM kExpandBf16 and redded
   // before the predicate widened.
   CHECK(route(kIQ4_XS) == GgufResidency::kKeepQuant);
+  // tenstorrent-gsq-keepquant wave 3: IQ2_XS (enc_sel 10, 32 census tensors,
+  // ffn) joins the int8-dot set in the same change as its kernel
+  // kq_vec_dot_iq2_xs_q8_K — this check flipped FROM kExpandBf16 and redded
+  // before the predicate widened.
+  CHECK(route(kIQ2_XS) == GgufResidency::kKeepQuant);
   // The loader boolean flips only when the op is registered, so a host with a
   // P150 resolves keep-quant on by default; without the card the default arm
   // stays false and the load is unchanged.
