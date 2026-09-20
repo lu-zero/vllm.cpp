@@ -27,12 +27,13 @@ contradiction resolves against three real admission points:
    `{Q4_K, Q5_K, Q6_K, Q8_0}` (the W3 bit-exact decode set) **plus**
    `{IQ3_XXS, IQ2_XXS, IQ2_S, Q3_K}` — waves 1-3 of
    QUANT-GGUF-IQ-TENSTORRENT widened it — **plus** `{IQ3_S, IQ4_XS, IQ2_XS}`
-   from waves 1-3 of this row (per-wave comments at :188-228).
-   `tests/vllm/test_gguf_keep_quant.cpp` pins the set (:356-382); widening the
+   from waves 1-3 of this row (per-wave comments at :188-228) — **plus**
+   `{Q2_K}` from wave 4 (per-wave comment at :230-236).
+   `tests/vllm/test_gguf_keep_quant.cpp` pins the set (:356-394); widening the
    predicate without widening the kernel reds it.
 2. **Device dispatch** —
-   `src/vt/tenstorrent/tenstorrent_keepquant.cpp:933-939`: `IQ3_XXS`,
-   `IQ2_XXS`, `IQ2_S`, `Q3_K`, `IQ3_S`, `IQ4_XS`, `IQ2_XS` route to
+   `src/vt/tenstorrent/tenstorrent_keepquant.cpp:940-953`: `IQ3_XXS`,
+   `IQ2_XXS`, `IQ2_S`, `Q3_K`, `IQ3_S`, `IQ4_XS`, `IQ2_XS`, `Q2_K` route to
    `MatmulBTQuantInt8DotKernel`
    **unconditionally (DEFAULT path, no env)**; `Q4_K/Q5_K/Q6_K/Q8_0` route
    to int8-dot only under `VT_TT_KEEPQUANT_INT8DOT` (opt-in since W4b,

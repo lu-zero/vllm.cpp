@@ -359,7 +359,11 @@ TEST_CASE("keep-quant routing on TENSTORRENT admits exactly the registered decod
   CHECK(route(kIQ2_XXS) == GgufResidency::kKeepQuant);
   CHECK(route(kIQ2_S) == GgufResidency::kKeepQuant);
   CHECK(route(kQ4_0) == GgufResidency::kExpandBf16);  // no TT arm at all
-  CHECK(route(kQ2_K) == GgufResidency::kExpandBf16);
+  // tenstorrent-gsq-keepquant wave 4: this pin — "kQ2_K stays owed" — flips
+  // to kKeepQuant in the same change as the kq_vec_dot_q2_k_q8_K kernel
+  // (enc_sel 11); it redded against the widened predicate before this line
+  // moved.
+  CHECK(route(kQ2_K) == GgufResidency::kKeepQuant);
   // QUANT-GGUF-IQ-TENSTORRENT wave 3: Q3_K (enc_sel 7, the min-term
   // K-quant) joins the int8-dot set in the same change as its kernel
   // kq_vec_dot_q3_k_q8_K — this check flipped FROM kExpandBf16 and redded
@@ -380,6 +384,11 @@ TEST_CASE("keep-quant routing on TENSTORRENT admits exactly the registered decod
   // kq_vec_dot_iq2_xs_q8_K — this check flipped FROM kExpandBf16 and redded
   // before the predicate widened.
   CHECK(route(kIQ2_XS) == GgufResidency::kKeepQuant);
+  // tenstorrent-gsq-keepquant wave 4: Q2_K (enc_sel 11, 28 census tensors,
+  // ffn + embd) joins the int8-dot set in the same change as its kernel
+  // kq_vec_dot_q2_k_q8_K — this check flipped FROM kExpandBf16 and redded
+  // before the predicate widened.
+  CHECK(route(kQ2_K) == GgufResidency::kKeepQuant);
   // The loader boolean flips only when the op is registered, so a host with a
   // P150 resolves keep-quant on by default; without the card the default arm
   // stays false and the load is unchanged.

@@ -751,6 +751,66 @@ static inline float kq_vec_dot_iq2_xs_q8_K(const uint8_t* xblock,
   return 0.125f * sumf;
 }
 
+// quants.c:565 — ggml_vec_dot_q2_K_q8_K_generic (the dequant twin
+// dequantize_row_q2_K is ggml-quants.c:961). The wave-4 k-quant: block_q2_K =
+// { u8 scales[16]; u8 qs[64]; f16 d; f16 dmin } = 84 B (ggml-common.h:301-308;
+// the in-tree BlockQ2_K mirrors it with the deltas TRAILING the block, unlike
+// q4_K/q5_K). scales[j] carries the 4-bit sub-scale d in the LOW nibble and
+// the 4-bit sub-min in the HIGH nibble; each 2-bit qs lane selects one of four
+// shifts (shift = 2*j/16 within the 128 loop). The accumulation is INTEGER
+// end to end per block: summs sums the activation bsums against the min
+// nibbles, isum the (q2&3)*q8 products against the sub-scale nibbles — both
+// stay far under 2^24 (isum <= 16*15*6144, summs <= 16*2032*15), so any int
+// grouping is exact — then ONE f32 mul-sub per block, sumf += dall*isum -
+// dmin*summs, exactly the CPU oracle's association (cpu_quant_dot.cpp:523).
+// No tables, no divisions; the decoder reads only the true 84 block bytes —
+// the staged pad (bytes 84..127) is never touched.
+static inline float kq_vec_dot_q2_k_q8_K(const uint8_t* xblock,
+                                         uint32_t block_word_bytes,
+                                         const uint8_t* yrow, uint32_t nb) {
+  float sumf = 0.0f;
+  for (uint32_t i = 0; i < nb; ++i, xblock += block_word_bytes, yrow += 292) {
+    const float yd = __builtin_bit_cast(float, kq_load32(yrow));
+    const uint8_t* sc = xblock;
+    const uint8_t* q2 = xblock + 16;
+    const int8_t* q8 = reinterpret_cast<const int8_t*>(yrow + 4);
+    int32_t summs = 0;
+    for (uint32_t j = 0; j < 16; ++j) {
+      int16_t bs;
+      __builtin_memcpy(&bs, yrow + 260 + j * 2, 2);
+      summs += static_cast<int32_t>(bs) * static_cast<int32_t>(sc[j] >> 4);
+    }
+    const float dall = yd * kq_f16_bits_to_f32(kq_load16(xblock + 80));
+    const float dmin = yd * kq_f16_bits_to_f32(kq_load16(xblock + 82));
+    int32_t isum = 0;
+    uint32_t is = 0;
+    for (uint32_t k = 0; k < 2; ++k) {  // QK_K/128
+      uint32_t shift = 0;
+      for (uint32_t j = 0; j < 4; ++j) {
+        int32_t d = static_cast<int32_t>(sc[is++] & 0xF);
+        int32_t isuml = 0;
+        for (uint32_t l = 0; l < 16; ++l)
+          isuml += static_cast<int32_t>(q8[l]) *
+                   static_cast<int32_t>((q2[l] >> shift) & 3);
+        isum += d * isuml;
+        d = static_cast<int32_t>(sc[is++] & 0xF);
+        isuml = 0;
+        for (uint32_t l = 16; l < 32; ++l)
+          isuml += static_cast<int32_t>(q8[l]) *
+                   static_cast<int32_t>((q2[l] >> shift) & 3);
+        isum += d * isuml;
+        shift += 2;
+        q8 += 32;
+      }
+      q2 += 32;
+    }
+    const float prod = dall * static_cast<float>(isum) -
+                       dmin * static_cast<float>(summs);
+    sumf = sumf + prod;
+  }
+  return sumf;
+}
+
 // quants.c:947 — ggml_vec_dot_iq2_s_q8_K_generic. Codebook dot: the block is
 // { f16 d; u8 qs[64]; u8 qh[8]; u8 scales[8] } (82 B). Per 32-sub-block the
 // 8-bit qs index widens by 2 bits spliced from qh[ib32]

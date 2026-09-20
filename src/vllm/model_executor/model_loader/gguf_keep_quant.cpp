@@ -192,7 +192,8 @@ bool DeviceKeepQuantSupported(vt::DType dt, vt::DeviceType dev) {
       // (the q4km artifact: token_embd Q6_K, attn_qkv/ssm_out Q5_K,
       // ssm_alpha/ssm_beta Q8_0) is what pulled Q5_K/Q6_K/Q8_0 from W4 into
       // W3 — kernels and predicate widened IN THE SAME CHANGE. kQ4_0 has no
-      // TT arm at all and kQ2_K stays owed (Q3_K joined in
+      // TT arm at all; kQ2_K stayed owed until tenstorrent-gsq-keepquant
+      // wave 4 admitted it (enc_sel 11; Q3_K joined in
       // QUANT-GGUF-IQ-TENSTORRENT wave 3); admitting an encoding
       // without its kernel throws at first forward with the model resident,
       // the exact failure this predicate exists to prevent.
@@ -238,12 +239,13 @@ bool DeviceKeepQuantSupported(vt::DType dt, vt::DeviceType dev) {
       // IQ2_XXS/IQ2_S footprint), dispatched on the DEFAULT path. The
       // GSQ-RCO Qwen3.8-27B vehicle's 32 IQ2_XS tensors (ffn) are the
       // artifact this admits.
+      // tenstorrent-gsq-keepquant wave 4: kQ2_K (enc_sel 11) joins the set
       return dt == vt::DType::kQ4_K || dt == vt::DType::kQ5_K ||
              dt == vt::DType::kQ6_K || dt == vt::DType::kQ8_0 ||
              dt == vt::DType::kIQ3_XXS || dt == vt::DType::kIQ2_XXS ||
              dt == vt::DType::kIQ2_S || dt == vt::DType::kQ3_K ||
              dt == vt::DType::kIQ3_S || dt == vt::DType::kIQ4_XS ||
-             dt == vt::DType::kIQ2_XS;
+             dt == vt::DType::kIQ2_XS || dt == vt::DType::kQ2_K;
     default:
       // CUDA falls back to the CPU kernel for anything it lacks
       // (cuda_quant_dot.cu:1841-1846); the CPU list IS the CPU capability.
