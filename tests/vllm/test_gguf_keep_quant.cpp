@@ -339,7 +339,9 @@ TEST_CASE("keep-quant routing on TENSTORRENT admits exactly the registered decod
   // its kernel; wave 2 adds kIQ2_XXS/kIQ2_S (enc_sel 5/6); wave 3 adds kQ3_K
   // (enc_sel 7). Admitting an encoding
   // without its kernel throws at first forward with the model resident, the
-  // exact failure this predicate exists to prevent.
+  // exact failure this predicate exists to prevent. The
+  // tenstorrent-gsq-keepquant row's wave 1 adds kIQ3_S (enc_sel 8) the same
+  // way.
   const std::vector<int64_t> shape = {4, 256};  // [out, in]: whole blocks
   const auto route = [&](uint32_t ty) {
     return RouteGgufTensor(/*keep_quant=*/true, /*keep_f16=*/true,
@@ -363,6 +365,11 @@ TEST_CASE("keep-quant routing on TENSTORRENT admits exactly the registered decod
   // kq_vec_dot_q3_k_q8_K — this check flipped FROM kExpandBf16 and redded
   // before the predicate widened.
   CHECK(route(kQ3_K) == GgufResidency::kKeepQuant);
+  // tenstorrent-gsq-keepquant wave 1: IQ3_S (enc_sel 8, the largest census
+  // gap at 97 of the 198 missing tensors) joins the int8-dot set in the
+  // same change as its kernel kq_vec_dot_iq3_s_q8_K — this check flipped
+  // FROM kExpandBf16 and redded before the predicate widened.
+  CHECK(route(kIQ3_S) == GgufResidency::kKeepQuant);
   // The loader boolean flips only when the op is registered, so a host with a
   // P150 resolves keep-quant on by default; without the card the default arm
   // stays false and the load is unchanged.

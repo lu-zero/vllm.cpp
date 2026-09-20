@@ -206,10 +206,17 @@ bool DeviceKeepQuantSupported(vt::DType dt, vt::DeviceType dev) {
       // = 110 B zero-padded to 128 B, dispatched on the DEFAULT path. The
       // vehicle's 78 Q3_K tensors are the artifact this admits, and no
       // named missing arm remains in the census.
+      // tenstorrent-gsq-keepquant wave 1: kIQ3_S (enc_sel 8) joins the set —
+      // its on-core decode is kq_vec_dot_iq3_s_q8_K
+      // (keepquant_kernel_code.h), staged as the same resident i32 word
+      // shadow (32 words = 110 B zero-padded to 128 B), dispatched on the
+      // DEFAULT path. The GSQ-RCO Qwen3.8-27B vehicle's 97 IQ3_S tensors
+      // (ffn + attn, the largest census gap) are the artifact this admits.
       return dt == vt::DType::kQ4_K || dt == vt::DType::kQ5_K ||
              dt == vt::DType::kQ6_K || dt == vt::DType::kQ8_0 ||
              dt == vt::DType::kIQ3_XXS || dt == vt::DType::kIQ2_XXS ||
-             dt == vt::DType::kIQ2_S || dt == vt::DType::kQ3_K;
+             dt == vt::DType::kIQ2_S || dt == vt::DType::kQ3_K ||
+             dt == vt::DType::kIQ3_S;
     default:
       // CUDA falls back to the CPU kernel for anything it lacks
       // (cuda_quant_dot.cu:1841-1846); the CPU list IS the CPU capability.

@@ -40,7 +40,7 @@
 #include <cstring>
 
 #include "cpu_quant_blocks.h"
-#include "cpu_quant_iq_tables.h"  // kIq2xxsGrid/kIq2xsGrid/kIq3xxsGrid/kKsignsIq2xs/kKmaskIq2xs
+#include "cpu_quant_iq_tables.h"  // kIq2xxsGrid/kIq2xsGrid/kIq3xxsGrid/kIq3sGrid/kKsignsIq2xs/kKmaskIq2xs
 #include "vt/quant.h"
 
 namespace vt::cpu {
@@ -665,6 +665,79 @@ void VecDotIQ3_XXSQ8_K(int n, float* s, size_t bs, const void* vx, size_t bx,
   *s = 0.25f * sumf;
 }
 
+// quants.c:1094 — ggml_vec_dot_iq3_s_q8_K_generic. Codebook dot: `qs` holds
+// QK_K/4 grid-index bytes, each widened by one qh bit into a 9-bit index into
+// the 512-entry iq3s_grid; `scales` carries two 4-bit sub-block scales per
+// byte; `signs` one 8-bit sign selector per lane. Unlike IQ3_XXS the scale+
+// sign data live in their own arrays (not packed into the last qs u32s), and
+// there is NO final grid-magnitude fold. The accumulation order is the CPU's
+// verbatim: per sub-block sumi over the four lanes, folded by ls into bsum
+// (ls1 and ls2 folded separately within each sub-block pair, the upstream
+// order), one d * bsum f32 mul-add per block.
+void VecDotIQ3_SQ8_K(int n, float* s, size_t bs, const void* vx, size_t bx,
+                     const void* vy, size_t by, int nrc) {
+  VT_CHECK(n % kQK_K == 0, "vec_dot_iq3_s_q8_K: n must be a multiple of 256");
+  VT_CHECK(nrc == 1, "vec_dot_iq3_s_q8_K: generic tier supports nrc == 1 only");
+  (void)nrc;
+  (void)bx;
+  (void)by;
+  (void)bs;
+
+  const BlockIQ3_S* x = static_cast<const BlockIQ3_S*>(vx);
+  const BlockQ8_K* y = static_cast<const BlockQ8_K*>(vy);
+  const int nb = n / kQK_K;
+
+  float sumf = 0.f;
+  for (int i = 0; i < nb; ++i) {
+    const float d = F16ToF32(x[i].d) * y[i].d;
+    const uint8_t* qs = x[i].qs;
+    const uint8_t* qh = x[i].qh;
+    const uint8_t* signs = x[i].signs;
+    const uint8_t* scales = x[i].scales;
+    const int8_t* q8 = y[i].qs;
+    int32_t bsum = 0;
+    for (int ib32 = 0; ib32 < kQK_K / 32; ib32 += 2) {
+      const uint32_t ls1 = 2u * (scales[ib32 / 2] & 0xf) + 1u;
+      const uint32_t ls2 = 2u * (scales[ib32 / 2] >> 4) + 1u;
+      int32_t sumi = 0;
+      for (int l = 0; l < 4; ++l) {
+        const uint8_t* grid1 = reinterpret_cast<const uint8_t*>(
+            kIq3sGrid + (qs[2 * l + 0] | ((qh[0] << (8 - 2 * l)) & 256)));
+        const uint8_t* grid2 = reinterpret_cast<const uint8_t*>(
+            kIq3sGrid + (qs[2 * l + 1] | ((qh[0] << (7 - 2 * l)) & 256)));
+        const uint8_t sign = signs[l];
+        for (int j = 0; j < 4; ++j) {
+          sumi += grid1[j] * q8[j + 0] * ((sign & kKmaskIq2xs[j + 0]) ? -1 : 1);
+          sumi += grid2[j] * q8[j + 4] * ((sign & kKmaskIq2xs[j + 4]) ? -1 : 1);
+        }
+        q8 += 8;
+      }
+      qs += 8;
+      signs += 4;
+      bsum += sumi * static_cast<int32_t>(ls1);
+      sumi = 0;
+      for (int l = 0; l < 4; ++l) {
+        const uint8_t* grid1 = reinterpret_cast<const uint8_t*>(
+            kIq3sGrid + (qs[2 * l + 0] | ((qh[1] << (8 - 2 * l)) & 256)));
+        const uint8_t* grid2 = reinterpret_cast<const uint8_t*>(
+            kIq3sGrid + (qs[2 * l + 1] | ((qh[1] << (7 - 2 * l)) & 256)));
+        const uint8_t sign = signs[l];
+        for (int j = 0; j < 4; ++j) {
+          sumi += grid1[j] * q8[j + 0] * ((sign & kKmaskIq2xs[j + 0]) ? -1 : 1);
+          sumi += grid2[j] * q8[j + 4] * ((sign & kKmaskIq2xs[j + 4]) ? -1 : 1);
+        }
+        q8 += 8;
+      }
+      qs += 8;
+      signs += 4;
+      bsum += sumi * static_cast<int32_t>(ls2);
+      qh += 2;
+    }
+    sumf += d * bsum;
+  }
+  *s = sumf;
+}
+
 // quants.c:1099 — ggml_vec_dot_iq1_s_q8_K_generic. Codebook dot: 8 sub-blocks of
 // 32, each 4 lane groups of 8. The 11-bit grid index is `qs[l]` widened by 3
 // bits from `qh[ib]`; kIq1sGrid entries are packed TERNARY (-1/0/+1) bytes, so
@@ -1081,6 +1154,7 @@ VecDotFn BlockVecDot(DType dtype) {
     case DType::kQ5_K: return &VecDotQ5_KQ8_K;        // quants.c:720
     case DType::kQ6_K: return &VecDotQ6_KQ8_K;        // quants.c:800
     case DType::kIQ2_XXS: return &VecDotIQ2_XXSQ8_K;  // quants.c:855
+    case DType::kIQ3_S: return &VecDotIQ3_SQ8_K;      // quants.c:1094
     case DType::kIQ3_XXS: return &VecDotIQ3_XXSQ8_K;  // quants.c:999
     case DType::kIQ2_S: return &VecDotIQ2_SQ8_K;      // quants.c:947
     case DType::kIQ2_XS: return &VecDotIQ2_XSQ8_K;    // b10451 quants.c:948

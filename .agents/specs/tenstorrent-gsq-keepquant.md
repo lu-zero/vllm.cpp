@@ -22,15 +22,15 @@ pass describes **wave W3 of QUANT-GGUF-IQ-TENSTORRENT and is stale**. The
 contradiction resolves against three real admission points:
 
 1. **Device capability set** —
-   `src/vllm/model_executor/model_loader/gguf_keep_quant.cpp:175-212`
+   `src/vllm/model_executor/model_loader/gguf_keep_quant.cpp:175-218`
    (`DeviceKeepQuantSupported`, `case kTENSTORRENT`). The set today is
    `{Q4_K, Q5_K, Q6_K, Q8_0}` (the W3 bit-exact decode set) **plus**
    `{IQ3_XXS, IQ2_XXS, IQ2_S, Q3_K}` — waves 1-3 of
-   QUANT-GGUF-IQ-TENSTORRENT widened it (per-wave comments at :188-208).
-   `tests/vllm/test_gguf_keep_quant.cpp` pins the set (:195); widening the
+   QUANT-GGUF-IQ-TENSTORRENT widened it (per-wave comments at :188-214).
+   `tests/vllm/test_gguf_keep_quant.cpp` pins the set (:356-371); widening the
    predicate without widening the kernel reds it.
 2. **Device dispatch** —
-   `src/vt/tenstorrent/tenstorrent_keepquant.cpp:905-912`: `IQ3_XXS`,
+   `src/vt/tenstorrent/tenstorrent_keepquant.cpp:913-920`: `IQ3_XXS`,
    `IQ2_XXS`, `IQ2_S`, `Q3_K` route to `MatmulBTQuantInt8DotKernel`
    **unconditionally (DEFAULT path, no env)**; `Q4_K/Q5_K/Q6_K/Q8_0` route
    to int8-dot only under `VT_TT_KEEPQUANT_INT8DOT` (opt-in since W4b,
@@ -39,9 +39,9 @@ contradiction resolves against three real admission points:
    `{Q4_K, Q5_K, Q6_K, Q8_0}`).
 3. **On-core decodes** — `src/vt/tenstorrent/kernels/keepquant_kernel_code.h`:
    one ported `kq_vec_dot_*` per encoding
-   (`iq3_xxs` :483, `iq2_xxs` :526, `iq2_s` :567, `q3_k` :620, plus the four
-   k-quants), selected by `enc_sel` 4/5/6/7 at
-   `tenstorrent_keepquant.cpp:1780-1788`. This is why APEX-I-Nano runs
+   (`iq3_xxs` :485, `iq3_s` :537, `iq2_xxs` :599, `iq2_s` :640, `q3_k` :693,
+   plus the four k-quants), selected by `enc_sel` 4/5/6/7/8 at
+   `tenstorrent_keepquant.cpp:1791-1799`. This is why APEX-I-Nano runs
    IQ3_XXS/IQ2_S/IQ2_XXS/Q3_K on TT: they are admitted, dispatched, and
    decoded — the earlier "no IQ types admitted" pass read only the W3
    return list.

@@ -739,9 +739,12 @@ TEST_CASE("kIq3sGrid is the pinned 512-entry table, not kIq3xxsGrid") {
   // Two u32 codebooks, both read four bytes at a time, one 256 rows and one
   // 512. A decoder pointed at the sibling indexes in range for the first 256
   // rows and returns plausible magnitudes, so nothing but a digest over the
-  // bytes we actually ported separates them. IQ3_S carries no `vec_dot` and so
-  // no golden DOT case, which makes this seal the whole of its table evidence
-  // beyond the decode golden in tests/vt/iq3s_golden_vectors.h.
+  // bytes we actually ported separates them. IQ3_S carried no `vec_dot` until
+  // the TT GSQ-RCO keep-quant wave 1 added the CPU oracle `VecDotIQ3_SQ8_K`
+  // (cpu_quant_dot.cpp, quants.c:1094) beside this table seal; the DOT
+  // evidence is the device sweep in tests/vt/test_tenstorrent_backend.cpp,
+  // which runs the on-core decode against that oracle bit-exactly, and the
+  // decode golden in tests/vt/iq3s_golden_vectors.h.
   CHECK(std::size(vt::cpu::kIq3sGrid) == 512);
   CHECK(std::size(vt::cpu::kIq3xxsGrid) == 256);
 
