@@ -2165,6 +2165,130 @@ TEST_CASE("kTENSTORRENT kRmsNormGated matches the CPU f32 oracle (silu + sigmoid
   }
 }
 
+// Batched-prefill gated-norm (ISSUE-LOCAL-01M2XSWCP507W0M18EXHGR5TGS): the
+// gate rides a committed device shadow whose native geometry is [T, W] (the
+// z projection output, [256, 6144]) while x flattens to [T*Hv, D] = [12288,
+// 128]. NormalizeDevF32Tile keeps the rank-2 native geometry, so the kernel
+// must bridge [256,6144] -> [12288,128] (same numel AND same tile count) —
+// the free TILE reshape at the M=2 prefill shape fatals 'MeshBuffer must be
+// large enough' and the poisoned view OOMs the step downstream.
+TEST_CASE("kTENSTORRENT kRmsNormGated serves a [256,6144] committed gate "
+          "shadow at the batched-prefill [12288,128] geometry") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  REQUIRE(vt::OpRegistered(vt::OpId::kRmsNormGated, DeviceType::kTENSTORRENT));
+  constexpr int64_t T = 256, Hv = 48, D = 128;
+  const Device dev{DeviceType::kTENSTORRENT, 0};
+  Backend& tt = vt::GetBackend(DeviceType::kTENSTORRENT);
+  Backend& cpu = *vt::TryGetBackend(DeviceType::kCPU);
+
+  vt::RmsNormGatedArgs args;
+  args.eps = 1e-6f;
+  args.sigmoid_gate = 1;
+
+  // Producer: a device Matmul commits the f32 [T, Hv*D] z-projection shadow.
+  // b is all ones so the shadow values are the (host-known) row sums of a.
+  std::vector<float> ha(static_cast<size_t>(T * 16));
+  for (size_t i = 0; i < ha.size(); ++i)
+    ha[i] = static_cast<float>(static_cast<int>(i % 15) - 7) * 0.25f;
+  std::vector<float> gate_vals(static_cast<size_t>(T), 0.0f);
+  for (int64_t t = 0; t < T; ++t) {
+    float s = 0.0f;
+    for (int64_t k = 0; k < 16; ++k)
+      s += ha[static_cast<size_t>(t * 16 + k)];
+    gate_vals[static_cast<size_t>(t)] = s;
+  }
+  void* ma = tt.Alloc(ha.size() * sizeof(float));
+  void* mb = tt.Alloc(16 * Hv * D * sizeof(float));
+  void* mo = tt.Alloc(T * Hv * D * sizeof(float));
+  Queue q = tt.CreateQueue();
+  tt.Copy(q, ma, ha.data(), ha.size() * sizeof(float));
+  std::vector<float> ones(static_cast<size_t>(16 * Hv * D), 1.0f);
+  tt.Copy(q, mb, ones.data(), ones.size() * sizeof(float));
+  Tensor ta = Tensor::Contiguous(ma, vt::DType::kF32, dev, {T, 16});
+  Tensor tb = Tensor::Contiguous(mb, vt::DType::kF32, dev, {16, Hv * D});
+  Tensor to = Tensor::Contiguous(mo, vt::DType::kF32, dev, {T, Hv * D});
+  reinterpret_cast<vt::MatmulFn>(
+      vt::GetOp(vt::OpId::kMatmul, DeviceType::kTENSTORRENT))(q, to, ta, tb);
+
+  // x: [T, Hv, D] contiguous host f32, committed as its own slot.
+  std::vector<float> hx(static_cast<size_t>(T * Hv * D));
+  {
+    uint32_t s = 9100u;
+    for (float& v : hx) v = 2.0f * GdnLcg(s);
+  }
+  std::vector<float> hw(static_cast<size_t>(D));
+  {
+    uint32_t s = 777u;
+    for (float& v : hw) v = 0.8f + 0.4f * (GdnLcg(s) + 0.5f);
+  }
+  void* mx = tt.Alloc(hx.size() * sizeof(float));
+  void* mw = tt.Alloc(hw.size() * sizeof(float));
+  void* mout = tt.Alloc(hx.size() * sizeof(float));
+  tt.Copy(q, mx, hx.data(), hx.size() * sizeof(float));
+  tt.Copy(q, mw, hw.data(), hw.size() * sizeof(float));
+  Tensor tx = Tensor::Contiguous(mx, vt::DType::kF32, dev, {T, Hv, D});
+  Tensor tw = Tensor::Contiguous(mw, vt::DType::kF32, dev, {D});
+  Tensor tout = Tensor::Contiguous(mout, vt::DType::kF32, dev, {T, Hv, D});
+  // The gate view: rank-3 [T, Hv, D] covering the committed owner exactly.
+  Tensor tg{};
+  tg.data = mo;
+  tg.dtype = vt::DType::kF32;
+  tg.device = dev;
+  tg.rank = 3;
+  tg.shape[0] = T;
+  tg.shape[1] = Hv;
+  tg.shape[2] = D;
+  tg.stride[0] = Hv * D;
+  tg.stride[1] = D;
+  tg.stride[2] = 1;
+  vt::RmsNormGated(q, tout, tx, tg, tw, args);
+  std::vector<float> out_tt(hx.size(), 0.0f);
+  tt.Copy(q, out_tt.data(), mout, out_tt.size() * sizeof(float));
+
+  // CPU oracle: identical geometry, gate bytes = the known producer values
+  // (each gate row is the constant row sum of a).
+  std::vector<float> hg(static_cast<size_t>(T * Hv * D));
+  for (int64_t t = 0; t < T; ++t)
+    for (int64_t e = 0; e < Hv * D; ++e)
+      hg[static_cast<size_t>(t * Hv * D + e)] = gate_vals[static_cast<size_t>(t)];
+  void* cgx = cpu.Alloc(hx.size() * sizeof(float));
+  void* cgg = cpu.Alloc(hg.size() * sizeof(float));
+  void* cgw = cpu.Alloc(hw.size() * sizeof(float));
+  void* cgo = cpu.Alloc(hx.size() * sizeof(float));
+  Queue cq = cpu.CreateQueue();
+  cpu.Copy(cq, cgx, hx.data(), hx.size() * sizeof(float));
+  cpu.Copy(cq, cgg, hg.data(), hg.size() * sizeof(float));
+  cpu.Copy(cq, cgw, hw.data(), hw.size() * sizeof(float));
+  Tensor ctx = Tensor::Contiguous(cgx, vt::DType::kF32, Device{DeviceType::kCPU, 0}, {T, Hv, D});
+  Tensor ctg = Tensor::Contiguous(cgg, vt::DType::kF32, Device{DeviceType::kCPU, 0}, {T, Hv, D});
+  Tensor ctw = Tensor::Contiguous(cgw, vt::DType::kF32, Device{DeviceType::kCPU, 0}, {D});
+  Tensor cto = Tensor::Contiguous(cgo, vt::DType::kF32, Device{DeviceType::kCPU, 0}, {T, Hv, D});
+  vt::RmsNormGated(cq, cto, ctx, ctg, ctw, args);
+  std::vector<float> out_cpu(hx.size(), 0.0f);
+  cpu.Copy(cq, out_cpu.data(), cgo, out_cpu.size() * sizeof(float));
+
+  const float tol = 0.035f;
+  GdnDiffStats d = CompareVsOracle(out_tt, out_cpu, /*rel=*/0.0f, tol);
+  MESSAGE("kRmsNormGated committed-shadow [", T, ",", Hv * D, "] -> [",
+          T * Hv, ",", D, "]: max_abs=", d.max_abs, " max_rel=", d.max_rel,
+          " tol=", tol);
+  tt.Free(ma);
+  tt.Free(mb);
+  tt.Free(mo);
+  tt.Free(mx);
+  tt.Free(mw);
+  tt.Free(mout);
+  cpu.Free(cgx);
+  cpu.Free(cgg);
+  cpu.Free(cgw);
+  cpu.Free(cgo);
+  CHECK(std::isfinite(d.max_abs));
+  CHECK(d.within);
+}
+
 TEST_CASE("kTENSTORRENT kCausalConv1dFwd matches the CPU f32 oracle (rolling conv state, varlen)") {
   if (!TenstorrentPresent()) {
     MESSAGE("SKIPPED: no Tenstorrent device on this box");
