@@ -623,9 +623,9 @@ TEST_CASE("routing table is TOTAL: every role x every encoding is explicit") {
   // W6a added (#1989 review F8): a case that calls itself TOTAL and omits the
   // two newest encodings is total over yesterday's surface. IQ2_XS (17) joins
   // it for the same reason with LOADER-GGUF-IQ (#2240).
-  // IQ3_S (21) joins with QUANT-IQ3S (#2510), and it is the one entry here that
-  // is GATHER-capable and GEMM-incapable, so it is what keeps the two terms
-  // below from being the same predicate written twice.
+  // IQ3_S (21) joins with QUANT-IQ3S (#2510); it was the one entry that is
+  // GATHER-capable and GEMM-incapable until aa85e9484 gave it a dot kernel,
+  // so no entry holds that role any more and the two terms below agree.
   const uint32_t all_types[] = {
       kF32,      kF16,      kBF16,    kQ4_0,     kQ5_0,    kQ8_0,
       kQ2_K,     kQ3_K,     kQ4_K,    kQ5_K,     kQ6_K,    kQ8_K,
@@ -672,12 +672,16 @@ TEST_CASE("routing table is TOTAL: every role x every encoding is explicit") {
         // QUANT-GGUF-IQ-VECDOT (#2247) put IQ2_XS and IQ4_XS in this list.
         // They were gather-only between #2245 and #2247 — decoder, no vec_dot —
         // and the `vec_dot` rows are what moved them onto the GEMM arm.
+        // IQ3_S dotted with aa85e9484 (tenstorrent-gsq-keepquant wave 1),
+        // which landed the CPU oracle `VecDotIQ3_SQ8_K`, so it LEFT the
+        // gather-only set and joins `cpu_capable` here — it no longer keeps
+        // the two GEMM predicates apart.
         const bool cpu_capable =
             type == kQ4_0 || type == kQ5_0 || type == kQ8_0 || type == kQ3_K ||
             type == kQ2_K || type == kQ4_K || type == kQ5_K ||
             type == kQ6_K || type == kIQ2_XXS || type == kIQ2_XS ||
             type == kIQ3_XXS || type == kIQ1_S || type == kIQ4_NL ||
-            type == kIQ2_S || type == kIQ4_XS ||
+            type == kIQ2_S || type == kIQ4_XS || type == kIQ3_S ||
             type == kMXFP4 || type == kIQ1_XXXS;
         const bool rocm = kRouteDev == vt::DeviceType::kROCM;
         // QUANT-GGUF-IQ4_NL adds kIQ4_NL to the ROCm set. It is the one entry
@@ -717,13 +721,10 @@ TEST_CASE("routing table is TOTAL: every role x every encoding is explicit") {
         // actually registered. It cannot be hand-enumerated like `cpu_capable`
         // above, because whether the CUDA registrar is linked is a property of
         // the build and not of the encoding.
-        // IQ3_S has a `to_float` and NO `vec_dot`, so it is gather-capable and
-        // GEMM-incapable — the surplus Q8_K used to hold alone. It is a FILE
-        // encoding, which Q8_K is not, so this is the term that decides whether
-        // 4 of an 866-tensor artifact's weights stay compressed on the gather
-        // while expanding on the GEMM (#2510).
+        // IQ3_S dotted with aa85e9484, so it left the gather-only surplus and
+        // Q8_K holds that role alone again.
         const bool gather_cpu_capable =
-            cpu_capable || type == kQ8_K || type == kIQ3_S;
+            cpu_capable || type == kQ8_K;
         // THE MERGED FORM, which was in neither branch. #2396 made the gather
         // build-dependent and asked the OP REGISTRY instead of hard-coding
         // "CPU only" — correct, and this row keeps it. But it asked about
@@ -780,9 +781,9 @@ TEST_CASE("routing table is TOTAL: every role x every encoding is explicit") {
   }
   // Both outcomes are actually exercised (a table that never keeps anything
   // would pass every assertion above vacuously). The kept count is
-  // device-dependent (review #523): 17 block-capable encodings x 2 keep-capable
+  // device-dependent (review #523): 18 block-capable encodings x 2 keep-capable
   // GEMM roles where the device covers the CPU list; 12 x 2 on ROCm. The
-  // GATHER role adds 19 more (the 17, plus Q8_K and IQ3_S) on a device that
+  // GATHER role adds 19 more (the 18, plus Q8_K) on a device that
   // REGISTERS the block
   // gather, and nothing on a device that does not. Written as named terms
   // rather than one number so a future change to any one of them says which one
@@ -813,7 +814,12 @@ TEST_CASE("routing table is TOTAL: every role x every encoding is explicit") {
   // term at 34, because IQ4_NL was already in the CPU list and only the DEVICE
   // set was narrower. That is the shape of a device-arm port: one encoding, two
   // keep-capable GEMM roles, and no change to either gather term.
-  const int gemm_kept = kRouteDev == vt::DeviceType::kROCM ? 24 : 34;
+  //
+  // tenstorrent-gsq-keepquant wave 1 (aa85e9484) moved the CPU/CUDA GEMM term
+  // 34 -> 36 and left the ROCm and gather terms where they were: IQ3_S gained
+  // a CPU `vec_dot`, so it joined the GEMM arm (one encoding x two keep-capable
+  // GEMM roles) on the devices that cover the CPU list.
+  const int gemm_kept = kRouteDev == vt::DeviceType::kROCM ? 24 : 36;
   const int gather_kept =
       vt::OpRegistered(vt::OpId::kEmbeddingQuant, kRouteDev) ? 19 : 0;
   CHECK(kept == gemm_kept + gather_kept);
