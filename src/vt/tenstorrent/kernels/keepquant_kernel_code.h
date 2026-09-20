@@ -17,6 +17,7 @@
 //   vec_dot_iq2_xxs_q8_K   cpu_quant_dot.cpp:577 (quants.c:855)
 //   vec_dot_iq2_s_q8_K     cpu_quant_dot.cpp:899 (quants.c:947)
 //   vec_dot_iq3_s_q8_K     cpu_quant_dot.cpp (quants.c:1094)
+//   vec_dot_iq4_xs_q8_K    cpu_quant_dot.cpp:1000 (quants.c:1283)
 //   vec_dot_q3_K_q8_K      cpu_quant_dot.cpp:202 (quants.c:566)
 //
 // The accumulation ORDER inside every routine is the ported order, because
@@ -52,6 +53,7 @@
 
 #include "iq2_tables.h"
 #include "iq3s_tables.h"
+#include "iq4xs_tables.h"
 #include "iq3xxs_tables.h"
 
 // ---- little-endian loads --------------------------------------------------
@@ -585,6 +587,68 @@ static inline float kq_vec_dot_iq3_s_q8_K(const uint8_t* xblock,
       qh += 2;
     }
     sumf = sumf + d * static_cast<float>(bsum);
+  }
+  return sumf;
+}
+
+// cpu_quant_dot.cpp IQ4_XS arm (quants.c:1283 — ggml_vec_dot_iq4_xs_q8_K_generic;
+// the dequant twin dequantize_row_iq4_xs is ggml-quants.c:2743). block_iq4_xs
+// = { f16 d; u16 scales_h; u8 scales_l[4]; u8 qs[128] } = 136 B staged as
+// 48 words (the staged word grid pads the row to 192 B, the same 64-B-
+// multiple geometry the other registered encodings stage; the decoder reads
+// only the first 136 bytes). scales_l is FOUR bytes (QK_K/64 = 4 — one byte
+// per sub-block PAIR, 4 pairs over 8 sub-blocks) and qs starts at byte 8.
+// qs bytes are pairs of kvalues_iq4nl[16] indices (low
+// nibble first, the SAME codebook as IQ4_NL — the nibble is an index, not a
+// quant), and the 6-bit sub-block scale is a SPLICE: ls = 4-bit scales_l[ib/2]
+// nibble (low for the even sub-block of each pair, high for the odd) with two
+// bits of scales_h shifted in at bits 4-5; the scale is an offset encoding,
+// dl = d4d8 * (ls - 32), d4d8 = d * yd folded ONCE per 256-elem block. The
+// int32 accumulation order is the CPU's: per sub-block pair, sumi1 over the
+// 16 low nibbles against q8[0..15] and sumi2 over the 16 high nibbles against
+// q8[16..31], folded as sumf += d1 * (sumi1 + sumi2) per sub-block (d1/d2
+// SEPARATE per sub-block, the upstream order — no bsum consolidation). Each
+// per-lane int32 accumulator stays <= 2^24 (|q8|<=128, |kvalues|<=127, 16
+// lanes => 260096), so the P==1 f32 dot per output element on the SFPU is
+// f32-exact — the same floor the existing IQ/k decodes ride. No divisions, so
+// the file's reciprocal hazard does not arise; the decoder reads only the
+// true 136 block bytes — the staged pad (bytes 136..191) is never touched.
+static inline float kq_vec_dot_iq4_xs_q8_K(const uint8_t* xblock,
+                                           uint32_t block_word_bytes,
+                                           const uint8_t* yrow, uint32_t nb) {
+  float sumf = 0.0f;
+  for (uint32_t i = 0; i < nb; ++i, xblock += block_word_bytes, yrow += 292) {
+    const float yd = __builtin_bit_cast(float, kq_load32(yrow));
+    const float d4d8 = kq_f16_bits_to_f32(kq_load16(xblock)) * yd;
+    uint32_t h = kq_load16(xblock + 2);
+    const uint8_t* scales_l = xblock + 4;
+    const uint8_t* qs = xblock + 8;
+    const int8_t* q8 = reinterpret_cast<const int8_t*>(yrow + 4);
+    for (uint32_t ib = 0; ib < 8; ib += 2) {
+      const uint32_t ls1 = (scales_l[ib / 2] & 0xf) | ((h << 4) & 0x30);
+      const uint32_t ls2 = (scales_l[ib / 2] >> 4) | ((h << 2) & 0x30);
+      h >>= 4;
+      const float d1 = d4d8 * (static_cast<int32_t>(ls1) - 32);
+      const float d2 = d4d8 * (static_cast<int32_t>(ls2) - 32);
+      int32_t sumi1 = 0;
+      int32_t sumi2 = 0;
+      for (uint32_t j = 0; j < 16; ++j) {
+        sumi1 += q8[j + 0] * kValuesIq4nl[qs[j] & 0xf];
+        sumi2 += q8[j + 16] * kValuesIq4nl[qs[j] >> 4];
+      }
+      sumf = sumf + d1 * static_cast<float>(sumi1 + sumi2);
+      qs += 16;
+      q8 += 32;
+      sumi1 = 0;
+      sumi2 = 0;
+      for (uint32_t j = 0; j < 16; ++j) {
+        sumi1 += q8[j + 0] * kValuesIq4nl[qs[j] & 0xf];
+        sumi2 += q8[j + 16] * kValuesIq4nl[qs[j] >> 4];
+      }
+      sumf = sumf + d2 * static_cast<float>(sumi1 + sumi2);
+      qs += 16;
+      q8 += 32;
+    }
   }
   return sumf;
 }

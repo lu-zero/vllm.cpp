@@ -31,6 +31,15 @@ int KeepQuantWordsPerBlock(DType enc) {
     // Q3_K, derived from the traits block size, not copied from the wave
     // comments (the spec's risk note).
     case DType::kIQ3_S: return 32;
+    // tenstorrent-gsq-keepquant wave 2: block_iq4_xs is 136 B (d 2 +
+    // scales_h 2 + scales_l 4 + qs 128, ggml-common.h:455-459). The staged
+    // word row must match the geometry the other six encodings use — every
+    // registered encoding stages 64-B-multiple rows (64/128/192/256 B;
+    // 16/32/48/64 words) — so pad to 48 words = 192 B (the Q4_K/Q5_K
+    // footprint), not the bare 34 words = 136 B. The decode reads only the
+    // first 136 bytes. Derived from the traits block size, not copied from
+    // the wave comments (the spec's risk note).
+    case DType::kIQ4_XS: return 48;
     default: return 0;
   }
 }
@@ -843,11 +852,12 @@ void MatmulBTQuantKernel(Queue& q, Tensor& out, const Tensor& a, const Tensor& b
   VT_CHECK(enc == DType::kQ4_K || enc == DType::kQ5_K || enc == DType::kQ6_K ||
                enc == DType::kQ8_0 || enc == DType::kIQ3_XXS ||
                enc == DType::kIQ2_XXS || enc == DType::kIQ2_S ||
-               enc == DType::kQ3_K || enc == DType::kIQ3_S,
+               enc == DType::kQ3_K || enc == DType::kIQ3_S ||
+               enc == DType::kIQ4_XS,
            std::string("tenstorrent kMatmulBTQuant: ") + enc_name +
                " has no keep-quant decode on TENSTORRENT; the registered set "
                "is kQ4_K/kQ5_K/kQ6_K/kQ8_0/kIQ3_XXS/kIQ2_XXS/kIQ2_S/kQ3_K/"
-               "kIQ3_S "
+               "kIQ3_S/kIQ4_XS "
                "(BACKEND-TENSTORRENT-KEEPQUANT, QUANT-GGUF-IQ-TENSTORRENT)");
   const int64_t elems = BlockElems(enc);
   VT_CHECK(b.shape[1] % elems == 0,
@@ -910,9 +920,12 @@ void MatmulBTQuantKernel(Queue& q, Tensor& out, const Tensor& a, const Tensor& b
   // to either. tenstorrent-gsq-keepquant wave 1: kIQ3_S (enc_sel 8, the
   // largest GSQ-RCO census gap at 97 tensors) joins the unconditional set
   // the same way — no grouped decode exists for it either.
+  // tenstorrent-gsq-keepquant wave 2: kIQ4_XS (enc_sel 9, 33 census tensors
+  // on ssm_out + attn) joins the unconditional set the same way — no
+  // grouped decode exists for it either.
   if (enc == DType::kIQ3_XXS || enc == DType::kIQ2_XXS ||
       enc == DType::kIQ2_S || enc == DType::kQ3_K ||
-      enc == DType::kIQ3_S) {
+      enc == DType::kIQ3_S || enc == DType::kIQ4_XS) {
     MatmulBTQuantInt8DotKernel(q, out, a, b);
     return;
   }
@@ -1448,7 +1461,7 @@ namespace {
 
 // The device kernel source. keepquant_kernel_code.h comes from the repo
 // kernels/ dir via compiler_include_paths (resolved from __FILE__ below), so
-// the shipped tree — not a copy — is what runs on-core.
+// the shipped tree — not a copy — is what runs on-core (wave 2).
 constexpr const char* kKeepQuantInt8DotKernelSrc = R"TTKQ(
 #include "api/dataflow/dataflow_api.h"
 #include "keepquant_kernel_code.h"
@@ -1584,6 +1597,8 @@ void kernel_main() {
           v = kq_vec_dot_q3_k_q8_K(xw, word_bytes, yq, nb);
         else if (enc == 8)
           v = kq_vec_dot_iq3_s_q8_K(xw, word_bytes, yq, nb);
+        else if (enc == 9)
+          v = kq_vec_dot_iq4_xs_q8_K(xw, word_bytes, yq, nb);
         else
           v = kq_vec_dot_iq2_s_q8_K(xw, word_bytes, yq, nb);
         out_tile[r * tcols + n] = v;
@@ -1797,6 +1812,7 @@ void MatmulBTQuantInt8DotKernel(Queue& q, Tensor& out, const Tensor& a,
                            : enc == DType::kIQ2_S   ? 6
                            : enc == DType::kQ3_K    ? 7
                            : enc == DType::kIQ3_S   ? 8
+                           : enc == DType::kIQ4_XS  ? 9
                                                   : 0;
   const uint32_t wpb = static_cast<uint32_t>(KeepQuantWordsPerBlock(enc));
   const uint32_t act_f32 = a.dtype == DType::kF32 ? 1u : 0u;
