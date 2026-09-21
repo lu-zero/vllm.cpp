@@ -240,12 +240,21 @@ bool DeviceKeepQuantSupported(vt::DType dt, vt::DeviceType dev) {
       // GSQ-RCO Qwen3.8-27B vehicle's 32 IQ2_XS tensors (ffn) are the
       // artifact this admits.
       // tenstorrent-gsq-keepquant wave 4: kQ2_K (enc_sel 11) joins the set
+      // tenstorrent-gsq-keepquant wave 5: kIQ1_S (enc_sel 12) and kIQ1_M
+      // (enc_sel 13) join the set — on-core decodes
+      // kq_vec_dot_iq1_s_q8_K / kq_vec_dot_iq1_m_q8_K
+      // (keepquant_kernel_code.h), staged as resident i32 word shadows
+      // (16 words = the 50-B / 56-B blocks zero-padded to the 64-B word
+      // grid), dispatched on the DEFAULT path. The GSQ-RCO Qwen3.8-27B
+      // vehicle's 4 + 4 IQ1 tensors (ffn tail) are the artifacts this
+      // admits; this closes the file's block-quant census.
       return dt == vt::DType::kQ4_K || dt == vt::DType::kQ5_K ||
              dt == vt::DType::kQ6_K || dt == vt::DType::kQ8_0 ||
              dt == vt::DType::kIQ3_XXS || dt == vt::DType::kIQ2_XXS ||
              dt == vt::DType::kIQ2_S || dt == vt::DType::kQ3_K ||
              dt == vt::DType::kIQ3_S || dt == vt::DType::kIQ4_XS ||
-             dt == vt::DType::kIQ2_XS || dt == vt::DType::kQ2_K;
+             dt == vt::DType::kIQ2_XS || dt == vt::DType::kQ2_K ||
+             dt == vt::DType::kIQ1_S || dt == vt::DType::kIQ1_M;
     default:
       // CUDA falls back to the CPU kernel for anything it lacks
       // (cuda_quant_dot.cu:1841-1846); the CPU list IS the CPU capability.

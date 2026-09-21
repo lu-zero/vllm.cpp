@@ -76,8 +76,8 @@ constexpr uint32_t kF32 = 0, kF16 = 1, kQ4_0 = 2, kQ5_0 = 6, kQ8_0 = 8,
                    kQ2_K = 10, kQ3_K = 11, kQ4_K = 12, kQ5_K = 13, kQ6_K = 14,
                    kQ8_K = 15, kIQ2_XXS = 16, kIQ2_XS = 17, kIQ3_XXS = 18,
                    kIQ1_S = 19, kIQ4_NL = 20, kIQ3_S = 21, kIQ2_S = 22,
-                   kIQ4_XS = 23, kBF16 = 30, kMXFP4 = 39, kQ1_0 = 41,
-                   kIQ1_XXXS = 66;
+                   kIQ4_XS = 23, kIQ1_M = 29, kBF16 = 30, kMXFP4 = 39,
+                   kQ1_0 = 41, kIQ1_XXXS = 66;
 
 // Every executable weight encoding, with a K that is a whole number of blocks.
 struct Encoding {
@@ -389,6 +389,14 @@ TEST_CASE("keep-quant routing on TENSTORRENT admits exactly the registered decod
   // kq_vec_dot_q2_k_q8_K — this check flipped FROM kExpandBf16 and redded
   // before the predicate widened.
   CHECK(route(kQ2_K) == GgufResidency::kKeepQuant);
+  // tenstorrent-gsq-keepquant wave 5: IQ1_S (enc_sel 12, 4 census tensors)
+  // and IQ1_M (enc_sel 13, 4) join the int8-dot set in the same change as
+  // their kernels kq_vec_dot_iq1_s_q8_K / kq_vec_dot_iq1_m_q8_K — these
+  // checks redded before the predicate widened (the pins are NEW here: no
+  // prior row pinned the IQ1 pair, so the widened predicate alone reds
+  // nothing; the device sweep carries the red).
+  CHECK(route(kIQ1_S) == GgufResidency::kKeepQuant);
+  CHECK(route(kIQ1_M) == GgufResidency::kKeepQuant);
   // The loader boolean flips only when the op is registered, so a host with a
   // P150 resolves keep-quant on by default; without the card the default arm
   // stays false and the load is unchanged.

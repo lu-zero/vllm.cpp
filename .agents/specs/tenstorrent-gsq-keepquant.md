@@ -28,12 +28,14 @@ contradiction resolves against three real admission points:
    `{IQ3_XXS, IQ2_XXS, IQ2_S, Q3_K}` — waves 1-3 of
    QUANT-GGUF-IQ-TENSTORRENT widened it — **plus** `{IQ3_S, IQ4_XS, IQ2_XS}`
    from waves 1-3 of this row (per-wave comments at :188-228) — **plus**
-   `{Q2_K}` from wave 4 (per-wave comment at :230-236).
-   `tests/vllm/test_gguf_keep_quant.cpp` pins the set (:356-394); widening the
+   `{Q2_K}` from wave 4 (per-wave comment at :230-236) — **plus** `{IQ1_S,
+   IQ1_M}` from wave 5 (per-wave comments at :232-246), which closes the set.
+   `tests/vllm/test_gguf_keep_quant.cpp` pins the set (:352-402); widening the
    predicate without widening the kernel reds it.
 2. **Device dispatch** —
-   `src/vt/tenstorrent/tenstorrent_keepquant.cpp:940-953`: `IQ3_XXS`,
-   `IQ2_XXS`, `IQ2_S`, `Q3_K`, `IQ3_S`, `IQ4_XS`, `IQ2_XS`, `Q2_K` route to
+   `src/vt/tenstorrent/tenstorrent_keepquant.cpp:940-973`: `IQ3_XXS`,
+   `IQ2_XXS`, `IQ2_S`, `Q3_K`, `IQ3_S`, `IQ4_XS`, `IQ2_XS`, `Q2_K`, `IQ1_S`,
+   `IQ1_M` route to
    `MatmulBTQuantInt8DotKernel`
    **unconditionally (DEFAULT path, no env)**; `Q4_K/Q5_K/Q6_K/Q8_0` route
    to int8-dot only under `VT_TT_KEEPQUANT_INT8DOT` (opt-in since W4b,
@@ -43,8 +45,9 @@ contradiction resolves against three real admission points:
 3. **On-core decodes** — `src/vt/tenstorrent/kernels/keepquant_kernel_code.h`:
    one ported `kq_vec_dot_*` per encoding
    (`iq3_xxs` :488, `iq3_s` :540, `iq4_xs` :617, `iq2_xxs` :664, `iq2_xs` :711,
-   `iq2_s` :762, `q3_k` :815, plus the four k-quants), selected by
-   `enc_sel` 4/5/6/7/8/9/10 at `tenstorrent_keepquant.cpp:1819-1831`. This is
+   `iq2_s` :946, `q3_k` :999, `q2_k` :769, `iq1_s` :831, `iq1_m` :884, plus
+   the four k-quants), selected by
+   `enc_sel` 4..13 at `tenstorrent_keepquant.cpp:1857-1869`. This is
    why APEX-I-Nano runs
    IQ3_XXS/IQ2_S/IQ2_XXS/Q3_K on TT: they are admitted, dispatched, and
    decoded — the earlier "no IQ types admitted" pass read only the W3
@@ -68,8 +71,8 @@ grouped fall-through and therefore dispatches unconditionally.
 | IQ2_XS | 32 | **no** | — | ffn | **gap** |
 | Q2_K | 28 | **no** (named owed, :184) | — | ffn, embd | **gap** |
 | Q4_K | 19 | yes | int8-dot (env) / grouped (default) | embd | none |
-| IQ1_M | 4 | **no** | — | ffn (tail) | **gap** |
-| IQ1_S | 4 | **no** | — | ffn (tail) | **gap** |
+| IQ1_M | 4 | yes | int8-dot (enc_sel 13, default) | ffn (tail) | none |
+| IQ1_S | 4 | yes | int8-dot (enc_sel 12, default) | ffn (tail) | none |
 
 Outstanding tensor counts: **198 of 622** block-quantized tensors
 (IQ3_S 97 + IQ4_XS 33 + IQ2_XS 32 + Q2_K 28 + IQ1_M 4 + IQ1_S 4) are not
