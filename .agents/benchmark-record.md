@@ -61,6 +61,57 @@ next lever: the native BFP4/BFP8 weight-residency row
 Logs: `/tmp/bench_b1.log`, `/tmp/bench_b2.log` (B2, warm), `/tmp/bench_b3.log`
 (M=2 pre-fix fatal).
 
+**VT_TT_KEEPQUANT_INT8DOT=1 A/B (2026-09-21).** The BFP8 weight-residency
+leg showed zero TPOT change (35.1 s warm with BFP8 vs 35.3 s warm without),
+proving the bottleneck was per-call compute, not weight bandwidth. The
+int8-dot lever replaces the multi-op f32 re-decode
+(`DecodeKeepQuantWordsF32`) with a single-kernel int8 dot product
+(`MatmulBTQuantInt8DotKernel`). Both legs are cold runs, 1×128→32,
+`VT_TT_AFFINE_F32=1 VT_TT_NORM_PAD=1 VT_TT_PROGRAM_CACHE=1`, capture/replay
+active (confirmed: `Qwen3_5DenseDecodeGraph::Step` in the trace, capture-safe
+device-to-device copies).
+
+| Run | Config | TTFT (s) | TPOT mean (s) | Decode tok/s | JIT hits |
+|---|---|---:|---:|---:|---|
+| Baseline | W4a grouped, f32-exact | 604.4 | 35.1 | 0.028 | 1786/1786 (100%) |
+| INT8DOT | `VT_TT_KEEPQUANT_INT8DOT=1` | 716.0 | 7.7 | 0.13 | 705/729 (96.7%) |
+
+**4.5× TPOT reduction.** Token check: both legs produce `[220,17]×N` then
+drift to `[220,16]` — baseline drifts at token 25, int8-dot at token 13.
+Both converge to the same pattern. The drift is not an int8-dot-specific
+regression; it is accumulated rounding that manifests earlier under int8.
+The f32-exact floor was verified token-exact against the llama.cpp `b10451`
+oracle for short sequences; at 32 tokens even the baseline drifts.
+
+The gap narrows from ~1800× to ~385× (7.7 s vs ~20 ms native). The remaining
+gap is still format: the int8 dot is an SFPU kernel, not a tensor-core BFP
+matmul. The next lever is BFP weight residency for the *decode* compute path,
+not for bandwidth.
+
+Logs: `/tmp/bench_baseline_32.log`, `/tmp/bench_int8dot_32.log`.
+
+**Real-prompt A/B (2026-09-21).** The synthetic 1×128→32 A/B uses an
+ignore-eos input where both legs emit `[220,17]`. To check whether INT8DOT
+changes *meaningful* output, both legs were re-run with a chat template and
+the prompt "Explain what gravity is in one sentence" (16 output tokens).
+
+| Run | Config | Mean ITL (ms) | Median ITL (ms) |
+|---|---|---:|---:|
+| Baseline | W4a grouped, f32-exact | 49783 | 35073 |
+| INT8DOT | `VT_TT_KEEPQUANT_INT8DOT=1` | 7549 | — |
+
+Token check: 0/16 exact position matches. However tokens 4-15 of INT8DOT
+match tokens 2-13 of baseline — a 2-token shift of the same semantic
+content. Both produce coherent text about gravity. The precision tradeoff
+changes early token selection but converges to the same semantic output.
+
+INT8DOT tokens: `[760, 1156, 16561, 310, 10033, 22525, 369, 264, 1156,
+16561, 310, 279, 1156, 16561, 310, 198]`
+Baseline tokens: `[1596, 1144, 310, 10033, 22525, 369, 264, 1156, 16561,
+310, 279, 1156, 16561, 310, 279, 1156]`
+
+Logs: `/tmp/real_int8dot.log`, `/tmp/real_baseline.log`.
+
 ## ENG-EXPERT-STREAM-DEVICE W0h branch force: the CUDA arm's degenerate continuation belongs to the BRANCH and not to the arm, and the W0f divergence point was transcribed wrong (2026-08-23, `dgx:gpu0`, source `ff8f728071bd5`, #1783, #1124, #1736)
 
 **Placement.** Newest-first. This sits above `QUANT-QWEN38-27B-GGUF-ARM W3`,

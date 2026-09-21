@@ -4,30 +4,56 @@ Issue: `.agents/issues/BACKEND-TENSTORRENT/ISSUE-LOCAL-01M2YXN1QEMAEY5W8QCKH76HT
 (row `BACKEND-TENSTORRENT`).
 
 Status: **ACTIVE, 2026-09-21.** Wave 1 (BFP8 weight residency, #3242) is
-merged. The A/B benchmark disproved the format-gap hypothesis; the track
-redirects to launch-overhead reduction.
+merged. The BFP8 A/B disproved the bandwidth hypothesis. The
+`VT_TT_KEEPQUANT_INT8DOT=1` A/B identified the real bottleneck (per-call
+compute) and delivered a 4.5× TPOT reduction. The remaining gap is still
+format: the int8 dot is an SFPU kernel, not a tensor-core BFP matmul.
 
 ## Now
 
-BFP8 weight residency (wave 1, #3242) is merged and measured. The A/B
-benchmark (2026-09-21) showed **zero speedup**: BFP8 warm TPOT = 35.1 s vs
-baseline warm TPOT = 35.3 s on `Qwen3.8-27B-APEX-I-Nano` (1x128->16,
-`.agents/benchmark-record.md` 2026-09-21 entry). All three runs produce the
-same 16 output tokens `[220, 17]` repeated 8 times; the all-zero logits bug
-(#3222) does not recur.
+Three A/B measurements on `Qwen3.8-27B-APEX-I-Nano` (1×128→N,
+`.agents/benchmark-record.md` 2026-09-21 entries):
 
-The roughly 1800x gap to ~50 tok/s is NOT a format gap, as the original
-draft hypothesized. It is a per-call launch-overhead gap: a single M=1 GEMV
-measures 76.5 ms, and roughly 450 GEMM calls per token at that overhead
-accounts for the full TPOT. The native tt-metal pipeline amortizes this via
-trace capture and batched GEMMs; our decode does M=1 GEMVs one at a time.
+1. **BFP8 weight residency** (wave 1, #3242): zero speedup. BFP8 warm
+   TPOT = 35.1 s vs baseline 35.3 s. The bottleneck was not weight
+   bandwidth.
 
-The next step is to trace the 76.5 ms GEMV overhead (host-side staging vs
-device launch vs actual compute), then redirect the track from format
-conversion to launch-overhead reduction. Wave 2 (BFP4 arm, KV BFP8,
-per-role split, e2e near-tie) remains owed but is deprioritized until the
-overhead trace identifies whether weight format matters at all at higher
-throughput.
+2. **`VLLM_CPP_CUDAGRAPH=1`**: no-op. Capture/replay was already enabled
+   by default for APEX 27B (`Qwen3_5ForConditionalGeneration` is an
+   evidence family in `DecodeCaptureDefaultArch`;
+   `GraphCaptureEnabled()` returns true when the env var is unset;
+   `HostFreeDecodeEnabled()` and `DecodeCaptureEnabled()` likewise
+   default on). The 35.1 s warm TPOT was already WITH capture/replay.
+
+3. **`VT_TT_KEEPQUANT_INT8DOT=1`**: **4.5× speedup.** Replaces the
+   multi-op f32 re-decode (`DecodeKeepQuantWordsF32`) with a single-kernel
+   int8 dot product (`MatmulBTQuantInt8DotKernel`).
+
+| Run | TPOT (s) | Speedup |
+|---|---:|---|
+| Baseline (W4a grouped, f32-exact) | 35.1 | 1.0× |
+| INT8DOT | 7.7 | 4.5× |
+
+Both legs drift from `[220,17]` to `[220,16]` on the synthetic ignore-eos
+input — baseline at token 25, int8-dot at token 13. Both converge to the
+same pattern. The drift is accumulated rounding, not an int8-dot-specific
+regression. Capture/replay confirmed active at runtime
+(`Qwen3_5DenseDecodeGraph::Step` in trace, capture-safe device copies).
+
+A real-prompt A/B (chat template, "Explain what gravity is in one
+sentence", 16 tokens) confirmed semantic convergence despite token-level
+divergence: 0/16 exact position matches, but tokens 4-15 of INT8DOT match
+tokens 2-13 of baseline — a 2-token shift of the same content. Both
+produce coherent text about gravity. Mean ITL: INT8DOT 7549 ms vs baseline
+49783 ms.
+
+The gap narrows from ~1800× to ~385× (7.7 s vs ~20 ms native). The
+remaining gap is still format: the int8 dot is an SFPU kernel, not a
+tensor-core BFP matmul. The next lever is BFP weight residency for the
+*decode compute* path — not for bandwidth (disproven), but to move the dot
+product from SFPU to tensor-core BFP matmul.
+
+Wave 2 (BFP4 arm, KV BFP8, per-role split, e2e near-tie) remains owed.
 
 ## Scope
 
