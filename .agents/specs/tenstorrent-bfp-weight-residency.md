@@ -3,22 +3,31 @@
 Issue: `.agents/issues/BACKEND-TENSTORRENT/ISSUE-LOCAL-01M2YXN1QEMAEY5W8QCKH76HTS.md`
 (row `BACKEND-TENSTORRENT`).
 
-Status: **DRAFT, 2026-09-13.** Spec-first: no implementation is in scope until
-this file is committed and the row moves `READY`.
+Status: **ACTIVE, 2026-09-21.** Wave 1 (BFP8 weight residency, #3242) is
+merged. The A/B benchmark disproved the format-gap hypothesis; the track
+redirects to launch-overhead reduction.
 
 ## Now
 
-The f32-exact decode stack measures ~0.028 tok/s on
-`Qwen3.8-27B-APEX-I-Nano` (B2, token-exact vs the llama.cpp `b10451` greedy
-oracle; `.agents/benchmark-record.md` 2026-09-13 entry), while Tenstorrent's
-native tt-metal pipeline reports ~50 tok/s on the same model class on one
-P150A with BFP4 weights / BFP8 KV / BF16 deltaNet state. The ~1800× gap is a
-FORMAT gap: our decode GEMMs run GGUF block-dequant plus the SFPU
-f32-exact path (ttnn matmul truncates f32 operands to tf32 on Blackhole —
-measured, and `ComputeConfig` does not lift it), while the native pipeline
-runs tensor-core matmul on BFP-typed weights where BFP precision IS the
-hardware's precision contract. No tuning pass closes this. This spec commits
-the native BFP residency path.
+BFP8 weight residency (wave 1, #3242) is merged and measured. The A/B
+benchmark (2026-09-21) showed **zero speedup**: BFP8 warm TPOT = 35.1 s vs
+baseline warm TPOT = 35.3 s on `Qwen3.8-27B-APEX-I-Nano` (1x128->16,
+`.agents/benchmark-record.md` 2026-09-21 entry). All three runs produce the
+same 16 output tokens `[220, 17]` repeated 8 times; the all-zero logits bug
+(#3222) does not recur.
+
+The roughly 1800x gap to ~50 tok/s is NOT a format gap, as the original
+draft hypothesized. It is a per-call launch-overhead gap: a single M=1 GEMV
+measures 76.5 ms, and roughly 450 GEMM calls per token at that overhead
+accounts for the full TPOT. The native tt-metal pipeline amortizes this via
+trace capture and batched GEMMs; our decode does M=1 GEMVs one at a time.
+
+The next step is to trace the 76.5 ms GEMV overhead (host-side staging vs
+device launch vs actual compute), then redirect the track from format
+conversion to launch-overhead reduction. Wave 2 (BFP4 arm, KV BFP8,
+per-role split, e2e near-tie) remains owed but is deprioritized until the
+overhead trace identifies whether weight format matters at all at higher
+throughput.
 
 ## Scope
 
@@ -187,6 +196,9 @@ row's Outcome.
 
 ## Owed
 
+- Trace the 76.5 ms per-GEMV overhead (host-side staging vs device launch vs
+  actual compute). This is the confirmed next step: BFP8 showed zero speedup
+  because per-call overhead dominates, not weight bandwidth.
 - BFP8 KV cache residency (named follow-up row).
 - BF16 deltaNet/GDN state residency confirmation against the native stack
   (named follow-up row).
@@ -198,10 +210,12 @@ row's Outcome.
 
 ## Now
 
-`DRAFT` — this spec commits the load-time BFP4/BFP8 conversion and the
-native-matmul dense decode path for the 27B forward. On commit the row
-moves `READY`; implementation starts only after the committed spec is the
-row's contract.
+Wave 1 (BFP8 weight residency) landed in #3242. The A/B benchmark
+(2026-09-21) disproved the format-gap hypothesis: BFP8 warm TPOT = 35.1 s
+matches baseline warm 35.3 s. The track redirects to launch-overhead
+reduction: trace the 76.5 ms per-GEMV overhead, then evaluate whether weight
+format matters at higher throughput. Wave 2 items (BFP4, KV BFP8, per-role
+split, e2e near-tie) remain owed under `## Owed`.
 
 ## Git integration
 

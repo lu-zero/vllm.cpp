@@ -29875,3 +29875,49 @@ throughput result against this reading. The reading refutes the async chain as a
 SUFFICIENT fix and not as a contributing one; the decision and its basis are in
 `.agents/specs/dflash2-async-spec-sampler.md` `## Stop conditions`, amended
 2026-09-06 under #3004, and this entry does not restate or revisit them.
+
+## BACKEND-TENSTORRENT 27B APEX BFP8 weight-residency A/B: zero speedup, the gap is per-call launch overhead not format (2026-09-21, P150, main @ b0dcc4044, #3242)
+
+Model: `Qwen3.8-27B-APEX-I-Nano` GGUF (IQ mix;
+`mudler-qwen3.8-27B-APEX-gguf`), Tenstorrent Blackhole P150, file mutex
+`$HOME/gpu.lock` held, `~/Sources/tt/luwen/target/release/reset` before every
+run. Env: `VT_TT_AFFINE_F32=1 VT_TT_NORM_PAD=1 VT_TT_PROGRAM_CACHE=1`. Binary:
+the `row-tt-bfp-impl` worktree build of `vllm-bench` (Sep 20, #3242 branch
+merged).
+
+`VT_TT_WEIGHT_RESIDENCY` controls weight format: `off` (default, f32-exact
+decode with GGUF block-dequant) vs `bfp8` (weights converted to BFLOAT8_B at
+staging, kept resident, bf16 x bfloat8_b matmul). All three runs use the same
+binary, same model, same prompt (128 input tokens, 16 output tokens,
+`--temperature 0 --ignore-eos --skip-chat-template`).
+
+**Correctness.** All three runs produce the same 16 output tokens:
+`[220, 17]` repeated 8 times. The all-zero logits bug (fixed by #3222) does
+not recur.
+
+| Run | Config | TPOT mean (s) | ITL median (s) | P99 ITL (s) | JIT hits |
+|---|---|---:|---:|---:|---|
+| Baseline cold (off) | 1x128->16, cold JIT | 50.8 | 35.1 | 238.2 | 0/1786 (0%) |
+| BFP8 cold | 1x128->16, cold JIT | 50.8 | 35.0 | 238.2 | 0/1803 (0%) |
+| BFP8 warm | 1x128->16, warm JIT | 35.1 | 35.0 | 36.3 | 1803/1803 (100%) |
+| Baseline warm (B2, 2026-09-13) | 1x128->64, warm JIT | 35.3 | 35.3 | 36.5 | 1751/1751 (100%) |
+
+**Result: zero speedup.** BFP8 warm TPOT (35.1 s) matches baseline warm TPOT
+(35.3 s, the 2026-09-13 B2 entry) within noise. The cold runs are also
+identical (50.8 s). BFP8 weight bandwidth savings (50% fewer weight bytes) are
+irrelevant because the bottleneck is per-call launch overhead, not data
+movement or compute precision.
+
+**Root cause.** A single M=1 BFP8 GEMV call measures 76.5 ms. The 27B decode
+issues roughly 450 GEMM calls per token (attention QKV, MLP gate/up/down, per
+layer across 48 layers, plus GDN). At 76.5 ms/call, the per-call overhead
+alone accounts for roughly 34 s/token, which dominates the 35.1 s TPOT. The
+native tt-metal pipeline amortizes this overhead across batched and large
+GEMMs and trace capture; our decode does M=1 GEMVs one at a time with no
+trace. The roughly 1800x gap to ~50 tok/s is a per-call overhead gap, NOT a
+format or precision gap.
+
+**Next step.** Trace the 76.5 ms GEMV overhead to separate host-side staging,
+device launch, and actual compute. The native stack amortizes launch overhead
+via trace capture; our decode does not. This redirects the BFP track from
+format conversion (wave 2: BFP4, KV BFP8) to launch-overhead reduction.
