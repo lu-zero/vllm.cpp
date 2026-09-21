@@ -1,14 +1,14 @@
 ID: ISSUE-LOCAL-01M3265TQ26YSVKVA1HX6E28VC
 Title: vllm-cli (C ABI path) and vllm-bench (AsyncLLM path) tokenize the same prompt differently for a bare .gguf model
 Row: BACKEND-TENSTORRENT
-State: OPEN
+State: CLOSED
 Kind: bug
 GitHub: -
 Mirror: PENDING
 Availability: FULL
 Created: 2026-09-21
 Updated: 2026-09-21
-Closed: -
+Closed: 2026-09-21
 
 ## Problem
 
@@ -16,4 +16,4 @@ For /mnt/models/ISTA-DASLab-Qwen3.8-27B-GSQ-RCO-GGUF/Qwen3.8-27B-GSQ-RCO-IQ3_XXS
 
 ## Resolution
 
--
+FALSIFIED by the tree, 2026-09-21. The 51-vs-65 comparison compared two DIFFERENT strings, not two tokenizers: the cli leg was fed the 32-word string while the bench dataset contained the 41-word genprompt text. llama-tokenize at the pin gives 51 ids for the 32-word string (byte-identical to the engine cli's ids) and 65 ids for the 41-word text (byte-identical to gsq_p0.i32). The engine tokenizer, the bench pretokenizer, and the pinned llama.cpp all agree on both strings. No defect exists; the issue was an investigation artifact of feeding different prompts to the two entry points. Evidence: /tmp/gsq41_cpu.log and /tmp/gsq41_auto.log (prompt_tokens=65 on both devices for the 41-word prompt).

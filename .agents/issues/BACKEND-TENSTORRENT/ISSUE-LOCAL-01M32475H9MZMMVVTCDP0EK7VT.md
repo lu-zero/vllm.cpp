@@ -119,3 +119,120 @@ than it looked: APEX was only ever gated at chunk-aligned prompt lengths
 Next step unchanged: instrumented layer-level probe with a CPU reference on
 the GSQ file; additionally re-establish the APEX oracle denominator (fresh
 export matching the pin, or a recorded file hash for the gate).
+
+## Evidence 6 (2026-09-21, the divergence is ENGINE-WIDE, not TT-specific)
+
+RETRACTION of parts of evidence 2 and 4: the "CPU tie-break" and the
+"cli-vs-bench tokenizer" claims compared different prompts (32-word string
+vs the 41-word genprompt text the dataset actually carries — gsq_p0.i32 is
+the byte-exact llama.cpp encoding of the 41-word text, 65 ids, verified
+with llama-tokenize at the pin). The tokenizer-defect issue
+(01M3265TQ26YSVKVA1HX6E28VC) is closed as falsified.
+
+Controlled A/B, identical input: vllm-cli with the 41-word prompt,
+`prompt_tokens=65` verified on both legs (ids byte-equal to the oracle's
+teacher-forced sequence):
+- `--device cpu` → " 1 1 1 1 1 1 1 1"
+- `--device auto` (TT) → " 1 1 1 1 1 1 1 1"
+IDENTICAL outputs. The oracle on the same 65 ids echoes prompt words
+(first token 23066; engine 220 with a 5.3-nat oracle margin).
+
+CONCLUSION: the forward divergence on the GSQ files is ENGINE-WIDE — CPU
+and TT compute the same (wrong) logits. The defect is in the shared model
+graph / weight interpretation for this file shape (64 blocks, no nextn
+head), not in any Tenstorrent kernel. Evidence 2's "TT-device-specific at
+prefill" and evidence 4's cli-tokenizer claims are retracted; the r=0.91
+first-step logit comparison (TT bench vs oracle on identical ids) stands,
+and by engine-wide agreement now describes the shared forward.
+
+Logs: /tmp/gsq41_cpu.log, /tmp/gsq41_auto.log.
+
+## Evidence 7 (2026-09-21, block-structure hypothesis dead; layer-bisect plan)
+
+The GSQ and APEX files carry IDENTICAL per-block tensor names for blocks
+0..63 (the full GGUF name diff is the blk.64 MTP head only, evidence 1), so
+a per-file GDN/attention pattern difference cannot explain the divergence.
+With evidence 6 (engine-wide) and the bf16 leg (quant kernels exonerated),
+the remaining suspects are the shared qwen35 forward itself: the delta-net
+chunked prefill math, rope, final norm, or a config key the engine
+interprets differently from llama.cpp despite equal metadata values.
+
+Layer-bisect plan (the next unit of work, needs code on both sides):
+1. Extend `oracle-dump` (our own tool against the pinned libllama) with a
+   per-layer hidden-state dump (llama.cpp's per-layer callback /
+   embeddings API at b10451).
+2. Add an equivalent per-layer dump to the engine's qwen35 forward (a
+   VT_DEBUG_LAYER_DUMP-style env on the CPU tier is enough — the defect is
+   engine-wide, so the CPU tier localizes it).
+3. Compare per-layer hidden states on identical teacher-forced input
+   (gsq_p0.i32); the first diverging layer names the component.
+
+Constraints: the APEX oracle denominator must also be restored
+(01M326DPAP4N14ZYWT1G7XEY01) before any APEX contrast is used again; the
+historical APEX gate is unverifiable against the on-disk checkpoint.
+
+## Evidence 8 (2026-09-21, ROOT CAUSE CLASS: the V-head reorder breaks a head-indexed consumer)
+
+Per-layer hidden-state bisect (oracle side: a cb_eval-based layer-dump
+against the pinned libllama; engine side: the existing VT_DUMP_ACT
+instrument, CPU tier, identical teacher-forced input gsq_p0.i32):
+
+- Post-embedding state MATCHES (rel err 0.16%, bf16 rounding).
+- Layer 0 (a GDN layer) diverges; inside the layer, `gdn_mixed` matches the
+  oracle's `linear_attn_qkv_mixed-0` exactly in the q and k blocks
+  (cos 1.0) and is WRONG only in the v block (4096:10240).
+- The v-block wrongness is a pure PERMUTATION: engine v head i ==
+  oracle v head perm[i] with cos 1.0 for all 48 heads, where
+  perm = [0,16,32,1,17,33,2,18,34,...] — the 16-strided interleave of
+  `conversion/qwen.py _reorder_v_heads`.
+- Our loader DELIBERATELY reorders V heads at load
+  (qwen3_5_gguf_weights.cpp ReorderVRows/ReorderVCols, the inverse of the
+  converter) into its own canonical order. The forward therefore has to
+  apply EVERY head-indexed consumer in the engine's canonical order too.
+  Something per-head does not follow: prime suspects are the per-head
+  dt/beta/alpha gates (ssm_a / ssm_dt / ssm_alpha / ssm_beta, 48-wide),
+  the GDN state slot layout, or the ssm_out/ffn input slices.
+- Corollary: APEX carries the same reorder and would diverge the same way
+  at these prompt shapes; the historical APEX gate result is consistent
+  only with conditions we can no longer reconstruct (see
+  01M326DPAP4N14ZYWT1G7XEY01).
+
+Tooling added (scratch, outside the repo): /tmp/lanegate-oracle/layer-dump.cpp
++ binary — per-node manifest and per-node .f32 grab against the pinned
+libllama via llama_context_params::cb_eval. Engine artifacts:
+/tmp/gsq_layers_engine (VT_DUMP_ACT, CPU tier). Oracle artifacts:
+/tmp/gsq_all_oracle, /tmp/gsq_layers_oracle, /tmp/gsq_l0_oracle.
+
+NEXT: audit every head-indexed consumer of the GDN path against the
+reorder (ssm_a/dt/alpha/beta indexing, state layout, ssm_out rows); the
+one that reads the UN-reordered order is the defect. A red-first unit test
+should pin one layer's gated output against a b10451-derived golden.
+
+## Evidence 9 (2026-09-21, SUPERSEDES evidence 8: no forward defect — bf16 accumulation vs the f32 oracle)
+
+Evidence 8's V-head root-cause claim was WRONG: the observed v-block
+permutation is the loader's by-design ReorderVRows output, and with the
+head permutation compensated EVERY layer-0 stage matches the oracle —
+conv 0.22%, qkv q/k exact, gated-vs-final_output 0.39%, residual 0.8%.
+Two analysis errors corrected: ggml node dumps read as reshape(ne[1],
+ne[0]) (a transposed read produced three false mismatches), and the
+engine's VT_DUMP_ACT pair is (branch output, residual stream), so the
+layer output is hidden+res.
+
+Correct per-layer comparison, all 64 layers: rel err grows smoothly
+0.8% (layer 0) → ~1.5% (layer 12) → ~4% (layer 32) → 6-9% (layers 36+).
+No discrete break, no stage-level divergence anywhere. The engine forward
+is a faithful bf16 mirror of the pinned f32 oracle; the first-token flip
+(the 5.3-nat margin) is accumulated bf16 activation noise on a heavily
+sub-bit-quantized model whose greedy decode sits next to the
+[220,16]-blank attractor.
+
+CONSEQUENCE: the GSQ e2e gate as written (token-exact vs the f32 b10451
+greedy oracle) cannot pass on the shipped bf16 arm — the same disposition
+problem the spec already names for IQ1_S/IQ1_M. The f32-activation arm is
+a REFUSED, owed conversion (VT_ACT_F32 aborts by design; spec
+qwen38-27b-q4km-token-exactness.md, issue #2534). Options, in the row's
+terms: (a) ratify the near-tie/distributional disposition for the GSQ e2e
+gate and record the bf16-vs-f32 gap as the named open axis, or (b) land
+the owed f32 arm and gate token-exact. A ceiling is not declared either
+way.
