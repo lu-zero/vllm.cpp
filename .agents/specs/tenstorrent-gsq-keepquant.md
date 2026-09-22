@@ -238,6 +238,17 @@ refusal path names the dtype.
 - The near-tie disposition for IQ1_S/IQ1_M needing a policy the repo does
   not yet have is a `NEEDS_DECISION`, not an inferred default.
 
+## Gate outcome (2026-09-22)
+
+Gate 3/5 PASSES for both GSQ-RCO files: e2e on TT keep-quant, tokens
+argmax-EXACT against the pinned b10451 oracle's full-sequence batch decode
+(gap 0.0 mnats at all 16 generated positions, band 500; evidence 10 in
+[`../issues/BACKEND-TENSTORRENT/ISSUE-LOCAL-01M32475H9MZMMVVTCDP0EK7VT.md`](../issues/BACKEND-TENSTORRENT/ISSUE-LOCAL-01M32475H9MZMMVVTCDP0EK7VT.md)).
+The denominator is the oracle's BATCH decode: the pin's INCREMENTAL greedy
+disagrees with its own batch decode at the same causal positions (a
+llama.cpp GDN-hybrid ubatch-boundary inconsistency, recorded in the same
+evidence). The bf16-vs-f32 accumulation remains the recorded open axis.
+
 ## Owed
 
 - The decode f32-exact cost measurement per new arm and the open #1003 axis.

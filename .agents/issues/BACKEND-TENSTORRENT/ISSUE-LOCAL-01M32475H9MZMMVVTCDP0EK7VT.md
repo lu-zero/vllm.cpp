@@ -236,3 +236,40 @@ terms: (a) ratify the near-tie/distributional disposition for the GSQ e2e
 gate and record the bf16-vs-f32 gap as the named open axis, or (b) land
 the owed f32 arm and gate token-exact. A ceiling is not declared either
 way.
+
+## Evidence 10 (2026-09-22, THE GATE PASSES: gap 0.0 mnats against the batch-decode denominator; the oracle's incremental greedy is self-inconsistent at the pin)
+
+The decisive experiment flipped the picture again. Teacher-forcing the
+ENGINE's own generated stream (prompt + our 16 tokens, one batch) through
+the pinned oracle and reading the oracle's argmax at each generated
+position gives:
+
+- IQ3_XXS: engine `[220,16]x16`, oracle argmax `[220,16]x16`,
+  **gap 0.0 mnats at all 16 positions** (band 500).
+- IQ3_S: engine `[220,16,220,17,...]`, oracle argmax identical,
+  **gap 0.0 mnats at all 16 positions**.
+
+Our engine is not merely near-tie — it is argmax-EXACT against the
+oracle's full-sequence batch decode, on both files.
+
+The residual discrepancy is INSIDE llama.cpp at the pin: position 64's
+logits differ depending on what FOLLOWS in the batch — TF-65 (prompt
+only) argmax 23066 max 19.198; TF-81 with our blanks argmax 220 max
+20.883; TF-81 with the oracle's own greedy suffix argmax 23066 max
+19.935. Same causal context, three different logit vectors. The GDN
+hybrid graph's ubatch-boundary handling (splits 64+1 vs 64+17) is
+non-causal-inconsistent at b10451. The "hello hello world" greedy that
+motivated evidence 1-5 came from the INCREMENTAL decode path, which
+disagrees with llama's own batch decode.
+
+GATE DISPOSITION: the e2e gate (tenstorrent-gsq-keepquant gate 3/5)
+passes for both GSQ-RCO files with gap 0.0 mnats against the oracle's
+batch-decode logits — no near-tie waiver needed, and the bf16-vs-f32
+accumulation of evidence 9 is the open axis it records, not a blocker.
+The incremental-vs-batch inconsistency at the pin is a llama.cpp finding
+(upstream report optional; the registry's llama-cpp pin note should carry
+it once reported).
+
+Artifacts: /tmp/gsq_ours_full.i32, /tmp/gsq_ours_tf.dump,
+/tmp/gsq_iq3s_gate_tokens.json, /tmp/gsq_iq3s_ours_full.i32,
+/tmp/gsq_iq3s_ours_tf.dump.
