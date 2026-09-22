@@ -75,3 +75,84 @@ the row's performance denominator opportunity: our ~1800×→~385× gap figures
 were computed against tt-metal's native qwen35 rate, and running OUR engine
 and THAT stack side by side on the same card is the comparison the
 benchmarking protocol has wanted all along.
+
+## Deadlock characterized (2026-09-22, faulthandler stack capture)
+
+Third attempt, with a faulthandler SIGUSR1 hook injected via
+`PYTHONPATH=/tmp/fhhook sitecustomize.py` so the SPAWNED EngineCore child
+registers it too. Stack dump at 27 minutes of silence:
+
+- The main thread is blocked inside `ttnn.as_tensor` called from
+  `models/demos/blackhole/qwen36/tt/gdn/weights.py:116 load_gdn_weights`
+  (the fused `qkv_proj.weight` [4096,8192] bf16 -> bfloat8_b TILE
+  conversion, `cache_file_name` set), during `initialize_vllm_model`.
+- EVERY thread of the EngineCore process is in `futex_do_wait` — a
+  tt-metal dispatch deadlock, not a slow compile. (Earlier "100% CPU"
+  readings were the lifetime average; instantaneous state is all-sleep.)
+- The deadlock point is NONDETERMINISTIC: attempt 1 got through weight
+  load and decode-trace compile and blocked in the 2048-token prefill
+  warmup; attempts 2 and 3 blocked earlier, during GDN weight load.
+- The tt-metal sysmem warning ("using regular pages; pre-allocate
+  hugepages") is present in every run.
+- CONTROL RESULT (evidence in the prior section): tt-metal's own
+  validated `traced_128` demo grinds identically (DEMO_EXIT=124 at 90
+  min), so the deadlock is in the tt-metal python stack on this
+  host/build — v0.79.0-dev20260911-82-g81f3bbf3b40, aarch64 — and NOT in
+  the plugin's serve path. Our own C++-dispatched engine runs the same
+  card without it.
+
+**REPRODUCED ON CURRENT MAIN (2026-09-22, later the same day):** a fresh
+clone of tt-metal main (`v0.80.0-dev20260922`, built from source with the
+aarch64 toolchain, gcc-15-built SFPI 7.80.0) hangs at the IDENTICAL spot —
+`gdn/weights.py:115 load_gdn_weights` -> `ttnn.as_tensor` (qkv_proj
+[4096,8192] bf16 -> bfloat8_b), 23 minutes, all threads futex-blocked.
+The deadlock is therefore deterministic across both tt-metal builds
+(Sep 11 dev and current main), affects the model's own weight-load code,
+and is a strong candidate for an upstream tt-metal report (aarch64 host,
+python 3.13, full stack available).
+
+REFINEMENT (same day, minimal-repro experiments): `ttnn.as_tensor` of the
+exact qkv tensor — with and without `cache_file_name` — completes in
+seconds in isolation on the same build and device. The block therefore
+requires the SERVE CONTEXT. Working hypothesis: device-DRAM allocation
+pressure — the TT worker reserves runtime memory (KV/cache profiling)
+before/at weight load, and the weight-load allocation then blocks
+indefinitely in the dispatcher instead of failing loudly. This also
+explains the nondeterministic hang points (allocation boundary moves with
+run history). Suggested upstream fix direction: make the allocation
+either reserve headroom for weights or fail with a named OOM.
+
+**SHARPEST BISECT (same day):** calling the plugin's own
+`Qwen36ForCausalLM.initialize_vllm_model(hf_config, mesh, max_batch_size=1,
+max_seq_len=2048)` DIRECTLY — same mesh device, same checkpoint, same
+loader code path — COMPLETES in ~4 minutes (weights + all conversions),
+while the same call from vLLM's TTModelLoader inside the engine blocks
+indefinitely. The defect is therefore in the vLLM INTEGRATION context
+(TTWorker device/mesh configuration or its threading around load_model),
+not in tt-metal's qwen36 model code and not in ttnn. Upstream
+vllm-tt-plugin is the right home for the report.
+
+UPSTREAM REPORT FILED 2026-09-23:
+[tenstorrent/vllm-tt-plugin#137](https://github.com/tenstorrent/vllm-tt-plugin/issues/137)
+— both defects, the in-process isolation control, the stack capture, and
+the aarch64 build fixes. The report asks for the configuration we may be
+missing (eager prefill / trace_mode setting for a single P150) and
+whether in-process mode is a supported fallback.
+
+OVERNIGHT RESULT (2026-09-23): the in-process workaround
+(`VLLM_ENABLE_V1_MULTIPROCESSING=0`) DOES dodge the spawned-EngineCore
+weight-load deadlock — the serve loads all weights and compiles the decode
+trace — but then hits a SECOND, independent tt-metal defect: the 2048-chunk
+prefill trace capture (`capture_prefill_trace_chunked`) LIVES LOCKS. The
+run sat at ~110% of one core for ELEVEN HOURS with no progress (same phase
+where tt-metal's own traced_128 demo timed out at 90 minutes). Two
+independent tt-metal aarch64 defects therefore gate the serve: (1) the
+spawned-child dispatch deadlock at weight load (worked around in-process),
+(2) the prefill trace-capture livelock (no workaround; likely trace
+capture/replay on this host/build).
+
+Practical consequence: #3261 stays blocked until either the tt-metal
+build is refreshed past the deadlock, hugepages are provisioned (needs
+root; the warning names it), or upstream (tenstorrent/vllm-tt-plugin or
+tt-metal) confirms a known fix. The stack capture above is the repro for
+that report.

@@ -29972,3 +29972,27 @@ format or precision gap.
 device launch, and actual compute. The native stack amortizes launch overhead
 via trace capture; our decode does not. This redirects the BFP track from
 format conversion (wave 2: BFP4, KV BFP8) to launch-overhead reduction.
+
+## BACKEND-TENSTORRENT: M=2 batched decode and the INT8-dot anchor band on the GSQ real prompt (2026-09-23, P150, #1003 axis)
+
+Two device measurements on the GSQ-RCO IQ3_XXS artifact with the verified
+65-token prompt (`/tmp/gsq_prompt_sharegpt.json`), default configuration
+(W4a grouped arm, f32-exact), `/tmp/row-gsq-e2e` build:
+
+| Run | M | Mean TPOT (ms) | Decode tok/s |
+|---|---|---:|---:|
+| M=1 (gate run, same build) | 1 | ~1389 | 0.72 |
+| M=2 batched | 2 | 1253 | 1.03 aggregate |
+
+**Batching 2 concurrent sequences raises aggregate decode throughput
+43%** (0.72 -> 1.03 tok/s) at a per-stream decode rate of ~0.8 tok/s.
+Both streams produce the same `[220,16]x16` blank-attractor continuation,
+consistent with the M=1 gate. Logs: `/tmp/m2_tpot.log`.
+
+INT8-dot anchor band (APEX-I-Nano, same 65-token prompt,
+`VT_TT_KEEPQUANT_INT8DOT=1`): Mean TPOT **642 ms** — the best TT decode
+number to date on this hardware, against 7.7 s at the earlier synthetic
+128-token A/B (different build and prompt shape, so not a ratio claim).
+Tokens `[220,17,220,16,...]` — same attractor family. The k-quant lever
+stays default-off pending the anchor-band adjudication; this run is the
+band input. Logs: `/tmp/int8dot_band.log`.
