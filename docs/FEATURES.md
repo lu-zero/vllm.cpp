@@ -197,6 +197,8 @@ speed-pending, which [BENCHMARKS.md](BENCHMARKS.md) tracks.
 | `LlamaModel` | landed tiny synthetic embedding fixture (engine path == direct pooler path, identical vectors; f64 LAST+normalize reference); real checkpoint (e5-mistral class) is a NAMED residual | pooling/embed only, text paths refuse by task; `vllm_embed` + `/v1/embeddings` | n/a (CPU correctness-grade embeddings) |
 | `ParakeetForCTC`, `ParakeetForRNNT`, `ParakeetForTDT` | nvidia/parakeet-ctc-0.6b/-1.1b, -rnnt-0.6b, -tdt-0.6b-v3 (transcribed, ids exact vs HF `generate()`, P4/P6 2026-08-07; not retained) + committed synthetic fold fixture | ASR transcription-only (`SupportsTranscription` mirror; text paths refuse by task); fold gate byte-identical to the pre-refactor pipeline | n/a (CPU correctness-grade ASR via `vllm_transcribe` + `/v1/audio/transcriptions`) |
 | `CohereForCausalLM` | Command-R / Cohere (and Cohere2) | scaffold: W0 tiny-random oracle run-verified; real-checkpoint gate blocked | no run |
+| `BoundaryExtractor` | `fastino/gliner2.5-multi-v1` (GLiNER2.5 zero-shot NER; POOLING model — `vllm_embed`, not generation) | gate per [spec](../.agents/specs/gliner2.5.md): entity-exact vs the `vllm-factory` oracle (e2e test `tests/vllm/models/test_gliner2_e2e.cpp`) | forward-only encoder; no decode-loop speed claim |
+| `DeepseekV41ForCausalLM` | none loadable yet | **REGISTERED AND VALIDATING; NOT LOADABLE** (W1, 2026-09-13) per [model-matrix](../.agents/model-matrix.md) and [spec](../.agents/specs/deepseek-v4-1-flash.md): the architecture resolves through the registry while the load plan is validated; no token claim | not measured |
 <!-- supported-arch-table:end -->
 
 ### Standalone and non-registered lanes

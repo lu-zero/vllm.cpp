@@ -8,12 +8,11 @@ this file is committed and the row moves `READY`.
 
 ## Now
 
-The two GSQ-RCO Qwen3.8-27B GGUF artifacts (the `IQ3_XXS`-mix and its Q4_K
-companion) do not run end-to-end on the Tenstorrent keep-quant path today:
-a third of the first file's tensors hit dtypes the TT admission set does not
-name, and each such tensor either refuses by name or falls back to
-expand-bf16 residency. This spec commits the widening that makes both files
-run on-device, keep-quant, end-to-end.
+DONE 2026-09-22. Both GSQ-RCO artifacts run on-device, keep-quant,
+end-to-end, and gate 3/5 passes: engine tokens argmax-EXACT against the
+pinned b10451 oracle's batch decode (gap 0.0 mnats, 16/16 positions, band
+500) on IQ3_XXS and IQ3_S alike — see Outcome and evidence 10 in
+[`../issues/BACKEND-TENSTORRENT/ISSUE-LOCAL-01M32475H9MZMMVVTCDP0EK7VT.md`](../issues/BACKEND-TENSTORRENT/ISSUE-LOCAL-01M32475H9MZMMVVTCDP0EK7VT.md).
 
 ## The admission chain, as verified on the tree (`a78fdba9e`)
 
@@ -248,6 +247,31 @@ The denominator is the oracle's BATCH decode: the pin's INCREMENTAL greedy
 disagrees with its own batch decode at the same causal positions (a
 llama.cpp GDN-hybrid ubatch-boundary inconsistency, recorded in the same
 evidence). The bf16-vs-f32 accumulation remains the recorded open axis.
+
+## Outcome
+
+Waves 1-5 landed #3239, #3241, #3245, #3253, #3256: the admission set and
+the int8-dot default path cover `IQ3_S`, `IQ4_XS`, `IQ2_XS`, `Q2_K`,
+`IQ1_S`, `IQ1_M`, closing the census; the golden-vector and admission-set
+unit gates ran red-first per wave.
+
+Measured and recorded: the e2e anchor run (TT, keep-quant, both files,
+16 greedy tokens) is argmax-exact against the pinned llama.cpp b10451
+oracle's full-sequence batch decode — gap 0.0 mnats at every generated
+position, ratified band 500 (evidence 10). Rejected: the token-parity
+complaint that opened the investigation was measured against the oracle's
+INCREMENTAL greedy, which disagrees with the pin's own batch decode at the
+same causal positions (llama.cpp GDN-hybrid ubatch-boundary inconsistency,
+evidence 10) — the incremental greedy is not a valid denominator for this
+architecture at this pin.
+
+Why the defaults hold their values: `VT_TT_KEEPQUANT_INT8DOT` stays
+default-off for the four k-quants (the e2e anchor band failed on one
+non-tie flip at W4b; the IQ set needs no lever because it has no grouped
+fall-through), and the bf16 activation format stays the shipped arm — the
+bf16-vs-f32 accumulation (evidence 9: smooth 0.8%->9% growth, no discrete
+break) is the recorded open axis, with the f32 conversion refused and owed
+(#2534).
 
 ## Owed
 
