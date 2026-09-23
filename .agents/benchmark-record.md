@@ -29972,3 +29972,40 @@ format or precision gap.
 device launch, and actual compute. The native stack amortizes launch overhead
 via trace capture; our decode does not. This redirects the BFP track from
 format conversion (wave 2: BFP4, KV BFP8) to launch-overhead reduction.
+
+## BACKEND-TENSTORRENT: INT8-dot anchor-band adjudication on the real prompt — both arms in-band (2026-09-23, P150)
+
+The W4b lever (`VT_TT_KEEPQUANT_INT8DOT`, default off since #3031) stayed
+default-off because its e2e lane failed the committed 500-mnat band at
+(5,7) 1125 mnats — measured against the pinned llama.cpp b10451
+INCREMENTAL greedy. The 2026-09-22 GSQ investigation (evidence 10 in
+`ISSUE-LOCAL-01M32475H9MZMMVVTCDP0EK7VT`) established that the b10451
+INCREMENTAL greedy disagrees with the pin's own full-sequence BATCH decode
+at the same causal positions — the incremental greedy is not a valid
+e2e denominator for this architecture at the pin.
+
+With the batch decode as the denominator (teacher-forced on each arm's
+own generated stream, `oracle-dump` against the pinned build), the
+APEX-I-Nano anchor prompt (65 tokens, `/tmp/gsq_p0.i32`) adjudicates:
+
+| Arm | Max gap (mnats) | In-band (500) | Mean TPOT (real prompt) |
+|---|---:|---|---:|
+| Default (W4a grouped, f32-exact) | 26.6 | 16/16 | 1253 ms |
+| INT8DOT (`VT_TT_KEEPQUANT_INT8DOT=1`) | 245.3 | 16/16 | 642 ms |
+
+Both arms stay inside the ratified band against the batch-decode
+denominator. The INT8DOT arm's max gap (245.3 mnats, at position 3) is
+9x the default arm's but inside the band; the position-1 flip the two
+arms share (engine 220,17 vs oracle incremental 220,16) measures 26.6
+mnats — a genuine tie both arms sit on the same side of by different
+amounts. The 4.5x TPOT reduction and the trace-demand shrink (-33.8%,
+W4b evidence) both stand.
+
+RECOMMENDATION recorded as NEEDS_DECISION for the owning row: the
+default-off rationale's denominator (incremental greedy) is now known
+invalid, and the batch-decode adjudication puts both arms in-band. The
+default flip is a product decision the W4b row owns; this entry is the
+band evidence it needs.
+
+Logs: `/tmp/int8dot_band.log`, `/tmp/apex_int8dot_tf.dump`,
+`/tmp/apex_ours_tf.dump`, `/tmp/apex_greedy16.dump`.
