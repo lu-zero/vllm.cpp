@@ -1731,6 +1731,7 @@ if(VLLM_CPP_TENSTORRENT)
     src/vt/tenstorrent/tenstorrent_ops.cpp
     src/vt/tenstorrent/tenstorrent_residency.cpp
     src/vt/tenstorrent/tenstorrent_keepquant.cpp
+    src/vt/tenstorrent/tenstorrent_paged.cpp
     src/vt/tenstorrent/tenstorrent_gdn.cpp)
   target_include_directories(vllm_tenstorrent_ops PRIVATE
     ${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/include ${CMAKE_SOURCE_DIR}/src)

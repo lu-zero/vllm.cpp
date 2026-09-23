@@ -650,6 +650,22 @@ ttnn::Tensor CachedTile(const void* owner, uint64_t g0, uint64_t g1, uint64_t g2
                         const std::function<std::vector<float>()>& build,
                         const ttnn::Shape& shape, MeshDevice& device);
 
+// ---- moved declarations (definitions in tenstorrent_ops.cpp; shared with the
+// paged TU) ----
+int GraphCapturesDone();
+bool ReplayRegimeBisectSkip(const char* flag);
+
+// ---- moved declarations (definitions in tenstorrent_paged.cpp) ----
+void DropPagedKvShadow(void* host);
+void ReshapeAndCacheKernel(Queue&, const Tensor& k, const Tensor& v,
+                           Tensor& k_cache, Tensor& v_cache,
+                           const Tensor& slot_mapping);
+void PagedAttentionKernel(Queue&, Tensor& out, const Tensor& query,
+                          const Tensor& k_cache, const Tensor& v_cache,
+                          const Tensor& block_table, const Tensor& seq_lens,
+                          const Tensor& query_start_loc,
+                          const PagedAttentionArgs& args);
+
 // ---- moved declarations (definitions in tenstorrent_gdn.cpp) ----
 void GdnPostConvKernel(Queue& q, Tensor& q_out, Tensor& k_out, Tensor& v_out,
                        Tensor& g_out, Tensor& beta_out, const Tensor& conv,
