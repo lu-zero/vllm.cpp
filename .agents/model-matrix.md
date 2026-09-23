@@ -113,12 +113,12 @@ Rollup by lifecycle state (must equal the detailed per-state row counts):
 | INVENTORIED | 324 |
 | PARTIAL | 23 |
 | ACTIVE | 13 |
-| SPIKE | 11 |
+| SPIKE | 12 |
 | BLOCKED | 5 |
 | DONE | 3 |
 | READY | 3 |
 | GATING | 1 |
-| **Total** | **383** |
+| **Total** | **384** |
 
 Engaged architectures (the 59 non-`INVENTORIED` rows):
 
