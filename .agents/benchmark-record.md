@@ -30009,3 +30009,24 @@ band evidence it needs.
 
 Logs: `/tmp/int8dot_band.log`, `/tmp/apex_int8dot_tf.dump`,
 `/tmp/apex_ours_tf.dump`, `/tmp/apex_greedy16.dump`.
+
+## BACKEND-TENSTORRENT: GDN decode step microbench A/B — composed vs chunked fused (2026-09-23, P150)
+
+The `TT_GDN_BENCH=1` opt-in microbench (`kGdnDecode step microbench`),
+decode shape B=8 single-token sequences, GQA 2:8, Dk=Dv=128, 50 timed
+steps, `/tmp/build-tt-q2k` (branch carrying the IQ1 waves):
+
+| Arm (`VT_TT_GDN_DECODE`) | ms/step | State traffic |
+|---|---:|---|
+| composed (default, unset) | **1.45325** | h2d=0 d2h=0 (state bytes=4194304) |
+| chunked (T=1 fused call) | 2.79553 | h2d=0 d2h=0 |
+
+The composed arm is **1.9x faster per step** than the chunked fused call
+at this shape. Both arms move ZERO state bytes across the timed window —
+the persistent GDN state buffer re-proves residency under load (the
+bench's own second purpose). The f32 GDN decode step cost at the 27B
+decode shape is therefore ~1.45 ms on the composed default arm; the
+remaining per-layer decode cost against the llama.cpp-comparable floor
+stays the #1003 open axis.
+
+Logs: `/tmp/gdn_bench.log`, `/tmp/gdn_bench_chunked.log`.
