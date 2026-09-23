@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <execinfo.h>
+#include <functional>
 #include <limits>
 #include <map>
 #include <mutex>
@@ -539,6 +540,132 @@ void DropDecodedWeightShadow(void* host);
 void DropGroupedActShadow(void* host);
 void CommitDeviceLogical2D(Tensor& out, ttnn::Tensor dev, uint32_t rows,
                            uint32_t cols);
+
+// ---- BACKEND-TENSTORRENT-GDN W2: GDN state/conv-shadow traffic counters ----
+// Written by the GDN decode / cache-I/O kernels at every state upload,
+// download and decode step; read through the tenstorrent_device.h API so the
+// no-per-token round-trip claim is asserted by evidence, not assumed.
+inline std::atomic<uint64_t>& GdnStateH2dBytes() {
+  static std::atomic<uint64_t> v{0};
+  return v;
+}
+inline std::atomic<uint64_t>& GdnStateD2hBytes() {
+  static std::atomic<uint64_t> v{0};
+  return v;
+}
+inline std::atomic<uint64_t>& GdnDecodeSteps() {
+  static std::atomic<uint64_t> v{0};
+  return v;
+}
+
+// ---- GDN decode idx-derived device constants (BACKEND-TENSTORRENT-GDN-DEVICE-PURE)
+// The captured decode step may not cross PCIe in-region (trace capture
+// refuses enqueue_write and enqueue_read alike), so every tensor derived
+// from the state-slot indices — the x-scatter ids, the out-row gather ids,
+// the conv roll blend masks, the ssm one-hot, the split-block scatter ids —
+// is a persistent cache keyed by the INDEX CONTENT plus geometry. An eager
+// step refreshes the entry when the content changed (the same single upload
+// the inline path already paid); the captured step requires the entry to
+// match its indices. Decode slots are stable across a sequence's steps, so
+// the captured graph serves the entry the cold step warmed; a slot change
+// goes through the eager boundary lane, which resets the graph and re-warms
+// (the spec's bake-and-recapture clause). Precedent: RacIdxCache (content
+// refreshed outside capture) and the rope cos/sin content-identity reuse
+// check.
+inline std::mutex& GdnIdxCacheMutex() {
+  static std::mutex m;
+  return m;
+}
+struct GdnIdxCacheEntry {
+  std::vector<int32_t> idx;  // content identity
+  bool warmed_conv = false;
+  bool warmed_gdn = false;
+  // causal_conv1d_update arms:
+  ttnn::Tensor idx_scatter;  // [nd] u32 — indexed_fill bid for the x scatter
+  ttnn::Tensor idx_rows;     // [nd, C] u32 TILE — broadcast row ids for the
+                             // dim-0 out-row gather (ConvGatherIdx shape rule:
+                             // the index's last dim spans the input's)
+  ttnn::Tensor zeros_rc;     // [slots, C] f32 TILE — the x-scatter base
+  ttnn::Tensor mv, mk;       // [1, R] f32 TILE — roll restore/keep masks
+  // gdn_decode arms:
+  ttnn::Tensor oh;           // [nd*sf, slots*sf] f32 TILE — ssm one-hot gather
+  ttnn::Tensor scatter_bid;  // [nd*sf] u32 ROW_MAJOR — split-block scatter ids
+};
+inline std::map<std::array<uint64_t, 3>, GdnIdxCacheEntry>& GdnIdxCacheMap() {
+  static std::map<std::array<uint64_t, 3>, GdnIdxCacheEntry>* c =
+      new std::map<std::array<uint64_t, 3>, GdnIdxCacheEntry>();  // never destroyed (#1486)
+  return *c;
+}
+
+// ---- conv weight/bias tiles and constant ids -------------------------------
+// Weights are immutable across steps, so the [taps, R] / [1, R] tiles are
+// built once per (tensor, geometry) and served from the cache in-region; an
+// upload during capture is an enqueue_write the trace refuses. The builder
+// reads HOST weight bytes, which stay current for the model's lifetime. The
+// cached HOST content is kept and compared (the rope cos/sin discipline): a
+// test allocator can hand the next case the same address with different
+// values, and a pointer key alone would serve the previous case's tile.
+struct ConvTileEntry {
+  std::vector<float> host;  // content identity
+  ttnn::Tensor dev;
+};
+inline std::mutex& ConvTileCacheMutex() {
+  static std::mutex m;
+  return m;
+}
+inline std::map<std::array<uint64_t, 4>, ConvTileEntry>& ConvTileCacheMap() {
+  static std::map<std::array<uint64_t, 4>, ConvTileEntry>* c =
+      new std::map<std::array<uint64_t, 4>, ConvTileEntry>();  // never destroyed (#1486)
+  return *c;
+}
+
+// ---- moved declarations (definitions in tenstorrent_ops.cpp; shared with the
+// GDN TU) ----
+void CommitHost(Tensor& out);
+ttnn::Tensor DeviceRows(const Tensor& t, uint32_t rows, uint32_t cols,
+                        MeshDevice& device);
+ttnn::Tensor UploadTensor(std::vector<float> host, const ttnn::Shape& shape,
+                          ttnn::DataType dtype, ttnn::Layout layout,
+                          MeshDevice& device);
+ttnn::Tensor UploadIdxU32(std::vector<uint32_t> host, const ttnn::Shape& shape,
+                           ttnn::Layout layout, MeshDevice& device);
+ttnn::Tensor GatherRowsExact(const ttnn::Tensor& cache2d,
+                             const std::vector<int32_t>& idx, int64_t cols,
+                             MeshDevice& device);
+ttnn::Tensor ScatterRowsDevice(const ttnn::Tensor& cache2d,
+                               const ttnn::Tensor& bid_dev,
+                               const ttnn::Tensor& rows2d, int64_t slots,
+                               int64_t cols, int64_t factor);
+ttnn::Tensor ScatterRowsExact(const ttnn::Tensor& cache2d,
+                              const std::vector<int32_t>& idx,
+                              const ttnn::Tensor& rows2d, int64_t slots,
+                              int64_t cols, int64_t factor, MeshDevice& device);
+std::vector<int32_t> ReadIdxHost(const Tensor& idx, int64_t slots, const char* op,
+                                 bool allow_null);
+ttnn::Tensor ServeActF32(const Tensor& t, uint32_t rows, uint32_t cols,
+                         const char* what, MeshDevice& device);
+bool ServePostConvAB(const Tensor& t, uint32_t rows, uint32_t cols,
+                     ttnn::Tensor& out);
+ttnn::Tensor CachedTile(const void* owner, uint64_t g0, uint64_t g1, uint64_t g2,
+                        const std::function<std::vector<float>()>& build,
+                        const ttnn::Shape& shape, MeshDevice& device);
+
+// ---- moved declarations (definitions in tenstorrent_gdn.cpp) ----
+void GdnPostConvKernel(Queue& q, Tensor& q_out, Tensor& k_out, Tensor& v_out,
+                       Tensor& g_out, Tensor& beta_out, const Tensor& conv,
+                       const Tensor& araw, const Tensor& braw,
+                       const Tensor& a_log, const Tensor& dt_bias,
+                       const L2NormArgs& args);
+void GdnPrefillKernel(Queue&, Tensor& out, const Tensor& q_in, const Tensor& k_in,
+                      const Tensor& v_in, const Tensor& g, const Tensor& beta,
+                      Tensor& state, const Tensor& qsl, const GdnArgs& args);
+void GdnDecodeKernel(Queue&, Tensor& out, const Tensor& q_in, const Tensor& k,
+                     const Tensor& v, const Tensor& g, const Tensor& beta,
+                     Tensor& state, const Tensor* state_idx, const GdnArgs& args);
+void GdnStateGatherKernel(Queue&, Tensor& working, const Tensor& cache,
+                          const Tensor& state_idx, const Tensor* has_initial_state);
+void GdnStateScatterKernel(Queue&, Tensor& cache, const Tensor& working,
+                           const Tensor& state_idx);
 
 // ---- BACKEND-TENSTORRENT-QWEN35 W4 (#2107): bulk staging counters ----
 std::atomic<uint64_t>& StagingBulkUploads();
