@@ -137,7 +137,7 @@ by #2794 (goldens predate the pin) and #2817 (the advance).
 The supported set is exactly what the C++ registry registers: every
 architecture self-registers via `REGISTER_VLLM_MODEL`, and
 `scripts/check-supported-models.py` gates this list against the source so it
-cannot drift. Today that is **44 registered architectures**. Each row names the
+cannot drift. Today that is **48 registered architectures**. Each row names the
 checkpoint it was gated against and the verdict; caveats are in
 [Project status](../README.md#project-status), agent detail in `.agents/model-matrix.md`. A mergeable
 gate/up MLP routes through one shared merged-GEMM method, so a tuned arm added
@@ -198,6 +198,8 @@ speed-pending, which [BENCHMARKS.md](BENCHMARKS.md) tracks.
 | `ParakeetForCTC`, `ParakeetForRNNT`, `ParakeetForTDT` | nvidia/parakeet-ctc-0.6b/-1.1b, -rnnt-0.6b, -tdt-0.6b-v3 (transcribed, ids exact vs HF `generate()`, P4/P6 2026-08-07; not retained) + committed synthetic fold fixture | ASR transcription-only (`SupportsTranscription` mirror; text paths refuse by task); fold gate byte-identical to the pre-refactor pipeline | n/a (CPU correctness-grade ASR via `vllm_transcribe` + `/v1/audio/transcriptions`) |
 | `CohereForCausalLM` | Command-R / Cohere (and Cohere2) | scaffold: W0 tiny-random oracle run-verified; real-checkpoint gate blocked | no run |
 | `BoundaryExtractor` | `fastino/gliner2.5-multi-v1` (GLiNER2.5 zero-shot NER; POOLING model — `vllm_embed`, not generation) | gate per [spec](../.agents/specs/gliner2.5.md): entity-exact vs the `vllm-factory` oracle (e2e test `tests/vllm/models/test_gliner2_e2e.cpp`) | forward-only encoder; no decode-loop speed claim |
+| `CuaS1Forms` | `trycua/cua-s1-forms` (2.8 MB, f32 throughout; legacy `.pt` unused) | 8 golden tests / 48 assertions generated from the pinned PyTorch oracle `trycua/cua` @`9bbfa7dd3e27ca7f1861ede70aaca390174493f9` (#3265): byte tokenization, forward, probabilities, winner + confidence; `/v1/score` server dispatch on its default configuration. CUDA build verification OWED (spec Phase 5) | not measured |
+| `LayaModel` | `convaiinnovations/laya` (ModernBERT-large encoder + transformer decision head; F16 stored, F32 at load) | 17 tests (4 encoder + 4 head + 9 tokenizer/collator) with generated goldens vs the Laya Python reference (#3263); `/v1/systemone` dispatch reuses the GLiNER2.5 lane. Answer-exact e2e vs the Python oracle per [spec](../.agents/specs/laya.md) is OWED | not measured |
 | `DeepseekV41ForCausalLM` | none loadable yet | **REGISTERED AND VALIDATING; NOT LOADABLE** (W1, 2026-09-13) per [model-matrix](../.agents/model-matrix.md) and [spec](../.agents/specs/deepseek-v4-1-flash.md): the architecture resolves through the registry while the load plan is validated; no token claim | not measured |
 <!-- supported-arch-table:end -->
 

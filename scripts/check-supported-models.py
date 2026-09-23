@@ -59,7 +59,7 @@ REGISTER_RE = re.compile(
 # the self-check below fails loudly rather than silently dropping it.
 ARCH_TOKEN_RE = re.compile(
     r"`([A-Za-z0-9_]+(?:For(?:CausalLM|ConditionalGeneration|CTC|RNNT|TDT)"
-    r"|Model|Extractor))`"
+    r"|Model|Extractor|Forms))`"
 )
 
 

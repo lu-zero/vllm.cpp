@@ -111,6 +111,15 @@ class DriftTests(unittest.TestCase):
         text = _features(TWO + ["`Gliner2Extractor`"])
         self.assertEqual(chk.supported_models_errors(registered, text), [])
 
+    def test_forms_suffix_registered_arch_passes_self_check(self) -> None:
+        # The cua-s1-forms registration (#3265) is a bare *Forms arch. It landed
+        # without widening ARCH_TOKEN_RE, so the shipped self-check dropped it
+        # from the comparison and then flagged it missing from FEATURES; the
+        # suffix joins Extractor so the arch is compared, never dropped.
+        registered = REGISTERED | {"CuaS1Forms"}
+        text = _features(TWO + ["`CuaS1Forms`"])
+        self.assertEqual(chk.supported_models_errors(registered, text), [])
+
     def test_unrepresentable_registered_arch_fails_the_self_check(self) -> None:
         # A registered string the FEATURES arch-token pattern cannot express must
         # surface as an error, never be silently excluded from the comparison.
