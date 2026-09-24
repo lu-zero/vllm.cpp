@@ -8,6 +8,84 @@
 #include "vllm/config/tt_weight_residency.h"
 
 namespace vt::tenstorrent {
+namespace {
+void DropEmbedTableShadow(void* host) {
+  if (host == nullptr) return;
+  std::lock_guard<std::mutex> g(EmbedTableMutex());
+  EmbedTableShadows().erase(reinterpret_cast<uintptr_t>(host));
+}
+
+}  // namespace
+
+ttnn::Tensor EnsureEmbedTableDevice(const Tensor& table, MeshDevice& device) {
+  VT_CHECK(table.rank == 2 && table.IsContiguous(), "EnsureEmbedTable: rank-2 contiguous");
+  const uint32_t vocab = static_cast<uint32_t>(table.shape[0]);
+  const uint32_t h = static_cast<uint32_t>(table.shape[1]);
+  {
+    std::lock_guard<std::mutex> g(EmbedTableMutex());
+    auto it = EmbedTableShadows().find(reinterpret_cast<uintptr_t>(table.data));
+    if (it != EmbedTableShadows().end() && it->second.device.has_value() &&
+        it->second.vocab == vocab && it->second.h == h) {
+      return *it->second.device;
+    }
+  }
+  EnsureHost(table);
+  std::vector<float> host_table = ToHostF32(table);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-UP] EnsureEmbedTableDevice from_vector WRITE during capture\n");
+  AllocTraceSnapshot(device, "EnsureEmbedTableDevice/pre");
+  ttnn::Tensor dev_table = ttnn::Tensor::from_vector<float>(
+      host_table,
+      SpecOf(tt::tt_metal::Shape({vocab, h}), ttnn::DataType::BFLOAT16, ttnn::Layout::ROW_MAJOR),
+      &device);
+  std::lock_guard<std::mutex> g(EmbedTableMutex());
+  EmbedTableShadow& s = EmbedTableShadows()[reinterpret_cast<uintptr_t>(table.data)];
+  s.device = dev_table;
+  s.vocab = vocab;
+  s.h = h;
+  AllocTraceSnapshot(device, "EnsureEmbedTableDevice/post");
+  return dev_table;
+}
+
+
+// Upload a rank-1 affine vector as TILE BFLOAT16 [1, d], caching on the weight's
+// host buffer slot so RmsNorm/LayerNorm do not re-upload every layer call.
+// ttnn's TILE-gamma path requires padded height == tile_height (32); from_vector
+// with TILE pads a [1,d] tensor to that.
+ttnn::Tensor EnsureAffine1D(const Tensor& t, uint32_t d, MeshDevice& device) {
+  VT_CHECK(t.rank == 1 && t.IsContiguous() && t.shape[0] == static_cast<int64_t>(d),
+           "tenstorrent EnsureAffine1D: rank-1 [d] contiguous");
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(t.data);
+    // Hit only for the BASE pointer (same interior-view hazard as
+    // EnsureDevice2D — a differently-offset rank-1 view must not consume the
+    // base's staged affine).
+    if (s != nullptr && t.data == s->host && s->device_current &&
+        s->device.has_value() && s->dev_rows == 1 && s->dev_cols == d) {
+      return *s->device;
+    }
+  }
+  EnsureHost(t);
+  std::vector<float> host(d);
+  for (uint32_t i = 0; i < d; ++i) host[i] = LoadElemF32(t, i);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-UP] EnsureAffine1D from_vector WRITE during capture\n");
+  ttnn::Tensor dev = ttnn::Tensor::from_vector<float>(
+      host, SpecOf(tt::tt_metal::Shape({1, d}), ttnn::DataType::BFLOAT16, ttnn::Layout::TILE),
+      &device);
+  std::lock_guard<std::mutex> g(SlotMutex());
+  BufferSlot* s = FindSlot(t.data);
+  if (s != nullptr && t.data == s->host) {
+    s->device = dev;
+    s->dev_rows = 1;
+    s->dev_cols = d;
+    s->device_current = true;
+    s->host_current = true;
+    s->device_reserved = false;  // real bytes staged — the reservation is spent
+  }
+  return dev;
+}
 
 ttnn::Tensor ZeroCacheGet(const ttnn::Shape& shape, ttnn::DataType dt,
                           ttnn::Layout lt, MeshDevice& device) {
@@ -818,6 +896,816 @@ void CommitDeviceLogical2D(Tensor& out, ttnn::Tensor dev, uint32_t rows, uint32_
   s->host_current = false;
   s->conv_transposed = false;  // logical [rows, cols] — oracle layout
   s->device_reserved = false;  // real bytes committed — the reservation is spent
+}
+
+
+
+// Llama-3 frequency rescale (cpu_ops Llama3ScaleFreq); no-op when scaling_factor
+// is unset. Kept so Qwen3 / Llama rope paths share one host implementation.
+double Llama3ScaleFreq(double freq, const RopeArgs& a) {
+  const double sf = static_cast<double>(a.llama3_scaling_factor);
+  if (!(sf > 0.0)) return freq;
+  constexpr double kTwoPi = 6.283185307179586476925286766559;
+  const double lo = static_cast<double>(a.llama3_low_freq_factor);
+  const double hi = static_cast<double>(a.llama3_high_freq_factor);
+  const double omax = static_cast<double>(a.llama3_orig_max_position);
+  const double low_freq_wavelen = omax / lo;
+  const double high_freq_wavelen = omax / hi;
+  const double wave_len = kTwoPi / freq;
+  double smooth = 0.0;
+  if (lo != hi) smooth = (omax / wave_len - lo) / (hi - lo);
+  if (wave_len < high_freq_wavelen) return freq;
+  if (wave_len > low_freq_wavelen) return freq / sf;
+  return (1.0 - smooth) * freq / sf + smooth * freq;
+}
+
+// Expand per-token cos|sin [T, half] to per-(token,head) [T*H, half] for a
+// device NeoX apply over the flat [T*H, D] view of qs/ks.
+void ExpandCosSinPerHead(const float* cos_t, const float* sin_t, int64_t tokens,
+                         int64_t heads, int64_t half, std::vector<float>& cos_exp,
+                         std::vector<float>& sin_exp) {
+  cos_exp.resize(static_cast<size_t>(tokens * heads * half));
+  sin_exp.resize(static_cast<size_t>(tokens * heads * half));
+  for (int64_t t = 0; t < tokens; ++t) {
+    for (int64_t h = 0; h < heads; ++h) {
+      const size_t dst = static_cast<size_t>((t * heads + h) * half);
+      const size_t src = static_cast<size_t>(t * half);
+      std::memcpy(cos_exp.data() + dst, cos_t + src, static_cast<size_t>(half) * sizeof(float));
+      std::memcpy(sin_exp.data() + dst, sin_t + src, static_cast<size_t>(half) * sizeof(float));
+    }
+  }
+}
+
+// Build per-token cos|sin from RopeNeox frequencies (double angles, f32 store).
+void BuildCosSinFromPositions(const Tensor& pos, int64_t tokens, int rot, double base,
+                              const RopeArgs& args, std::vector<float>& cos_t,
+                              std::vector<float>& sin_t) {
+  EnsureHost(pos);
+  const int64_t half = rot / 2;
+  cos_t.resize(static_cast<size_t>(tokens * half));
+  sin_t.resize(static_cast<size_t>(tokens * half));
+  for (int64_t t = 0; t < tokens; ++t) {
+    const int64_t p =
+        pos.dtype == DType::kI32 ? pos.Ptr<int32_t>()[t] : pos.Ptr<int64_t>()[t];
+    for (int64_t i = 0; i < half; ++i) {
+      double freq = std::pow(base, -2.0 * static_cast<double>(i) / static_cast<double>(rot));
+      freq = Llama3ScaleFreq(freq, args);
+      const double angle = static_cast<double>(p) * freq;
+      cos_t[static_cast<size_t>(t * half + i)] = static_cast<float>(std::cos(angle));
+      sin_t[static_cast<size_t>(t * half + i)] = static_cast<float>(std::sin(angle));
+    }
+  }
+}
+
+
+std::atomic<int64_t>& LastTraceBytes() {
+  static std::atomic<int64_t> v{0};
+  return v;
+}
+int64_t LastTraceBytesForTest() {
+  return LastTraceBytes().load(std::memory_order_relaxed);
+}
+
+// W4a wave-3b-1 residency-policy probes — the contract lives in
+// tenstorrent_device.h. Each reads its map under its own mutex; a nullptr or
+// absent host reads false. Defined OUTSIDE the anonymous namespace (the
+// wave-3a hook pattern): a -Werror=unused-function TU would reject an
+// anonymous-namespace helper no other file-local code calls.
+bool EmbedTableShadowPresentForTest(const void* host) {
+  if (host == nullptr) return false;
+  std::lock_guard<std::mutex> g(EmbedTableMutex());
+  return EmbedTableShadows().find(reinterpret_cast<uintptr_t>(host)) !=
+         EmbedTableShadows().end();
+}
+
+// ---- Called from TenstorrentBackend::Alloc/Free/Copy (no ttnn in that TU). ----
+
+void RegisterHostBuffer(void* host, size_t bytes) {
+  if (host == nullptr) return;
+  std::lock_guard<std::mutex> g(SlotMutex());
+  if (std::getenv("VT_TT_SLOT_TRACE") != nullptr)
+    std::fprintf(stderr, "[TT-SLOT] register %p bytes=%zu\n", host, bytes);
+  BufferSlot s;
+  s.host = host;
+  s.bytes = bytes;
+  s.host_current = true;
+  s.device_current = false;
+  Slots()[reinterpret_cast<uintptr_t>(host)] = std::move(s);
+}
+
+void UnregisterHostBuffer(void* host) {
+  if (host == nullptr) return;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    if (std::getenv("VT_TT_SLOT_TRACE") != nullptr)
+      std::fprintf(stderr, "[TT-SLOT] unregister %p\n", host);
+    Slots().erase(reinterpret_cast<uintptr_t>(host));
+  }
+  DropPagedKvShadow(host);
+  DropEmbedTableShadow(host);
+  DropDecodedWeightShadow(host);
+  DropKeepQuantWordShadow(host);
+  DropGroupedActShadow(host);
+}
+
+void MarkHostWritten(void* host) {
+  if (host == nullptr) return;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(host);
+    if (s != nullptr) {
+      s->host_current = true;
+      s->device_current = false;
+      s->device = std::nullopt;
+      s->conv_transposed = false;
+      s->device_reserved = false;  // real bytes now — the upload contract applies
+    }
+  }
+  // Weight tables may be rewritten in place during load — drop embed cache.
+  DropEmbedTableShadow(host);
+  // ... and the PACKED word shadow: a weight re-staged in place must not keep
+  // serving the pre-rewrite words (same in-place-load hazard as the embed twin).
+  DropKeepQuantWordShadow(host);
+}
+
+void MarkScratchAcquired(void* host) {
+  if (host == nullptr) return;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(host);
+    if (s != nullptr) {
+      // The state MarkHostWritten registers, plus the W7 reservation: the
+      // bytes on BOTH sides belong to the previous tenant. host_current stays
+      // true so host reads behave exactly as before (stale bytes served);
+      // only the first device stage is gated.
+      s->host_current = true;
+      s->device_current = false;
+      s->device = std::nullopt;
+      s->conv_transposed = false;
+      s->device_reserved = true;
+    }
+  }
+  // Same drop MarkHostWritten performed for every caller — a pool block must
+  // never serve a stale embed-table staging either.
+  DropEmbedTableShadow(host);
+}
+
+// TRUSTED dump (BACKEND-TENSTORRENT-QWEN35 W2c measurement reset): whole
+// tensors only, typed header, DUAL-READ verified. Two independent
+// Synchronize+Copy passes must agree byte-for-byte or the file records
+// verified=0 (a mismatch means residency state changed under us and the
+// payload must not be trusted). File layout: magic 'TDMP', dtype u32,
+// rank u32, dims[4] u32, numel u64, verified u8, payload.
+void TrustDump(Queue& q, const char* dir, const char* name, const Tensor& t) {
+  static std::atomic<uint64_t> seq{0};
+  // Defense-in-depth refresh (review finding F2, #1715): Backend::Copy below
+  // already runs EnsureHostBytes on the source before its memcpy, so this
+  // entry call is redundant today; it is kept explicit because TrustDump's
+  // contract ("the payload reflects current truth") must not depend on a
+  // copy-path implementation detail elsewhere.
+  EnsureHostBytes(t.data);
+  const size_t bytes = static_cast<size_t>(t.Numel()) * vt::SizeOf(t.dtype);
+  std::vector<uint8_t> a(bytes), b(bytes);
+  Backend& tb = GetBackend(DeviceType::kTENSTORRENT);
+  tb.Synchronize(q);
+  tb.Copy(q, a.data(), t.data, bytes);
+  tb.Synchronize(q);
+  tb.Copy(q, b.data(), t.data, bytes);
+  tb.Synchronize(q);
+  const bool verified = (a == b);
+  uint32_t dims[4] = {0, 0, 0, 0};
+  for (int i = 0; i < t.rank && i < 4; ++i)
+    dims[i] = static_cast<uint32_t>(t.shape[i]);
+  char hdr[48];
+  const uint32_t magic = 0x504D4454;  // 'TDMP'
+  const uint32_t dt = static_cast<uint32_t>(t.dtype);
+  const uint32_t rk = static_cast<uint32_t>(t.rank);
+  const uint64_t numel = static_cast<uint64_t>(t.Numel());
+  const uint8_t ver = verified ? 1 : 0;
+  std::memcpy(hdr, &magic, 4);
+  std::memcpy(hdr + 4, &dt, 4);
+  std::memcpy(hdr + 8, &rk, 4);
+  std::memcpy(hdr + 12, dims, 16);
+  std::memcpy(hdr + 28, &numel, 8);
+  std::memcpy(hdr + 36, &ver, 1);
+  const uint64_t sid = seq.fetch_add(1, std::memory_order_relaxed);
+  std::FILE* f = std::fopen(
+      (std::string(dir) + "/" + std::to_string(sid) + "_" + name + ".tdmp").c_str(),
+      "wb");
+  if (f != nullptr) {
+    std::fwrite(hdr, 1, 40, f);
+    if (verified) std::fwrite(a.data(), 1, bytes, f);
+    std::fclose(f);
+  }
+}
+
+
+std::vector<float> DebugDeviceReadbackF32(Queue& q, const Tensor& t) {
+  (void)q;
+  MeshDevice& device = SharedMeshDevice();
+  ttnn::Tensor dev = EnsureDevice2D(t, device);
+  std::vector<float> v = dev.to_vector<float>();
+  return v;
+}
+
+void EnsureHostBytes(void* host) {
+  if (host == nullptr) return;
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr && tt_capture_active())
+    std::fprintf(stderr, "[TT-TRACE] EnsureHostBytes DURING CAPTURE\n");
+  ttnn::Tensor dev;
+  size_t bytes = 0;
+  void* base = nullptr;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(host);
+    if (s == nullptr || s->host_current) return;
+    VT_CHECK(s->device_current && s->device.has_value(),
+             "tenstorrent: EnsureHostBytes with no current device data");
+    dev = *s->device;
+    bytes = s->bytes;
+    base = s->host;
+  }
+  std::vector<float> result = dev.to_vector<float>();
+  const size_t n = result.size();
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(host);
+    if (s == nullptr || s->host_current) return;
+    if (s->conv_transposed) {
+      // Time-major shadow -> oracle [slots, C, sl] byte order.
+      const uint32_t slots = s->conv_slots, Cc = s->conv_c, sl = s->conv_sl;
+      const uint32_t R = slots * Cc;
+      const int64_t numel = static_cast<int64_t>(slots) * Cc * sl;
+      if (bytes >= static_cast<size_t>(numel) * sizeof(float)) {
+        auto* dst = static_cast<float*>(base);
+        for (int64_t i = 0; i < numel; ++i) {
+          const int64_t j = i % sl, rc = i / sl;
+          dst[i] = result[static_cast<size_t>(j * R + rc)];
+        }
+      } else if (bytes >= static_cast<size_t>(numel) * sizeof(uint16_t)) {
+        auto* dst = static_cast<uint16_t*>(base);
+        for (int64_t i = 0; i < numel; ++i) {
+          const int64_t j = i % sl, rc = i / sl;
+          dst[i] = F32ToBF16(result[static_cast<size_t>(j * R + rc)]);
+        }
+      } else {
+        VT_CHECK(false, "tenstorrent: EnsureHostBytes host buffer too small");
+      }
+      s->host_current = true;
+      return;
+    }
+    // Device results are f32 via to_vector. Host Alloc is typically
+    // numel*sizeof(float) (tests/f32 path) or numel*2 (bf16 activations).
+    if (bytes >= n * sizeof(float)) {
+      std::memcpy(base, result.data(), n * sizeof(float));
+    } else if (bytes >= n * sizeof(uint16_t)) {
+      auto* dst = static_cast<uint16_t*>(base);
+      for (size_t i = 0; i < n; ++i) dst[i] = F32ToBF16(result[i]);
+    } else {
+      VT_CHECK(false, "tenstorrent: EnsureHostBytes host buffer too small");
+    }
+    s->host_current = true;
+  }
+}
+
+// ITEM 5: persistent zero tensors, created OUTSIDE capture (ttnn::zeros
+// host-fills + to_device()s = an enqueue_write, illegal during trace capture).
+// EnsureDevice2D primes the cache during the eager warmup so the captured
+// res.Zero finds its entry and replays a warm device->device ttnn::copy.
+
+// HOST-FREE-FORWARD R2: device->device copy when capturing, so Backend::Copy
+// does not to_vector inside the captured region. Both dst and src must carry a
+// current device shadow of equal byte size; dst's shadow becomes a copy of src.
+// The byte volume a shadow's LOGICAL shape holds, or 0 for a dtype this
+// contract does not cover (conservative: the D2D copy then declines and the
+// host path runs).
+static size_t ShadowLogicalBytes(const ttnn::Tensor& t) {
+  const auto dt = t.dtype();
+  size_t esz = 0;
+  if (dt == ttnn::DataType::FLOAT32)
+    esz = 4;
+  else if (dt == ttnn::DataType::BFLOAT16)
+    esz = 2;
+  if (esz == 0) return 0;
+  uint64_t vol = 1;
+  const auto ds = t.logical_shape();
+  for (uint32_t i = 0; i < ds.rank(); ++i) vol *= ds[i];
+  return static_cast<size_t>(vol) * esz;
+}
+
+ bool CopyDeviceDeviceIfCapture(void* dst, const void* src, size_t bytes) {
+  // Run the device->device copy when EITHER capturing OR in host-free-decode
+  // mode (the env opt-in). The latter is essential so the EAGER warmup step
+  // (which the decode-graph framework runs BEFORE capture) also exercises
+  // ttnn::empty+ttnn::copy, compiling those programs into the cache so the
+  // subsequent capture doesn't hit "Cannot load new binaries during trace
+  // capture." Read LIVE, not cached in a static: the inertness-guard case in
+  // test_tenstorrent_backend unsets the env mid-process and must observe the
+  // decline, and a suite run under an ambient flag must not pin the armed
+  // behavior for cases that unset it.
+  const bool host_free = HostFreeDecodeEnabled();
+  if (!tt_capture_active() && !host_free) return false;
+  static bool once = [&] {
+    // Enable program cache once on the first host-free path use — ttnn trace
+    // requires every captured op to be program-cache-warm.
+    MeshDevice& device = SharedMeshDevice();
+    device.enable_program_cache();
+    return true;
+  }();
+  (void)once;
+  ttnn::Tensor src_dev;
+  size_t copy_bytes = 0;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(const_cast<void*>(src));
+    BufferSlot* d = FindSlot(dst);
+    if (s == nullptr || !s->device_current || !s->device.has_value()) return false;
+    if (d == nullptr) return false;
+    // The Copy contract is `bytes`, NOT slot capacity. The registered
+    // s->bytes / d->bytes are the HOST blocks' pool capacities, and the
+    // best-fit lend (#1922) hands a DBuf a block from a LARGER size class:
+    // Qwen3-4B #1625 capture staged s.hidden ([1,2560] bf16 = 5120 B) in a
+    // 10240-B block lent from the prefill K/V class while the working copy
+    // landed on an exactly-5120-B block. Capacity equality declined, the
+    // host-path fallthrough issued a D2H read mid-capture, and tt-metal
+    // TT_FATALs ("Reads are not supported during trace capture"). The content
+    // contract is the SRC SHADOW's logical volume — the tensor the clone
+    // reproduces — which must hold exactly the bytes this Copy names.
+    if (ShadowLogicalBytes(*s->device) != bytes) return false;
+    src_dev = *s->device;
+    copy_bytes = bytes;
+  }
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr) {
+    void* bt[8];
+    const int nbt = ::backtrace(bt, 8);
+    char** sym = ::backtrace_symbols(bt, nbt);
+    std::fprintf(stderr,
+                 "[TT-TRACE] device->device copy (capture-safe) dst=%p src=%p "
+                 "bytes=%zu frames=%d\n",
+                 dst, src, copy_bytes, nbt);
+    for (int i = 1; sym != nullptr && i < nbt; ++i)
+      std::fprintf(stderr, "[TT-TRACE]   bt[%d]=%p %s\n", i, bt[i], sym[i]);
+    std::fflush(stderr);
+    std::free(sym);
+  }
+  MeshDevice& device = SharedMeshDevice();
+  // Allocate a destination device tensor matching src's shape/dtype/layout,
+  // then copy. No host readback.
+  ttnn::Tensor cloned = ttnn::empty(src_dev.logical_shape(), src_dev.dtype(),
+                                    src_dev.layout(), &device,
+                                    src_dev.memory_config());
+  cloned = ttnn::copy(src_dev, cloned);
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* d = FindSlot(dst);
+    if (d == nullptr) return false;
+    // The shadow just installed is SRC-shaped, and equal byte size does not
+    // mean equal geometry: the record must name the served geometry, or a
+    // later stage at dst's recorded exact geometry would hit the fast path
+    // and be handed a wrongly-shaped tensor. The capture lane mirrors the
+    // eager device-resident arm (#2294).
+    const auto ds = src_dev.logical_shape();
+    d->device = std::move(cloned);
+    d->dev_rows = static_cast<uint32_t>(ds[0]);
+    d->dev_cols = static_cast<uint32_t>(ds[1]);
+    d->device_current = true;
+    d->host_current = false;
+    d->device_reserved = false;  // real bytes installed — reservation spent
+  }
+  StagingAvoidedDeviceCopy().fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
+// HOST-FREE-FORWARD R3: on-device fill (for DBuf::Zero -> Backend::Memset)
+// when host-free decode is active, so no host write happens inside capture.
+// Reinterprets the buffer as a 2D [rows, cols] f32 tensor matching the
+// existing device shadow's numel (zeros is the only value the forward uses).
+bool MemsetDeviceIfCapture(void* p, int value, size_t bytes) {
+  // Live read for the same reason as CopyDeviceDeviceIfCapture above.
+  const bool host_free = HostFreeDecodeEnabled();
+  if (!tt_capture_active() && !host_free) return false;
+  if (value != 0) return false;  // only zero-fill is handled on-device
+  // Need an existing shadow to know shape/dtype; or allocate from the slot.
+  std::optional<ttnn::Tensor> dev;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(p);
+    if (s != nullptr && s->device_current && s->device.has_value()) {
+      dev = *s->device;
+    }
+  }
+  std::optional<ttnn::Tensor> fresh;
+  if (!dev.has_value()) {
+    // HOST-FREE-FORWARD R4 (#1105): a brand-new buffer (registered at Alloc,
+    // no device tensor yet) still takes the device lane. res.Zero at the top
+    // of the captured layer region must leave the slot device-resident, or
+    // the first EnsureDevice2D(*residual) restages from the recycled slot's
+    // persistent buffer — an enqueue_write, which trace capture fatals on
+    // (fd_mesh_command_queue.cpp:760).
+    // bf16-only, the same polarity as the W7 reservation arm: the geometry
+    // is derived from the registered byte size, which is dtype-unambiguous
+    // only for 2-byte elements.
+    // CAPTURE-ONLY: an eager fresh-slot zero keeps the host fallback. The
+    // byte size does not name a dtype (the f32 KV masters share these pool
+    // blocks), so serving one eagerly would install a wrongly-typed shadow;
+    // inside the capture the write is banned and the buffer is scratch whose
+    // every consumer reads on device, which is what makes the guess safe.
+    // The capture-time zero still finds its tensor: the cold step's
+    // EnsureDevice2D restage primed the zero at this exact spec
+    // (ZeroCachePrime) and the copy program is warm from the eager copy
+    // lane — ZeroCacheGet refuses a capture-time miss by design.
+    if (!tt_capture_active()) {
+      // Prime the zero-cache AND warm the copy program for this spec during
+      // eager warmup: the capture-time lane runs ttnn::copy(zero_src, *fresh)
+      // whose CopyDeviceOperation hash is shape-specific, so a copy never
+      // executed during warmup is not in the program cache and trace capture
+      // fatals on the missing binary. Also prime ZeroCacheGet for the
+      // [1, cols] bf16 TILE spec — a fresh-slot memset whose geometry never
+      // staged (the 27B bench: a 20480-B res.Zero → [1,10240] bf16 TILE)
+      // would miss mid-capture.
+      if (bytes > 0 && (bytes % 2) == 0) {
+        uint32_t cols = static_cast<uint32_t>(bytes / 2);
+        MeshDevice& md = SharedMeshDevice();
+        md.enable_program_cache();
+        auto shape = ttnn::Shape({1u, cols});
+        ZeroCachePrime(shape, ttnn::DataType::BFLOAT16,
+                       ttnn::Layout::TILE, md);
+        ttnn::Tensor zero_src = ZeroCacheGet(
+            shape, ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, md);
+        ttnn::Tensor tmp = ttnn::empty(shape, ttnn::DataType::BFLOAT16,
+                                       ttnn::Layout::TILE, &md,
+                                       ttnn::MemoryConfig{});
+        ttnn::copy(zero_src, tmp);
+      }
+      return false;
+    }
+    MeshDevice& device_fresh = SharedMeshDevice();
+    device_fresh.enable_program_cache();
+    uint32_t cols = 0;
+    {
+      std::lock_guard<std::mutex> g(SlotMutex());
+      BufferSlot* s = FindSlot(p);
+      if (s == nullptr) return false;  // untracked buffer: host memset
+      // The MEMSET's byte count names the geometry, not the slot's
+      // registered capacity: the #1922 best-fit lend hands a DBuf a block
+      // from a larger class (Qwen3-4B #1625: a fresh [1,2560] bf16 res got
+      // a 10240-B block), and cols derived from capacity staged a
+      // [1,5120] zero whose key no warm step primed — a zero-cache miss
+      // VT_CHECK-fails mid-capture. Requested bytes are the contract, the
+      // same shadow-volume rule the D2D copy lane above now applies.
+      if (bytes == 0 || (bytes % 2) != 0) return false;
+      cols = static_cast<uint32_t>(bytes / 2);
+      if (s->persistent.has_value() && s->persist_rows == 1 &&
+          s->persist_cols == cols) {
+        // Recycled staging: zero the persistent buffer IN PLACE — the device
+        // address stays stable across steps, which is what lets the captured
+        // zero-copy replay against the same buffer.
+        fresh = *s->persistent;
+      }
+    }
+    if (!fresh.has_value()) {
+      fresh = ttnn::empty(ttnn::Shape({1u, cols}), ttnn::DataType::BFLOAT16,
+                          ttnn::Layout::TILE, &device_fresh,
+                          ttnn::MemoryConfig{});
+      std::lock_guard<std::mutex> g(SlotMutex());
+      if (BufferSlot* s = FindSlot(p)) {
+        // W5 semantics: the allocation becomes the slot's persistent buffer,
+        // so the next zero reuses the same device address.
+        s->persistent = fresh;
+        s->persist_rows = 1;
+        s->persist_cols = cols;
+      }
+    }
+    ttnn::Tensor zero_src = ZeroCacheGet(*fresh, device_fresh);
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] device zero-fill (fresh slot %p cols=%u)\n",
+                   p, cols);
+    ttnn::Tensor z = ttnn::copy(zero_src, *fresh);
+    (void)z;
+    {
+      std::lock_guard<std::mutex> g(SlotMutex());
+      BufferSlot* s = FindSlot(p);
+      if (s == nullptr) return false;
+      s->device = *fresh;
+      s->dev_rows = 1;
+      s->dev_cols = cols;
+      s->device_current = true;
+      s->host_current = false;
+      s->conv_transposed = false;
+      s->device_reserved = false;  // real zeros installed — reservation spent
+    }
+    return true;
+  }
+  MeshDevice& device = SharedMeshDevice();
+  const ttnn::Tensor& shadow = *dev;
+  // ITEM 5: ttnn::zeros/full is NOT capture-safe — full_impl host-fills and
+  // to_device()s (creation.cpp:52-71), i.e. an enqueue_write that ttnn trace
+  // fatals on. The plugin pattern instead: keep PERSISTENT zero tensors
+  // (created outside capture, at warmup) and ttnn::copy one onto the target —
+  // a device->device program that is captured/replayed like any other warm op.
+  ttnn::Tensor zero_src = ZeroCacheGet(shadow, device);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr, "[TT-TRACE] device zero-fill (capture-safe)\n");
+  // Copy the persistent zero onto the shadow IN PLACE (keeps the shadow's
+  // device address stable — the whole point of persistent buffers).
+  ttnn::Tensor z = ttnn::copy(zero_src, shadow);
+  (void)z;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(p);
+    if (s == nullptr) return false;
+    s->device_current = true;
+    s->host_current = false;
+    s->device_reserved = false;  // real zeros installed — reservation spent
+  }
+  return true;
+}
+
+// BACKEND-TENSTORRENT-QWEN35 W7 (#2282): the EAGER zero-fill. Outside capture
+// (the capture lane is MemsetDeviceIfCapture above), a FULL-slot memset(0) of
+// a device-resident slot fills the shadow on-device and KEEPS it: the caller
+// still memsets the host bytes, so both sides hold zeros and the next device
+// read serves the shadow instead of restaging the zeros. Zero is the only
+// value handled — memset writes byte patterns, and only the all-zero pattern
+// is a valid value in every dtype the shadows use.
+bool MemsetDeviceFill(void* p, int value, size_t bytes) {
+  if (value != 0) return false;
+  if (tt_capture_active()) return false;  // capture-unsafe refusals keep semantics
+  std::optional<ttnn::Tensor> dev;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(p);
+    if (s == nullptr || !s->device_current || !s->device.has_value()) return false;
+    if (s->bytes != bytes) return false;  // a partial memset keeps the host path
+    dev = *s->device;
+  }
+  MeshDevice& device = SharedMeshDevice();
+  ttnn::Tensor zero_src = ZeroCacheGet(*dev, device);
+  // In place into the slot's owning shadow — shared TensorAttributes carry the
+  // write, the shadow's device address stays stable.
+  ttnn::Tensor z = ttnn::copy(zero_src, *dev);
+  (void)z;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(p);
+    if (s == nullptr) return false;
+    s->device_current = true;  // shadow KEPT; the caller zeroes the host bytes
+    s->host_current = true;
+    s->device_reserved = false;  // real zeros installed — reservation spent
+  }
+  StagingAvoidedMemset().fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
+// BACKEND-TENSTORRENT-QWEN35 W7 (#2282): the EAGER device->device copy.
+// Outside capture (the capture lane is CopyDeviceDeviceIfCapture above), a
+// copy whose SOURCE shadow is current and whose destination already owns a
+// persistent buffer goes device->device: the host path would download the
+// source, memcpy, drop the destination's shadow, and re-upload the same bytes
+// on the next device read. A destination WITHOUT a persistent buffer is a
+// host reader's buffer (d2h readback, dump) and keeps the host path. Base
+// pointers only: FindSlot resolves interior views to the base slot, and a
+// sub-range copy is not served by a whole-shadow copy.
+bool CopyDeviceDeviceIfResident(void* dst, const void* src, size_t bytes) {
+  if (tt_capture_active()) return false;
+  ttnn::Tensor src_dev;
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* s = FindSlot(const_cast<void*>(src));
+    BufferSlot* d = FindSlot(dst);
+    if (s == nullptr || !s->device_current || !s->device.has_value()) return false;
+    if (d == nullptr || s->host != src || d->host != dst) return false;
+    // Same shadow-volume contract as the capture lane above: slot bytes are
+    // HOST BLOCK CAPACITY (the #1922 best-fit lend pads it), not the content
+    // the shadow holds. The clone must reproduce exactly `bytes`.
+    if (d->bytes < bytes) return false;
+    if (ShadowLogicalBytes(*s->device) != bytes) return false;
+    if (!d->persistent.has_value()) return false;
+    src_dev = *s->device;
+  }
+  MeshDevice& device = SharedMeshDevice();
+  ttnn::Tensor cloned = ttnn::empty(src_dev.logical_shape(), src_dev.dtype(),
+                                    src_dev.layout(), &device,
+                                    src_dev.memory_config());
+  cloned = ttnn::copy(src_dev, cloned);
+  {
+    std::lock_guard<std::mutex> g(SlotMutex());
+    BufferSlot* d = FindSlot(dst);
+    if (d == nullptr) return false;
+    // The shadow just installed is SRC-shaped, and equal byte size does not
+    // mean equal geometry: the record must name the served geometry, or a
+    // later stage at dst's recorded exact geometry would hit the fast path
+    // and be handed a wrongly-shaped tensor.
+    const auto ds = src_dev.logical_shape();
+    d->device = std::move(cloned);
+    d->dev_rows = static_cast<uint32_t>(ds[0]);
+    d->dev_cols = static_cast<uint32_t>(ds[1]);
+    d->device_current = true;
+    d->host_current = false;
+    d->device_reserved = false;  // real bytes installed — reservation spent
+  }
+  StagingAvoidedDeviceCopy().fetch_add(1, std::memory_order_relaxed);
+  return true;
+}
+
+
+// ITEM 5 (rope): driver-side warm hook. The decode-graph driver calls this
+// for the step's (padded) positions BEFORE BeginCapture — the exact
+// SizeSlot::Refresh slot in qwen3.cpp — so the persistent cos/sin tensors
+// are populated outside capture and the captured rope cache-HITs on content.
+// hq/hk select the expanded layouts to warm; base/args must match RopeNeox.
+void WarmRopeCosSin(const int32_t* positions, int64_t tokens, int64_t hq,
+                    int64_t hk, int64_t rot, double base) {
+  if (!HostFreeDecodeEnabled()) return;
+  MeshDevice& device = SharedMeshDevice();
+  std::vector<float> cos_t, sin_t;
+  Tensor pos = Tensor::Contiguous(const_cast<int32_t*>(positions), DType::kI32,
+                                  Device{DeviceType::kTENSTORRENT, 0}, {tokens});
+  const RopeArgs no_scale{};  // plain rope only on the warm path
+  BuildCosSinFromPositions(pos, tokens, rot, base, no_scale, cos_t, sin_t);
+  // Byte-exact with what the captured rope reads: the per-step cos|sin CACHE
+  // stores f32-built values into a BF16 tensor (RopeCosSinCacheKernel's
+  // StoreElemF32 rounds), and the rope-side gather reads them back. Round the
+  // warm content through the same bf16 round-trip so the content-HIT
+  // comparison is exact.
+  for (auto& v : cos_t) v = BF16ToF32(F32ToBF16(v));
+  for (auto& v : sin_t) v = BF16ToF32(F32ToBF16(v));
+  auto warm_one = [&](int64_t heads) {
+    std::vector<float> ce, se;
+    ExpandCosSinPerHead(cos_t.data(), sin_t.data(), tokens, heads, rot / 2, ce, se);
+    const uint32_t thu = static_cast<uint32_t>(tokens * heads);
+    const uint32_t halfu = static_cast<uint32_t>(rot / 2);
+    std::lock_guard<std::mutex> g(RopeCSMutex());
+    auto& c = RopeCSCache();
+    const std::string k = RopeCSKey(thu, halfu);
+    auto it = c.find(k);
+    if (it == c.end()) {
+      RopeCSEntry e;
+      e.cos = UploadRows(ce.data(), thu, halfu, device);
+      e.sin = UploadRows(se.data(), thu, halfu, device);
+      e.cos_host = ce;
+      c[k] = std::move(e);
+    } else if (it->second.cos_host != ce) {
+      // In-place CONTENT refresh of the SAME device tensors: a captured rope
+      // op reads the address recorded at capture time, so replacing the
+      // tensors here would leave every replay reading the capture-step
+      // cos/sin (stale positions). The host tensors are built with the
+      // identical bf16 TILE spec so copy_to_device writes byte-matching
+      // data. Legal here: the driver calls this outside capture.
+      // VT_TT_NO_ROPE_REFRESH: stall bisection only — skip the per-step H2D
+      // copies AFTER the first capture (stale cos/sin on replays, numerically
+      // wrong, mechanics test only).
+      if (ReplayRegimeBisectSkip("VT_TT_NO_ROPE_REFRESH")) return;
+      ttnn::Tensor cos_h = ttnn::Tensor::from_vector<float>(
+          ce, TileSpecOf(thu, halfu), nullptr);
+      ttnn::Tensor sin_h = ttnn::Tensor::from_vector<float>(
+          se, TileSpecOf(thu, halfu), nullptr);
+      ttnn::copy_to_device(cos_h, it->second.cos);
+      ttnn::copy_to_device(sin_h, it->second.sin);
+      it->second.cos_host = ce;
+    }
+  };
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr, "[TT-TRACE] WarmRopeCosSin tokens=%lld hq=%lld hk=%lld"
+                 " rot=%lld first_pos=%d cos_first=%f\n",
+                 (long long)tokens, (long long)hq, (long long)hk,
+                 (long long)rot, (int)positions[0],
+                 cos_t.empty() ? -1.0f : cos_t.front());
+  warm_one(hq);
+  warm_one(hk);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr) {
+    std::lock_guard<std::mutex> g(RopeCSMutex());
+    for (auto& [k, e] : RopeCSCache())
+      std::fprintf(stderr, "[TT-TRACE] warm stored key=%s first=%f n=%zu\n",
+                   k.c_str(), e.cos_host.empty() ? -1.0f : e.cos_host.front(),
+                   e.cos_host.size());
+  }
+}
+
+// kAttnQkNormRopeGate's per-step cos|sin table: the dense decode-graph driver
+// calls this EVERY step (capture + replay), outside capture, with the same
+// positions vector the in-region RopeCosSinCacheKernel refill reads, so the
+// captured fused preamble serves a table matching this step (WarmRopeCosSin's
+// populate-outside/content-HIT-inside pattern; the SizeSlot::Refresh shape).
+// Byte-exactness: RopeCosSinCacheKernel stores plain f32 (no bf16 round-trip
+// needed — the DBuf is kF32), and BuildCosSinFromPositions carries the same
+// double-pow + Llama3ScaleFreq math the kernel inlines.
+void WarmAttnCosSin(const int32_t* positions, int64_t tokens, int64_t rot,
+                      double base) {
+  if (!HostFreeDecodeEnabled()) return;
+  if (rot <= 0 || (rot % 2) != 0 || tokens < 1) return;
+  Tensor pos = Tensor::Contiguous(const_cast<int32_t*>(positions), DType::kI32,
+                                    Device{DeviceType::kTENSTORRENT, 0}, {tokens});
+  std::vector<float> cos_t, sin_t;
+  BuildCosSinFromPositions(pos, tokens, static_cast<int>(rot), base, RopeArgs{},
+                             cos_t, sin_t);
+  const int64_t half = rot / 2;
+  std::vector<float> table(static_cast<size_t>(tokens) * rot);
+  for (int64_t i = 0; i < tokens; ++i) {
+    for (int64_t j = 0; j < half; ++j) {
+      table[static_cast<size_t>(i) * rot + j] =
+          cos_t[static_cast<size_t>(i) * half + j];
+      table[static_cast<size_t>(i) * rot + half + j] =
+          sin_t[static_cast<size_t>(i) * half + j];
+    }
+  }
+  const uint32_t tu = static_cast<uint32_t>(tokens);
+  const uint32_t rotu = static_cast<uint32_t>(rot);
+  const std::string dbg_key = AttnCSKey(tu, rotu);
+  std::lock_guard<std::mutex> g(AttnCSMutex());
+  auto& c = AttnCSCache();
+  const std::string k = dbg_key;
+  auto it = c.find(k);
+  if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+    std::fprintf(stderr,
+                 "[TT-TRACE] WarmAttnCosSin tokens=%lld rot=%lld key=%s "
+                 "found=%d first=%f\n",
+                 (long long)tokens, (long long)rot, k.c_str(),
+                 it != c.end() ? 1 : 0,
+                 table.empty() ? -1.0f : table.front());
+  if (it == c.end()) {
+    AttnCSEntry e;
+    e.cs_host = table;
+    e.cs = UploadTensor(std::move(table), ttnn::Shape({tu, rotu}),
+                          ttnn::DataType::FLOAT32, ttnn::Layout::TILE,
+                          SharedMeshDevice());
+    c[k] = std::move(e);
+  } else if (it->second.cs_host != table) {
+    // In-place content refresh of the SAME device tensor: a captured op reads
+    // the address recorded at capture time, so replacing the tensor would
+    // strand every replay on the capture-step positions. Legal here — the
+    // driver calls this outside capture.
+    // Same f32 TILE spec the entry was uploaded with (TileSpecOf is the BF16
+    // rope-cache spec — a dtype mismatch here is a TT_FATAL in copy_to_device).
+    ttnn::Tensor h = ttnn::Tensor::from_vector<float>(
+        table,
+        SpecOf(tt::tt_metal::Shape({tu, rotu}), ttnn::DataType::FLOAT32,
+               ttnn::Layout::TILE),
+        nullptr);
+    ttnn::copy_to_device(h, it->second.cs);
+    it->second.cs_host = std::move(table);
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr)
+      std::fprintf(stderr, "[TT-TRACE] WarmAttnCosSin REFRESHED key=%s\n",
+                   k.c_str());
+  }
+}
+
+// Serveability query for the transposed conv-state shadow: mirrors the
+// EnsureConvStateTransposed fast path READ-ONLY (no download, no upload), so
+// the decode driver can gate capture/replay on it outside capture. A
+// prefill-bearing step's ssm/cache role transition (GdnStateGather) clears
+// the shadow and replaces the slot's device tensor; decode must then run the
+// step eagerly — which rebuilds the shadow — before any graph may capture or
+// replay against the buffer again.
+bool ConvShadowServeable(const void* conv_state_data, int64_t slots,
+                         int64_t conv_dim, int64_t state_len) {
+  std::lock_guard<std::mutex> g(SlotMutex());
+  BufferSlot* s = FindSlot(const_cast<void*>(conv_state_data));
+  if (s == nullptr) return false;
+  const uint32_t uslots = static_cast<uint32_t>(slots);
+  const uint32_t uc = static_cast<uint32_t>(conv_dim);
+  const uint32_t usl = static_cast<uint32_t>(state_len);
+  return s->device_current && s->device.has_value() && s->conv_transposed &&
+         s->conv_slots == uslots && s->conv_c == uc && s->conv_sl == usl &&
+         s->device->dtype() == ttnn::DataType::FLOAT32 &&
+         s->device->layout() == ttnn::Layout::TILE &&
+         s->device->logical_shape()[0] == usl + 1 &&
+         s->device->logical_shape()[1] == uslots * uc;
+}
+
+// ---- BACKEND-TENSTORRENT-QWEN35 W4 (#2107): staging counters ----
+// Readers for the tenstorrent_device.h API; the increment sites live with the
+// staging paths in the anonymous namespace above.
+StagingStats GetStagingStats() {
+  StagingStats s;
+  s.uploads_bulk_bf16 = StagingBulkUploads().load(std::memory_order_relaxed);
+  s.staged_bulk_bf16_bytes = StagingBulkBytes().load(std::memory_order_relaxed);
+  s.staged_f32_elems = StagingF32Elems().load(std::memory_order_relaxed);
+  s.uploads_persistent_bf16 =
+      StagingPersistentWrites().load(std::memory_order_relaxed);
+  s.uploads_persistent_allocs =
+      StagingPersistentAllocs().load(std::memory_order_relaxed);
+  s.staged_persistent_bf16_bytes =
+      StagingPersistentBytes().load(std::memory_order_relaxed);
+  s.stages_avoided_reservation =
+      StagingAvoidedReservation().load(std::memory_order_relaxed);
+  s.stages_avoided_device_memset =
+      StagingAvoidedMemset().load(std::memory_order_relaxed);
+  s.stages_avoided_device_copy =
+      StagingAvoidedDeviceCopy().load(std::memory_order_relaxed);
+  return s;
+}
+
+void ResetStagingStats() {
+  StagingBulkUploads().store(0, std::memory_order_relaxed);
+  StagingBulkBytes().store(0, std::memory_order_relaxed);
+  StagingF32Elems().store(0, std::memory_order_relaxed);
+  StagingPersistentWrites().store(0, std::memory_order_relaxed);
+  StagingPersistentAllocs().store(0, std::memory_order_relaxed);
+  StagingPersistentBytes().store(0, std::memory_order_relaxed);
+  StagingAvoidedReservation().store(0, std::memory_order_relaxed);
+  StagingAvoidedMemset().store(0, std::memory_order_relaxed);
+  StagingAvoidedDeviceCopy().store(0, std::memory_order_relaxed);
 }
 
 }  // namespace vt::tenstorrent

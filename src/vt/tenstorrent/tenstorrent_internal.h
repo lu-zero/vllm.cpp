@@ -699,6 +699,36 @@ void GdnStateGatherKernel(Queue&, Tensor& working, const Tensor& cache,
                           const Tensor& state_idx, const Tensor* has_initial_state);
 void GdnStateScatterKernel(Queue&, Tensor& cache, const Tensor& working,
                            const Tensor& state_idx);
+// Split stage 6: these kernels moved verbatim from tenstorrent_ops.cpp into
+// tenstorrent_gdn.cpp (L2Norm/RmsNormGated/CausalConv1d*) and the staging
+// helpers into tenstorrent_residency.cpp; ops.cpp keeps the Registrar.
+void L2NormKernel(Queue&, Tensor& out, const Tensor& x, const L2NormArgs& args);
+void RmsNormGatedKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& gate,
+                        const Tensor& weight, const RmsNormGatedArgs& args);
+void CausalConv1dFwdKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& w,
+                           const Tensor* bias, Tensor& conv_state,
+                           const Tensor& qsl, const Tensor& his,
+                           const CausalConv1dArgs& args);
+void CausalConv1dUpdateKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& w,
+                              const Tensor* bias, Tensor& conv_state,
+                              const Tensor* conv_state_indices,
+                              const CausalConv1dArgs& args);
+ttnn::Tensor EnsureEmbedTableDevice(const Tensor& table, MeshDevice& device);
+ttnn::Tensor EnsureAffine1D(const Tensor& t, uint32_t d, MeshDevice& device);
+bool ServeDeviceShadowRaw(const Tensor& t, uint32_t rows, uint32_t cols,
+                          ttnn::Tensor& out);
+bool ServeDeviceWindow(const Tensor& t, uint32_t rows, uint32_t cols,
+                       ttnn::Tensor& out);
+ttnn::Tensor NormalizeDevF32Tile(ttnn::Tensor x, uint32_t rows, uint32_t cols);
+ttnn::Tensor CachedRepeatIdx(uint64_t t, uint64_t heads, uint64_t half,
+                             MeshDevice& device);
+double Llama3ScaleFreq(double freq, const RopeArgs& a);
+void ExpandCosSinPerHead(const float* cos_t, const float* sin_t, int64_t tokens,
+                         int64_t heads, int64_t half, std::vector<float>& cos_exp,
+                         std::vector<float>& sin_exp);
+void BuildCosSinFromPositions(const Tensor& pos, int64_t tokens, int rot, double base,
+                              const RopeArgs& args, std::vector<float>& cos_t,
+                              std::vector<float>& sin_t);
 
 // ---- BACKEND-TENSTORRENT-QWEN35 W4 (#2107): bulk staging counters ----
 std::atomic<uint64_t>& StagingBulkUploads();
