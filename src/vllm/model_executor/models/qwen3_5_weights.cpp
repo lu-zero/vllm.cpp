@@ -1859,14 +1859,18 @@ bool HasQwen3_5MoeVisionTower(const std::vector<SafetensorsFile>& shards) {
   return false;
 }
 
-multimodal::Qwen3VLVisionConfig Qwen3_5MoeVisionConfig(const HfConfig& config) {
+// The tower geometry for a Qwen3.5 conditional-generation checkpoint, shared by
+// BOTH arms (full argument in qwen3_5_weights.h, above the two public wrappers).
+multimodal::Qwen3VLVisionConfig Qwen3_5FamilyVisionConfig(
+    const HfConfig& config) {
   multimodal::Qwen3VLVisionConfig v;
   v.hidden_size = 1152;
   v.num_heads = 16;
   v.depth = 27;
   v.intermediate_size = 4304;
   // The merger writes straight into the text residual stream, so the tower's
-  // output width IS the text hidden size (2048 on Qwen3.6-35B-A3B).
+  // output width IS the text hidden size (2048 on the 35B MoE, 5120 on the 27B
+  // dense) — the ONE field the two arms disagree on.
   v.out_hidden_size = config.hidden_size;
   v.patch_size = 16;
   v.temporal_patch_size = 2;
@@ -1876,6 +1880,37 @@ multimodal::Qwen3VLVisionConfig Qwen3_5MoeVisionConfig(const HfConfig& config) {
   v.deepstack_visual_indexes = {};  // NO DeepStack on this family.
   v.norm_eps = 1e-6f;
   return v;
+}
+
+multimodal::Qwen3VLVisionConfig Qwen3_5MoeVisionConfig(const HfConfig& config) {
+  return Qwen3_5FamilyVisionConfig(config);
+}
+
+multimodal::Qwen3VLVisionConfig Qwen3_5DenseVisionConfig(const HfConfig& config) {
+  return Qwen3_5FamilyVisionConfig(config);
+}
+
+bool HasQwen3_5DenseVisionTower(const std::vector<SafetensorsFile>& shards) {
+  // Identical probe to the MoE arm's: the tower prefix is a FAMILY property
+  // (`model.visual.*` on every Qwen3.5 *ForConditionalGeneration checkpoint),
+  // not an arm property.
+  return HasQwen3_5MoeVisionTower(shards);
+}
+
+multimodal::Qwen3VLVisionWeights LoadQwen3_5DenseVision(
+    const std::vector<SafetensorsFile>& shards, const HfConfig& config) {
+  VT_CHECK(HasQwen3_5DenseVisionTower(shards),
+           "qwen3_5 dense vision: this checkpoint carries NO `model.visual.*` "
+           "tensors, so it has no vision tower and cannot answer an image or "
+           "video prompt. A Qwen3.5-family *ForConditionalGeneration checkpoint "
+           "publishes its tower as `model.visual.patch_embed.proj.{weight,bias}`,"
+           " `model.visual.pos_embed.weight`, `model.visual.blocks.<0..depth-1>."
+           "{norm1,norm2,attn.qkv,attn.proj,mlp.linear_fc1,mlp.linear_fc2}."
+           "{weight,bias}` and `model.visual.merger.*` (333 tensors on "
+           "Mia-AiLab/Qwen3.8-27B-EXL3-3.5bpw). Load the vision-inclusive repo; "
+           "text-only repos declare `vision_config` but ship no `visual.*` "
+           "weights.");
+  return LoadQwen3VLVisionWeights(shards, Qwen3_5DenseVisionConfig(config));
 }
 
 multimodal::Qwen3VLVisionWeights LoadQwen3_5MoeVision(

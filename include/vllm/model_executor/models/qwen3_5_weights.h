@@ -1509,6 +1509,28 @@ multimodal::Qwen3VLVisionWeights LoadQwen3_5MoeVision(
 // route to the text-only path deliberately instead of discovering the refusal.
 bool HasQwen3_5MoeVisionTower(const std::vector<SafetensorsFile>& shards);
 
+// ── MODEL-QWEN35-DENSE-VL-EXL3: the DENSE arm's vision tower. ────────────────
+// Upstream composes the SAME `Qwen3_VisionTransformer` on
+// `Qwen3_5ForConditionalGeneration` as on the MoE arm (pinned vLLM
+// `qwen3_5.py`), over the same 333 `model.visual.*` tensors. So these mirror
+// the MoE wrappers above onto the dense arm through the SAME shared
+// `LoadQwen3VLVisionWeights` reader — no second tower — and the geometry is
+// one family builder (`Qwen3_5FamilyVisionConfig`) the two wrappers share. The
+// dense 27B arm is already token-gated on this tower at image 32/32 +
+// video 32/32; what this row adds is the LOADER SEAM the dense loader never
+// had, so the EXL3 27B checkpoint's `model.visual.*` tensors stop being
+// silently unread.
+multimodal::Qwen3VLVisionConfig Qwen3_5DenseVisionConfig(const HfConfig& config);
+
+// Load the dense arm's vision tower from the SAME shards the text backbone
+// came from. REFUSES BY NAME when the checkpoint carries no `model.visual.*`
+// tensor at all — the identical refusal discipline the MoE wrapper applies.
+multimodal::Qwen3VLVisionWeights LoadQwen3_5DenseVision(
+    const std::vector<SafetensorsFile>& shards, const HfConfig& config);
+
+// True iff any shard carries a `model.visual.` tensor (the family probe).
+bool HasQwen3_5DenseVisionTower(const std::vector<SafetensorsFile>& shards);
+
 // THE STAGING POLICY. The three declarations below decide ONE question: do this
 // model's dense weights get a true device copy, or do they keep the retag above?
 //

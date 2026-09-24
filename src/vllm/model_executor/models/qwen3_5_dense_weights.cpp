@@ -882,7 +882,11 @@ GdnLayerWeights LoadQwen3_5DenseGdn(const TensorResolver& get,
 }
 
 bool IsQwen27QuantizedLinear(const std::string& name) {
-  // Never quantized regardless of suffix (notes §3.6 `ignore`).
+  // Never quantized regardless of suffix (notes §3.6 `ignore`). The
+  // `model.visual.` exemption is the vision tower the EXL3 27B ships UNQUANTIZED
+  // beside its trellis text arm — unquantized-but-required, and since
+  // MODEL-QWEN35-DENSE-VL-EXL3 actually LOADED by `LoadQwen3_5Dense` instead of
+  // being left unread.
   if (name.rfind("mtp.", 0) == 0) return false;
   if (name.find("model.visual.") != std::string::npos) return false;
   if (name.find(".linear_attn.in_proj_") != std::string::npos) return false;
@@ -1164,6 +1168,24 @@ Qwen3_5DenseWeights LoadQwen3_5Dense(const std::vector<SafetensorsFile>& shards,
   }
 
   Qwen3_5DenseWeights w;
+
+  // MODEL-QWEN35-DENSE-VL-EXL3 (ISSUE-LOCAL-01M3AHX9DQX8HNE32G80C9VGMJ). THE
+  // SILENT DROP STOPS HERE, and BEFORE any backbone read, so an incomplete
+  // tower is diagnosed before anything else can fail. A vision-inclusive
+  // checkpoint carries `model.visual.*` tensors this loader historically never
+  // read: it returned a text-only `Qwen3_5DenseWeights` and no message
+  // anywhere said the tower was gone, so an image prompt had no path and no
+  // diagnostic. Now the tower is REQUIRED when present and loaded through the
+  // SHARED reader the MoE arm and the 27B token gates already use
+  // (`LoadQwen3VLVisionWeights`); an index that NAMES the tower but ships it
+  // incomplete is a loud refusal naming the first missing tensor, never a
+  // quiet text-only model. A text-only checkpoint takes none of this:
+  // `has_visual` stays false and the load is byte-identical (spec gate 2).
+  if (HasQwen3_5DenseVisionTower(shards)) {
+    w.visual = LoadQwen3_5DenseVision(shards, config);
+    w.visual_cfg = Qwen3_5DenseVisionConfig(config);
+    w.has_visual = true;
+  }
   // MODEL-QWEN35-EXL3 (#2495 items 3 and 5). ONE whole-checkpoint question, and
   // it is asked of the TENSORS rather than of `quantization_config`: exllamav3
   // records the scheme per Linear, and an artifact that quantizes only part of
@@ -1212,12 +1234,14 @@ Qwen3_5DenseWeights LoadQwen3_5Dense(const std::vector<SafetensorsFile>& shards,
       if (direct_device) StageAndReleaseLoadedDense(w, *load_queue);
     }
   }
+  // MODEL-QWEN35-DENSE-VL-EXL3: the tower itself was loaded at the TOP of this
+  // function (before any backbone read) so an incomplete tower is diagnosed
+  // first; nothing further to do here.
   return w;
 }
 
-// MODEL-FP8-BLOCK-LINEAR (#1189 M4), the M4/M5 seam, narrowing the M3/M4 one.
-//
-// M3 refused every LOADED block weight, because the dense forward knew only
+// MODEL-FP8-BLOCK-LINEAR (#1189 M4), the M4/M5 seam, narrowing the M3/M4 one,
+// because the dense forward knew only
 // fp4, per-tensor fp8 and bf16 and an unwired block-wise checkpoint would fall
 // through to an EMPTY bf16 tensor. The forward reads all ten projections now,
 // through THREE entry points rather than one:

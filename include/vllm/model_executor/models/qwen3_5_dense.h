@@ -35,6 +35,7 @@
 
 #include "vllm/model_executor/layers/quantization/fp8_block_quant.h"
 #include "vllm/model_executor/models/qwen3_5_weights.h"  // OwnedTensor, Gdn/FullAttn weights, TensorResolver
+#include "vllm/model_executor/models/qwen3_vl_vision.h"  // MODEL-QWEN35-DENSE-VL-EXL3: the dense arm's tower
 #include "vllm/transformers_utils/hf_config.h"
 #include "vt/device.h"
 #include "vt/tensor.h"
@@ -161,6 +162,22 @@ struct Qwen3_5DenseWeights {
   // still passing (`Exl3Weight::Bits`). Empty on every other head storage.
   Exl3Weight lm_head_exl3;
   std::vector<Qwen3_5DenseLayerWeights> layers;
+
+  // MODEL-QWEN35-DENSE-VL-EXL3 (ISSUE-LOCAL-01M3AHX9DQX8HNE32G80C9VGMJ): the
+  // checkpoint's vision tower, loaded by `LoadQwen3_5Dense` when the index
+  // carries `model.visual.*` tensors. Before this member the dense loader
+  // SILENTLY DROPPED those 333 bf16 tensors — a vision-inclusive checkpoint
+  // loaded as a text-only model with no diagnostic, so no production path
+  // could ever answer an image prompt. Unquantized-but-required: the tower is
+  // bf16 on the EXL3 27B even while the text arm is trellis-quantized (see
+  // `IsQwen27QuantizedLinear`, which already exempted the prefix). EMPTY (and
+  // `has_visual` false) on every text-only checkpoint, which is what keeps a
+  // text load byte-identical.
+  multimodal::Qwen3VLVisionWeights visual;
+  // The tower's geometry, the checkpoint's `vision_config` as the family
+  // builder expresses it (`Qwen3_5DenseVisionConfig`); valid iff `has_visual`.
+  multimodal::Qwen3VLVisionConfig visual_cfg;
+  bool has_visual = false;
 };
 
 // True iff the projection named `name` is a W4A4-quantized Linear in the 27B
