@@ -1,0 +1,492 @@
+2026-09-24 01:19:52.434 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:224)
+2026-09-24 01:19:52.434 | info     |             UMD | Cluster constructor started. (cluster.cpp:408)
+2026-09-24 01:19:52.434 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-09-24 01:19:52.434 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-09-24 01:19:52.438 | info     |             UMD | Established firmware bundle version: 19.7.1 (topology_discovery.cpp:576)
+2026-09-24 01:19:52.438 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-09-24 01:19:52.486 | warning  |             UMD | Sysmem (0x40000000 bytes) using regular pages; pre-allocate hugepages for better DMA performance (e.g. 1 × 1GB or 512 × 2MB; on AArch64 also 2 × 512MB). (silicon_sysmem_manager.cpp:105)
+2026-09-24 01:20:16.827 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[0] and remote chip ids {} (cluster.cpp:175)
+2026-09-24 01:20:16.827 | info     |             UMD | IOMMU: enabled (cluster.cpp:149)
+2026-09-24 01:20:16.827 | info     |             UMD | KMD version: 2.10.1 (cluster.cpp:152)
+2026-09-24 01:20:16.827 | info     |             UMD | Cluster constructor completed. (cluster.cpp:683)
+2026-09-24 01:20:16.828 | info     |             UMD | Starting devices in cluster (cluster.cpp:1289)
+2026-09-24 01:20:16.936 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1297)
+[doctest] doctest version is "2.5.2"
+[doctest] run with "--help" for options
+===============================================================================
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:780:
+TEST CASE:  qwen3.5-0.8B GDN paged-engine greedy near-tie correctness gate (ROCm, SACRED)
+
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:249: MESSAGE: 1: loading via FromModelDir(/home/lu_zero/.cache/huggingface/hub/models--Qwen--Qwen3.5-0.8B/snapshots/2fc06364715b967f1860aea9cf38778875588b17)...
+
+engine: device placement: --fit is on by default but cannot apply to a safetensors checkpoint (its weight footprint is not known where the placement must be installed); continuing with no placement
+2026-09-24 01:20:17.985 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:422)
+2026-09-24 01:20:17.985 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:484)
+2026-09-24 01:20:17.985 | warning  |          Always | Unknown motherboard 'AMPONED8-2T/BCM' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-09-24 01:20:17.985 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3190)
+2026-09-24 01:20:17.985 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3198)
+INFO auto-fit max_model_len: reduced from 262144 to 4064 to fit the KV cache (256 blocks, one of them the null block, shared by 2 KV cache groups). Raise --num-blocks / --kv-cache-memory for a longer context.
+INFO recurrent-state budget: reduced max_num_seqs from 32 to 15. The KV pool (256 blocks) holds 15 unified pages of 544 tokens (one page = one 1085440-byte GDN state), and each sequence owns 1 of them. Raise --num-blocks / --kv-cache-memory for more concurrent sequences, or lower num_speculative_tokens.
+2026-09-24 01:20:30.700 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.088 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.145 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.145 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.146 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.146 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.147 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.216 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.216 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.217 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.217 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.218 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.218 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.218 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.219 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.219 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.220 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.220 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.221 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.221 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.222 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.222 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.222 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.223 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.223 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.224 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.224 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.225 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.226 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.226 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.226 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.227 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.227 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.227 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.228 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.229 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.229 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.230 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.230 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.231 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.231 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:32.231 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+vllm.cpp: Asynchronous scheduling is disabled (max_concurrent_batches=1)
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:292: MESSAGE: 1: running on device type 6 (5=ROCM, 6=TENSTORRENT) — gated against 1
+
+2026-09-24 01:20:32.233 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:20:37.956 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+Building trisc0, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=2 -DUCK_CHLKC_UNPACK -DCOMPILE_FOR_TRISC=0 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/6567768744459480464/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/6567768744459480464/trisc0/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/6567768744459480464/trisc0/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_unpack.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:26,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc2, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=4 -DUCK_CHLKC_PACK -DCOMPILE_FOR_TRISC=2 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/6567768744459480464/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/6567768744459480464/trisc2/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/6567768744459480464/trisc2/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_pack.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:21,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc1, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=3 -DUCK_CHLKC_MATH -DCOMPILE_FOR_TRISC=1 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/6567768744459480464/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/6567768744459480464/trisc1/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/6567768744459480464/trisc1/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_math.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:16,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc0, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=2 -DUCK_CHLKC_UNPACK -DCOMPILE_FOR_TRISC=0 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/15818881331201766495/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/15818881331201766495/trisc0/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/15818881331201766495/trisc0/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_unpack.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:26,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc2, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=4 -DUCK_CHLKC_PACK -DCOMPILE_FOR_TRISC=2 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/15818881331201766495/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/15818881331201766495/trisc2/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/15818881331201766495/trisc2/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_pack.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:21,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc1, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=3 -DUCK_CHLKC_MATH -DCOMPILE_FOR_TRISC=1 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/15818881331201766495/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/15818881331201766495/trisc1/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/15818881331201766495/trisc1/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_math.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:16,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+2026-09-24 01:24:55.932 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+Building trisc0, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=2 -DUCK_CHLKC_UNPACK -DCOMPILE_FOR_TRISC=0 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/7113757029148653774/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/7113757029148653774/trisc0/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/7113757029148653774/trisc0/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_unpack.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:26,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc2, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=4 -DUCK_CHLKC_PACK -DCOMPILE_FOR_TRISC=2 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/7113757029148653774/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/7113757029148653774/trisc2/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/7113757029148653774/trisc2/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_pack.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:21,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc1, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=3 -DUCK_CHLKC_MATH -DCOMPILE_FOR_TRISC=1 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/7113757029148653774/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/7113757029148653774/trisc1/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/7113757029148653774/trisc1/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_math.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:16,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc0, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=2 -DUCK_CHLKC_UNPACK -DCOMPILE_FOR_TRISC=0 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/17958139477863546101/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/17958139477863546101/trisc0/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/17958139477863546101/trisc0/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_unpack.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:26,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc2, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=4 -DUCK_CHLKC_PACK -DCOMPILE_FOR_TRISC=2 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/17958139477863546101/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/17958139477863546101/trisc2/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/17958139477863546101/trisc2/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_pack.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:21,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc1, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=3 -DUCK_CHLKC_MATH -DCOMPILE_FOR_TRISC=1 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/17958139477863546101/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/17958139477863546101/trisc1/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm/17958139477863546101/trisc1/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_math.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:16,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+2026-09-24 01:27:18.061 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:18.588 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:19.118 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:19.648 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:20.178 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:20.708 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:21.236 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:21.764 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:22.293 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:22.819 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:23.348 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:23.874 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:24.406 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:24.937 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:430: FATAL ERROR: REQUIRE( anchor_ok ) is NOT correct!
+  values: REQUIRE( false )
+  logged: 1 anchor drift prompt[0] tok=0 engine=11751 committed anchor=279 — REGRESSION SUSPECTED: bisect the engine change first; only re-derive goldens (VT_DUMP_IDS=1 + qwen3-neartie-gap.py) after the drift is proven to be a justified numerical change, never to silence the gate
+
+===============================================================================
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:797:
+TEST CASE:  qwen3.5-0.8B GGUF Q4_K_M paged-engine greedy near-tie gate (Tenstorrent, checkpoint-gated)
+
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:249: MESSAGE: 1: loading via FromModelDir(/mnt/models/unsloth-qwen3.5-0.8B-gguf/Qwen3.5-0.8B-Q4_K_M.gguf)...
+
+engine: device placement: --fit resolved NO placement: the model has no routed-expert layers, so a placement has nothing to move
+INFO auto-fit max_model_len: reduced from 262144 to 4064 to fit the KV cache (256 blocks, one of them the null block, shared by 2 KV cache groups). Raise --num-blocks / --kv-cache-memory for a longer context.
+INFO recurrent-state budget: reduced max_num_seqs from 32 to 15. The KV pool (256 blocks) holds 15 unified pages of 544 tokens (one page = one 1085440-byte GDN state), and each sequence owns 1 of them. Raise --num-blocks / --kv-cache-memory for more concurrent sequences, or lower num_speculative_tokens.
+2026-09-24 01:27:27.114 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.114 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.114 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.114 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.115 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.115 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.116 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.116 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.116 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.117 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.117 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.117 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.117 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.118 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.118 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.118 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.119 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.119 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.119 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.119 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.120 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.120 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.120 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.121 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.121 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.121 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.121 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.122 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.122 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.122 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.123 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.123 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.123 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.123 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.124 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.124 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.124 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.124 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.124 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.125 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.125 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:27:27.125 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+vllm.cpp: Asynchronous scheduling is disabled (max_concurrent_batches=1)
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:292: MESSAGE: 1: running on device type 6 (5=ROCM, 6=TENSTORRENT) — gated against 1
+
+2026-09-24 01:27:28.547 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:36:27.070 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:37:21.762 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:37:31.056 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:37:40.348 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:37:49.665 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:37:58.985 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:38:08.310 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:38:17.634 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:38:26.951 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:38:36.257 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:38:45.582 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:38:54.889 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:04.210 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:13.523 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:22.846 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:430: FATAL ERROR: REQUIRE( anchor_ok ) is NOT correct!
+  values: REQUIRE( false )
+  logged: 1 anchor drift prompt[0] tok=4 engine=6511 committed anchor=3046 — REGRESSION SUSPECTED: bisect the engine change first; only re-derive goldens (VT_DUMP_IDS=1 + qwen3-neartie-gap.py) after the drift is proven to be a justified numerical change, never to silence the gate
+
+===============================================================================
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:822:
+TEST CASE:  qwen3.8-27B GGUF Q4_K_M paged-engine greedy near-tie gate (Tenstorrent, checkpoint-gated)
+
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:249: MESSAGE: 1: loading via FromModelDir(/mnt/models/unsloth-qwen3.8-27B-gguf/Qwen3.8-27B-Q4_K_M.gguf)...
+
+engine: device placement: --fit resolved NO placement: the model has no routed-expert layers, so a placement has nothing to move
+engine: qwen3.5 gguf: SKIPPING the MTP drafter head — 15 tensor(s), 289527808 B, none of them read by this trunk-only load: blk.64.attn_k.weight, blk.64.attn_k_norm.weight, blk.64.attn_norm.weight, blk.64.attn_output.weight, blk.64.attn_q.weight, blk.64.attn_q_norm.weight, blk.64.attn_v.weight, blk.64.ffn_down.weight, blk.64.ffn_gate.weight, blk.64.ffn_up.weight, blk.64.nextn.eh_proj.weight, blk.64.nextn.enorm.weight, blk.64.nextn.hnorm.weight, blk.64.nextn.shared_head_norm.weight, blk.64.post_attention_norm.weight. They are the multi-token-prediction head at blk.64 (block_count 65 = 64 trunk + 1 head); they load only when speculative decoding is configured (speculative-config method "mtp"). Denominator parity: the pinned llama.cpp b10451 oracle IGNORES these same tensors too (64 trunk layers, no MTP head; .agents/oracles/llama-cpp.md), so a gate against it is matched work only with this skip loud.
+INFO recurrent-state budget: reduced max_num_seqs from 32 to 10. The KV pool (256 blocks) holds 10 unified pages of 800 tokens (one page = one 3207168-byte GDN state), and each sequence owns 1 of them. Raise --num-blocks / --kv-cache-memory for more concurrent sequences, or lower num_speculative_tokens.
+2026-09-24 01:39:56.404 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.411 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.509 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.509 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.510 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.510 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.511 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.616 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.616 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.617 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.617 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.618 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.618 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.620 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.621 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.621 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.623 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.623 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.624 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.624 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.626 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.627 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.627 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.629 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.629 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.630 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.630 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.631 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.633 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.633 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.634 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.634 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.636 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.636 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.637 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.638 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.638 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.640 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.640 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.641 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.641 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.643 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.644 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.644 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.645 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.646 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.647 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.647 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.648 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.650 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.650 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.651 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.651 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.653 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.653 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.654 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.655 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.655 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.657 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.657 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.658 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.658 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.660 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.661 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.661 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.662 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.662 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.664 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.664 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.665 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.667 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.667 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.668 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.668 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.669 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.669 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.671 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.672 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.672 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.674 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.674 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.675 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.675 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.676 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.678 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.678 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.679 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.679 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.681 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.681 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.682 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.683 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.684 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.685 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.685 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.686 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.686 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.688 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.689 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.689 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.691 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.691 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.692 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.692 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.693 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.695 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.695 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.696 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.696 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.698 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.698 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+2026-09-24 01:39:56.699 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+vllm.cpp: Asynchronous scheduling is disabled (max_concurrent_batches=1)
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:292: MESSAGE: 1: running on device type 6 (5=ROCM, 6=TENSTORRENT) — gated against 1
+
+2026-09-24 01:40:07.520 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1176)
+Building trisc0, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=2 -DUCK_CHLKC_UNPACK -DCOMPILE_FOR_TRISC=0 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm_large_tensor/11446823263021009881/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm_large_tensor/11446823263021009881/trisc0/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm_large_tensor/11446823263021009881/trisc0/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_unpack.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:26,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm_large_tensor.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm_large_tensor.cpp:116:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  116 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc2, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=4 -DUCK_CHLKC_PACK -DCOMPILE_FOR_TRISC=2 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm_large_tensor/11446823263021009881/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm_large_tensor/11446823263021009881/trisc2/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm_large_tensor/11446823263021009881/trisc2/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_pack.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:21,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm_large_tensor.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm_large_tensor.cpp:116:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  116 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc1, compile step:
+/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/lu_zero/Sources/tt/tt-metal/ -I/home/lu_zero/Sources/tt/tt-metal/ttnn -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp -I/home/lu_zero/Sources/tt/tt-metal/tt_metal -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tools/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hostdevcommon/api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/api/ -I/home/lu_zero/Sources/tt/tt-metal/runtime/sfpi/include -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=3 -DUCK_CHLKC_MATH -DCOMPILE_FOR_TRISC=1 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm_large_tensor/11446823263021009881/" -include named_ct_arg_map_generated.h -c -o /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm_large_tensor/11446823263021009881/trisc1/trisck.5365531840228420043_65432.o /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/lu_zero/.cache/tt-metal-cache/192705464604149581/kernels/layernorm_large_tensor/11446823263021009881/trisc1/trisck.5365531840228420043_65432.d
+In file included from ../chlkc_math.cpp:6,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:16,
+                 from /home/lu_zero/Sources/tt/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm_large_tensor.cpp: In function 'void kernel_main()':
+/home/lu_zero/Sources/tt/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm_large_tensor.cpp:116:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  116 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+2026-09-24 01:49:51.248 | critical |          Always | TT_FATAL: Out of Memory: Not enough space to allocate 268222464 B DRAM buffer across 8 banks, where each bank needs to store 33529856 B, but bank size is 4272341376 B (allocated: 4145895168 B, free: 126446208 B, largest free block: 28157504 B) (assert.hpp:104)
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:822: ERROR: test case THREW exception: TT_FATAL @ /home/lu_zero/Sources/tt/tt-metal/tt_metal/impl/allocator/bank_manager.cpp:495: false
+info:
+Out of Memory: Not enough space to allocate 268222464 B DRAM buffer across 8 banks, where each bank needs to store 33529856 B, but bank size is 4272341376 B (allocated: 4145895168 B, free: 126446208 B, largest free block: 28157504 B)
+backtrace:
+ --- void tt::assert::detail::tt_throw<unsigned long, std::basic_string_view<char, std::char_traits<char> >, unsigned int, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long>(char const*, int, char const*, char const*, fmt::v11::fstring<unsigned long const&, std::basic_string_view<char, std::char_traits<char> > const&, unsigned int const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&>::t, unsigned long const&, std::basic_string_view<char, std::char_traits<char> > const&, unsigned int const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&)
+ --- tt::tt_metal::BankManager::allocate_buffer(unsigned long, unsigned long, bool, tt::tt_metal::CoreRangeSet const&, std::optional<unsigned int>, ttsl::StrongType<unsigned int, tt::tt_metal::AllocatorIDTag>, std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > > const&, std::optional<std::unordered_set<unsigned int, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<unsigned int> > > const&)
+ --- tt::tt_metal::AllocatorImpl::allocate_buffer(tt::tt_metal::Buffer*)
+ --- tt::tt_metal::BufferImpl::allocate_impl(tt::tt_metal::Buffer&)
+ --- tt::tt_metal::BufferImpl::create(tt::tt_metal::IDevice*, unsigned long, unsigned long, tt::tt_metal::BufferType, tt::tt_metal::BufferShardingArgs const&, std::optional<bool>, std::optional<ttsl::StrongType<unsigned char, tt::tt_metal::SubDeviceIdTag> >)
+ --- tt::tt_metal::distributed::MeshBuffer::create(std::variant<tt::tt_metal::distributed::ReplicatedBufferConfig, tt::tt_metal::distributed::ShardedBufferConfig> const&, tt::tt_metal::distributed::DeviceLocalBufferConfig const&, tt::tt_metal::distributed::MeshDevice*, std::optional<unsigned long>)
+ --- tt::tt_metal::tensor_impl::allocate_device_buffer(tt::tt_metal::distributed::MeshDevice*, tt::tt_metal::TensorSpec const&)
+ --- tt::tt_metal::allocate_mesh_tensor_on_device_with_topology(tt::tt_metal::distributed::MeshDevice&, tt::tt_metal::TensorSpec, tt::tt_metal::TensorTopology)
+ --- ttnn::create_device_tensor(tt::tt_metal::TensorSpec const&, tt::tt_metal::distributed::MeshDevice*, std::optional<tt::tt_metal::TensorTopology>)
+ --- ttnn::prim::TilizeWithValPaddingDeviceOperation::create_output_tensors(ttnn::prim::TilizeWithValPaddingParams const&, ttnn::Tensor const&)
+ --- /home/lu_zero/Sources/tt/tt-metal/build_Release/lib64/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim35TilizeWithValPaddingDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x10c) [0xffffb9850b70]
+ --- ttnn::prim::tilize_with_val_padding(ttnn::Tensor const&, tt::tt_metal::Shape const&, std::variant<unsigned int, float> const&, std::optional<tt::tt_metal::MemoryConfig> const&, std::optional<tt::tt_metal::DataType> const&, bool, bool, bool, std::optional<tt::tt_metal::CoreRangeSet> const&)
+ --- /home/lu_zero/Sources/tt/tt-metal/build_Release/lib64/_ttnncpp.so(+0xc90744) [0xffffb9850744]
+ --- ttnn::tilize_with_val_padding(ttnn::Tensor const&, tt::tt_metal::Shape const&, std::variant<unsigned int, float>, std::optional<tt::tt_metal::MemoryConfig> const&, std::optional<tt::tt_metal::DataType>, bool, std::optional<tt::tt_metal::CoreRangeSet> const&)
+ --- ttnn::to_layout(ttnn::Tensor const&, tt::tt_metal::Layout, std::optional<tt::tt_metal::DataType> const&, std::optional<tt::tt_metal::MemoryConfig> const&, std::optional<tt::tt_metal::CoreRangeSet> const&, float)
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(+0x2340d4) [0xaaac728c40d4]
+ --- vt::tenstorrent::DecodeKeepQuantWordsF32(ttnn::Tensor const&, vt::DType, long, long, tt::tt_metal::distributed::MeshDevice&)
+ --- vt::tenstorrent::MatmulBTQuantGroupedKernel(vt::Queue&, vt::Tensor&, vt::Tensor const&, vt::Tensor const&, vt::Tensor const&)
+ --- vt::tenstorrent::MatmulBTQuantKernel(vt::Queue&, vt::Tensor&, vt::Tensor const&, vt::Tensor const&)
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(+0x3b6df0) [0xaaac72a46df0]
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(+0x3c5d68) [0xaaac72a55d68]
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(+0x3d00d8) [0xaaac72a600d8]
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(+0x3d33c8) [0xaaac72a633c8]
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(+0x3d3f30) [0xaaac72a63f30]
+ --- vllm::Qwen3_5DenseModel::ForwardDevice(std::vector<int, std::allocator<int> > const&, std::vector<int, std::allocator<int> > const&, vllm::v1::CommonAttentionMetadata const&, vllm::v1::GDNAttentionMetadata const&, std::vector<vllm::PagedKvCache, std::allocator<vllm::PagedKvCache> > const&, std::vector<vllm::GdnStateCache, std::allocator<vllm::GdnStateCache> > const&, vllm::Qwen3_5DenseWeights const&, vllm::HfConfig const&, vt::Queue&, std::vector<int, std::allocator<int> > const&)
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(+0x4066e8) [0xaaac72a966e8]
+ --- vllm::ModelRegistry::Forward(vllm::LoadedModel&, vllm::ModelForwardInput const&)
+ --- vllm::v1::GPUModelRunner::execute_model(vllm::v1::SchedulerOutput const&)
+ --- vllm::v1::Executor::execute_model(vllm::v1::SchedulerOutput const&)
+ --- vllm::v1::EngineCore::step()
+ --- vllm::v1::LLMEngine::step()
+ --- vllm::v1::LLMEngine::generate(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, vllm::SamplingParams, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int)
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(+0x12acbe0) [0xaaac7393cbe0]
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(+0x12b0404) [0xaaac73940404]
+ --- doctest::Context::run()
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(main+0x3c) [0xaaac7285659c]
+ --- /usr/lib64/libc.so.6(+0x22df4) [0xffffb63d2df4]
+ --- /usr/lib64/libc.so.6(__libc_start_main+0x98) [0xffffb63d2f38]
+ --- /tmp/row-int8dot-flip/build-tt/tests/test_qwen35_paged_engine(_start+0x30) [0xaaac72856830]
+
+
+===============================================================================
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:837:
+TEST CASE:  qwen3.5-0.8B GGUF Q4_K_M int8-dot lane e2e battery (Tenstorrent, lever opt-in)
+
+/tmp/row-int8dot-flip/tests/parity/test_qwen35_paged_engine.cpp:840: MESSAGE: SKIPPED: set VT_TT_KEEPQUANT_INT8DOT=1 — the int8-dot lane is default OFF (the default-config flip is a recorded NEEDS_DECISION); the default vehicle battery stays the W4a 16/16 invariant and this battery runs only as the documented opt-in configuration
+
+===============================================================================
+[doctest] test cases:   4 |   1 passed | 3 failed | 0 skipped
+[doctest] assertions: 113 | 111 passed | 2 failed |
+[doctest] Status: FAILURE!
+2026-09-24 01:49:51.583 | info     |    BuildKernels | JIT cache stats: 0/2252 hits (0.0%) [0 cached, 3746 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:268)
+2026-09-24 01:49:51.583 | info     |    BuildKernels | JIT telemetry: 35 registered TelemetryTokens (build_cache_telemetry.cpp:325)
+2026-09-24 01:49:51.606 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:550)
+2026-09-24 01:49:51.606 | info     |             UMD | Closing devices in cluster (cluster.cpp:1302)
+2026-09-24 01:49:51.662 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1311)
+2026-09-24 01:49:51.662 | info     |             UMD | Cluster destructor started. (cluster.cpp:1017)
+2026-09-24 01:49:51.662 | info     |             UMD | Cluster destructor completed. (cluster.cpp:1020)
