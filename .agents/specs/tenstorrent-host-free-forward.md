@@ -840,7 +840,8 @@ gate rerun on the merged tip, all under one `flock $HOME/gpu.lock`:
   failures drop to 0, capture arms (1 captured size) — and the FIRST
   capture dies: `TT_FATAL mesh_workload.cpp:153 !is_capturing_trace`.
   `EmbedDeviceIdsInto`'s `ttnn::copy(dev_out, *s->device)`
-  (`tenstorrent_ops.cpp:5705`) is capture-only — the eager step's
+  (`tenstorrent_capture.cpp:266`, moved verbatim from `tenstorrent_ops.cpp:5705`
+  by the split's stage 5) is capture-only — the eager step's
   `EmbedInto` never runs it — so its program is cold mid-capture. The copy
   is unchanged since `79ff8f310`; the R5-era 27.1 tok/s single-request arm
   predates the QWEN35-wave edits to `tenstorrent_ops.cpp` (#1486
