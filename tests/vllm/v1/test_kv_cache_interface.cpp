@@ -1047,7 +1047,12 @@ TEST_CASE("max_num_blocks_per_req: a Mamba row holds cdiv(max_len, bs) + k") {
   CHECK(mamba_at(128, "none", 3)->max_num_blocks_per_req(128) == 4);
   CHECK(mamba_at(32768, "none", 2)->max_num_blocks_per_req(32768) == 3);
   CHECK(mamba_at(32768, "none", 0)->max_num_blocks_per_req(32768) == 1);
-  // Through the base-class pointer the runner uses.
-  const KVCacheSpec& base = *mamba_at(32, "none", 3);
+  // Through the base-class pointer the runner uses. The shared_ptr must be
+  // NAMED: binding a reference straight to `*mamba_at(...)` destroys the
+  // temporary owner at the end of the statement, freeing the spec and leaving
+  // the reference dangling (use-after-free; the CHECK below read freed memory
+  // and landed on the base implementation, allocator-dependent).
+  auto owned = mamba_at(32, "none", 3);
+  const KVCacheSpec& base = *owned;
   CHECK(base.max_num_blocks_per_req(128) == 7);
 }
