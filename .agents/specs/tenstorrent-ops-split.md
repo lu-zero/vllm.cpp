@@ -1,6 +1,6 @@
 # Spec: split tenstorrent_ops.cpp into per-module translation units
 
-Umbrella spec (owns the rowless split issue). State: ACTIVE (2026-09-16).
+Umbrella spec (owns the rowless split issue). State: DONE (2026-09-24).
 Git integration: staged — one module per PR, each with this spec referenced;
 each stage's PR body names which stage it lands.
 
@@ -87,3 +87,30 @@ src/vt/tenstorrent/
 - Stage 6: residue (weights staging placement; ops.cpp residual size).
 - Tracked by `ISSUE-LOCAL-01M2M2PZC0E998B88C9XKJT8JJ` (the stages above
   are the issue's exit).
+
+## Outcome
+
+All six stages landed 2026-09-16..2026-09-24, one module per PR, each with
+the device suite holding 92/92 cases / 525,723 assertions byte-for-byte
+(docs/bench-evidence/tt-split{4,5,6}-gate-20260924.md and the earlier
+stage records). `tenstorrent_ops.cpp`: 10,445 lines / 501 KB at the
+spec's opening -> 1,483 lines of registration (33 RegisterOp calls,
+unchanged), core op kernels, and glue. Final module sizes: residency
+1,711, keepquant 2,089, gdn 2,272, paged 2,398, capture 472, backend
+138, device 72.
+
+What the stages decided that the opening plan did not: stage 3's GDN
+extraction left the W1/W2 decode sections behind (moved in stage 6 after
+symbol evidence tied them to the kL2Norm..kGdnStateScatter chain only);
+stage 6 kept weights staging inside residency rather than creating
+`tenstorrent_weights.cpp`, because residency stayed under the spec's own
+2k threshold; the capture module (stage 5) turned out to carry the
+allocation-trace instruments that the 27B decode DRAM-exhaustion
+investigation (ISSUE-LOCAL-01M3918K0WTSCZ2X1S2WZA5NHW) now needs.
+
+Rejected: automatic three-way merges of the roadmap/matrix records --
+twice during the campaign, merges landed by other agents reintroduced
+collapsed record rows over repaired ones (the MODEL-LAYA and MODEL-KEV
+merges), and both were repaired in the stage branches per the
+keyed-record rule. The mechanical-only rule held throughout: no stage
+forced a behavior edit, so no stage split.
