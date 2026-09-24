@@ -33,12 +33,21 @@ import os
 import shutil
 import sys
 
+# MODEL-KEV's recorded base pin (.agents/model-matrix.md): the conversion is
+# reproducible against THIS revision, not whichever snapshot the cache yields.
+BASE_MODEL_REVISION = "dc7cdfe2"
+
 import torch
 from safetensors.torch import load_file, save_file
 
 
 def resolve_base_model_dir(base_model_name_or_path, explicit_dir=None):
-    """Resolve the base model directory from the HF cache or an explicit path."""
+    """Resolve the base model directory from the HF cache or an explicit path.
+
+    The revision is PINNED (MODEL-KEV: Qwen/Qwen3.5-0.8B-Base @ dc7cdfe2,
+    recorded in .agents/model-matrix.md), never glob order -- whichever
+    snapshot readdir yields first is a property of the box, not of the
+    conversion (#471, GATE-PIN-UNPINNED-SNAPSHOTS)."""
     if explicit_dir:
         return explicit_dir
     if os.path.isdir(base_model_name_or_path):
@@ -50,14 +59,12 @@ def resolve_base_model_dir(base_model_name_or_path, explicit_dir=None):
     flat = os.path.join(cache, repo_dir)
     if os.path.isfile(os.path.join(flat, "config.json")):
         return flat
-    snapshots = os.path.join(flat, "snapshots")
-    if os.path.isdir(snapshots):
-        revs = os.listdir(snapshots)
-        if revs:
-            return os.path.join(snapshots, revs[0])
+    pinned = os.path.join(flat, "snapshots", BASE_MODEL_REVISION)
+    if os.path.isdir(pinned):
+        return pinned
     raise FileNotFoundError(
-        f"Base model '{base_model_name_or_path}' not found in HF cache. "
-        f"Pass --base-model-dir explicitly.")
+        f"Base model '{base_model_name_or_path}' not found in HF cache at "
+        f"revision {BASE_MODEL_REVISION}. Pass --base-model-dir explicitly.")
 
 
 def find_safetensors(model_dir):
