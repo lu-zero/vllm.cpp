@@ -650,8 +650,25 @@ ttnn::Tensor CachedTile(const void* owner, uint64_t g0, uint64_t g1, uint64_t g2
                         const std::function<std::vector<float>()>& build,
                         const ttnn::Shape& shape, MeshDevice& device);
 
+// ---- Persistent embedding-table shadows (ROW_MAJOR BF16 on device) ----
+// The vocab table is multi-hundred MB for Qwen3; re-uploading every forward
+// was a pure tax. Keyed by host table base; invalidated by MarkHostWritten /
+// UnregisterHostBuffer. Split stage 5 lifted the struct here (the capture
+// TU's EmbedDeviceIdsInto reads the map); the accessor definitions stay in
+// tenstorrent_ops.cpp with the eager embedding paths.
+struct EmbedTableShadow {
+  std::optional<ttnn::Tensor> device;
+  uint32_t vocab = 0, h = 0;
+};
+std::mutex& EmbedTableMutex();
+std::map<uintptr_t, EmbedTableShadow>& EmbedTableShadows();
+
 // ---- moved declarations (definitions in tenstorrent_ops.cpp; shared with the
-// paged TU) ----
+// capture TU) ----
+std::atomic<int64_t>& LastTraceBytes();
+
+// ---- moved declarations (definitions in tenstorrent_capture.cpp; shared with
+// the paged TU and the staying ops.cpp rope-warm path) ----
 int GraphCapturesDone();
 bool ReplayRegimeBisectSkip(const char* flag);
 
