@@ -1,12 +1,10 @@
 # TT-METAL retention root-cause: the named structure (2026-09-25, P150a)
 
-**STATUS: fix landed, gate legs queued on the device (the P150 is contended by
-a sibling session's parity gates; the anchor-after and 16-request ledger legs
-run detached and their numbers append here; the operator reruns the row's
-gate per protocol).** Row `BACKEND-TENSTORRENT`, spec
-`.agents/specs/tenstorrent-ttm-retention-rootcause.md` (001def392), branch
-`row/TT-METAL-RETENTION-ROOTCAUSE`. Issue
-`ISSUE-LOCAL-01M3918K0WTSCZ2X1S2WZA5NHW` (this row closes it).
+**STATUS: root cause NAMED and recorded; the our-side workaround is FALSIFIED
+by gate 2 and REVERTED; the deliverable is the upstream-report package.** Row
+`BACKEND-TENSTORRENT`, spec `.agents/specs/tenstorrent-ttm-retention-rootcause.md`
+(001def392), branch `row/TT-METAL-RETENTION-ROOTCAUSE`. Issue
+`ISSUE-LOCAL-01M3918K0WTSCZ2X1S2WZA5NHW` (this row's record feeds it).
 
 ## Verdict up front
 
@@ -26,11 +24,22 @@ cycles exist). The scope-exit free is skipped by a reference from the
 upload/scatter web that outlives the call; the pure-web reproducer
 (`docs/bench-evidence/tt-ttm-retention-repro-20260925/`) does NOT leak
 outside vllm.cpp, so the retaining context is the engine's scatter call
-chain. The fix is our seam's: the keepquant web's force-reclaim discipline
-applied to the state scatter's dead transients
-(`GdnStateScatterKernel`, `tenstorrent_gdn.cpp:1065-1095`) — measured effect:
-**the per-request settled ledger goes from -964.8 MiB/request to
--16.5 MiB/request and the anchor tokens stay byte-identical**.
+chain. **The our-side workaround was tried and is FALSIFIED BY GATE 2**: the
+keepquant web's force-reclaim discipline applied to the state scatter's
+dead transients (`GdnStateScatterKernel`) measured **-964.8 → -16.5
+MiB/request on the settled per-request ledger** — but the 4-prompt anchor
+leg on the fixed build SHIFTED request 2's tokens (token 7: 16→17 against
+the before-anchor; requests 0/1/3 byte-identical). The force-free races a
+LIVE DEFERRED READER of the scatter's transients — the very reference
+that blocks the scope-exit free IS that reader, so freeing under it lets
+the allocator recycle the storage and the deferred read returns the
+recycled bytes: a silent numeric shift, not a throw. Per the spec's stop
+condition ("any workaround that shifts numerics: stop; gate 2 is the
+detector") the workaround is REVERTED, and the holder question settles:
+the retention mechanism is ttnn-internal and the fix is upstream's —
+ttnn must either drain the deferred read before the launch returns or
+own the tensors for the reader's lifetime. The upstream-report package
+below is the deliverable.
 
 ## Instrument
 
@@ -104,10 +113,10 @@ Pre-fix live-set diff, end of request 1 → end of request 2:
   ledger): the drop is exactly 48x16,777,216 B + 48x3,932,160 B of LIVE
   buffers; largest-free tracks total.
 
-## The fix (our seam) and its measured effect
+## The workaround attempt (FALSIFIED by gate 2, reverted)
 
 `src/vt/tenstorrent/tenstorrent_gdn.cpp`, `GdnStateScatterKernel`
-(`:1065-1095`): after `ScatterRowsExact` and the commit, force-reclaim the
+(`:1065-1095` as tried): after `ScatterRowsExact` and the commit, force-reclaim the
 call's dead transients — the `cache2d` shadow the commit replaced (guarded:
 a `newc` sharing `cache2d`'s attributes is the all-NULL no-op return and
 becomes the committed shadow — never freed) and the not-resident `rows2d`
@@ -120,45 +129,62 @@ reclaims).
 
 Measured (2-prompt instrument legs, build_instr):
 
-| leg | prefill boundary | step-0 boundary | settled decline/req | tokens |
-|---|---|---|---|---|
-| pre-fix (instr1, 16p) | -131.2 MiB | -833.7 MiB | **-964.9 MiB** | — |
-| fix2 (this fix) | **+816.8 MiB** | -833.7 MiB | **-16.5 MiB** | byte-identical to the before-anchor (first 2 of 4 requests) |
+| leg | prefill boundary | step-0 boundary | settled decline/req |
+|---|---|---|---|
+| pre-fix (instr1, 16p) | -131.2 MiB | -833.7 MiB | **-964.9 MiB** |
+| workaround (fix2) | **+816.8 MiB** | -833.7 MiB | **-16.5 MiB** |
 
-The prefill-time retention (~948 MiB/request — the state scatter the
-prefill runs) is now reclaimed at the next boundary (+817 recovery), and the
-per-request SETTLED ledger declines by 16.5 MiB instead of 964.9: the
-staircase that OOM'd at ~5 requests is gone (the 16-request gate leg
-completes with ~4.5 GiB margin). The residual -16.5 MiB/req and the ±800 MiB
-per-request swing ride the SECOND scatter caller — `GdnDecodeKernel`'s own
-`ScatterRowsDevice` commit (`tenstorrent_gdn.cpp:905-913`) — whose planes
-alias live views (the composed decode's in-place state, `S_new`/`rows2d`
-share storage): a force-free attempt there (fix4) fatal'd ttnn with
-`Input Tensor is not allocated` in `prim::matmul`, so the safe fix stops at
-the state-scatter site. That residual is the follow-up's scope, named and
-sized here.
+The reclaims freed the retention at the next boundary (+817 recovery) and the
+per-request SETTLED ledger declined by 16.5 MiB instead of 964.9 — but the
+memory win is VOID: **the 4-prompt anchor leg on the workaround build SHIFTED
+request 2's tokens** (token 7: 16→17 vs the before-anchor; requests 0/1/3
+byte-identical) — gate 2's detector fired exactly as the spec's stop
+condition names it. A force-free at the SECOND scatter caller
+(`GdnDecodeKernel`'s own `ScatterRowsDevice` commit, `:905-913`) fatal'd
+ttnn outright (`Input Tensor is not allocated` in `prim::matmul`, the fix4
+leg) — its planes alias live views. Together the two falsifications pin the
+mechanism: the reference that blocks the scope-exit free is a LIVE DEFERRED
+READER of the scatter's transients; force-freeing under it recycles the
+storage under the reader (silent numeric shift), and the reader's aliases
+loud-throw in the matmul path. The workaround is REVERTED; the retention's
+owner is ttnn's `Tensor::from_vector → to_device → to_layout(TILE)` chain
+(`ttnn/core/tensor/tensor.cpp:193-206`), which must either drain the
+deferred read before the launch returns or keep the tensors owned for the
+reader's lifetime.
 
 ## Gates
 
-- Gate 1 (flat ledger >= 16 requests): the 16-prompt leg on the fixed
-  build-rel (against the confirmed `build_release_script`) — queued/running;
-  numbers land here.
-- Gate 2 (anchor tokens byte-identical to the default arm): BEFORE captured
-  at `/tmp/retention/anchor-before-tokens.json` (sha256
-  c92ef7cb05193f4a5112bedc38e90d92534ef727ea62e53ac9fba489c568d352); the
-  2-prompt fix leg's tokens are byte-identical on the first 2 requests; the
-  4-prompt AFTER leg — queued/running.
-- Gate 3 (device suite 92/92 / 525,723): pending after the ledger leg.
-- Gate 4 (record gates): pending the commit.
+- Gate 1 (flat ledger >= 16 requests): NOT RUN on the reverted tree — the
+  workaround it would have measured is falsified; the pre-fix staircase
+  (-964.9 MiB/request, OOM at ~5 requests) stands as the committed ledger
+  recorded it, and the 16-request flatness is upstream's to unlock.
+- Gate 2 (anchor tokens byte-identical to the default arm): **the detector
+  FIRED** — BEFORE (the unmodified default arm)
+  `/tmp/retention/anchor-before-tokens.json` sha256
+  c92ef7cb05193f4a5112bedc38e90d92534ef727ea62e53ac9fba489c568d352; the
+  workaround build's AFTER leg
+  `/tmp/retention/anchor-after-tokens.json` sha256
+  7c493f6f732fe33bd5537a0bdea1fd694937de834ad9fa923584c5695f41e169 —
+  request 2 token 7 differs (16→17); requests 0/1/3 identical. The 2-prompt
+  instrument legs matched the first two requests byte-identically (the
+  shift needs the third request's state accumulation), which is why the
+  falsification needed the full 4-prompt anchor leg.
+- Gate 3 (device suite 92/92 / 525,723): NOT RUN — the landed change is
+  records-only (the workaround reverted); the tree's product code equals
+  the committed 92/92-verified base.
+- Gate 4 (record gates): GREEN — commit-style OK, commit-trailers OK,
+  check-agent-record OK (ANCHOR-ROT=0).
 
 ## Host, build, revision
 
 - Host: personal Tenstorrent Blackhole P150a workstation (aarch64, clang
   20). Every device command under `flock -x $HOME/gpu.lock`, `luwen reset` +
   `sleep 15`, retry 3x on exit 101.
-- vllm.cpp: `row/TT-METAL-RETENTION-ROOTCAUSE` at 001def392 + the fix;
-  Release Ninja builds `build-rel` (gates, against `build_release_script`)
-  and `build-instr` (instrument, against `build_instr`), both
+- vllm.cpp: `row/TT-METAL-RETENTION-ROOTCAUSE` — the workaround was committed
+  (25fb37236) and is reverted in the row's final commit; the tree's product
+  code equals the spec commit 001def392. Release Ninja builds `build-rel`
+  (gates, against `build_release_script`) and `build-instr` (instrument,
+  against `build_instr`), both
   `-DVLLM_CPP_TENSTORRENT=ON -DVLLM_BUILD_TESTS=ON`.
 - tt-metal: the recorded pin `vllm-cpp-pin/20260925` (d20b8e27f29 = base
   9161e8fdb27 + the 4-patch series); the instrument was applied only in

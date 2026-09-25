@@ -1064,35 +1064,8 @@ void GdnStateScatterKernel(Queue&, Tensor& cache, const Tensor& working,
   }
   ttnn::Tensor newc = ScatterRowsExact(cache2d, idxv, rows2d, slots,
                                        cache_row, ssf, device);
-  // TT-METAL-RETENTION-ROOTCAUSE (2026-09-25): this kernel held the per-request
-  // staircase the 27B ledger booked — one (16,777,216 B + 3,932,160 B) pair
-  // per GDN layer (48 layers) per request, on each request's FIRST decode
-  // step, retained outside every Slots() entry, ~948 MiB/request, OOM at
-  // bank_manager.cpp:495 after ~5 requests (the committed ledger's
-  // -949.3 MB/request). The retained tensors are this call's TRANSIENT
-  // device planes — the not-resident rows upload above and the cache2d
-  // shadow the commit below replaces — whose scope-exit deallocation is
-  // skipped when a reference from the upload/scatter web outlives the call
-  // (the identical steady-state steps free cleanly, and the leak persists
-  // with the program cache frozen at zero inserts, so no cache entry is the
-  // owner). Force-reclaim both at their last use — the keepquant web's own
-  // discipline (refcount-blind, tombstone-idempotent, capture-refusing;
-  // tenstorrent_keepquant.cpp:201-213). Measured with the reclaims in: the
-  // per-request settled ledger goes from -964.8 MiB/request to -16.5
-  // MiB/request and the anchor tokens stay byte-identical. Guards: newc
-  // that shares cache2d's attributes is the all-NULL no-op return and
-  // becomes the slot's committed shadow, so it is never force-freed; the
-  // resident-shadow arm of the rows lookup serves a Slots()-owned tensor
-  // and is not freed either.
-  const bool newc_is_cache2d = newc.tensor_attributes == cache2d.tensor_attributes;
   CommitDeviceLogical2D(cache, std::move(newc), static_cast<uint32_t>(slots),
                         static_cast<uint32_t>(cache_row));
-  if (!newc_is_cache2d || !rows_resident) {
-    std::vector<ttnn::Tensor> dead;
-    if (!newc_is_cache2d) dead.push_back(cache2d);
-    if (!rows_resident) dead.push_back(rows2d);
-    TTReclaimPlanes(device, dead);
-  }
 }
 
 namespace {
