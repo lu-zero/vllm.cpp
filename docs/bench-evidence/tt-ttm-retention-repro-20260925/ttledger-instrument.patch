@@ -1,0 +1,144 @@
+tt_metal/impl/allocator/allocator.cpp | 77 +++++++++++++++++++++++++++++++++++
+ ttnn/api/ttnn/device_operation.hpp    | 28 +++++++++++++
+ 2 files changed, 105 insertions(+)
+
+--- Changes ---
+
+tt_metal/impl/allocator/allocator.cpp
+  @@ -27,6 +27,81 @@
+  +// ---------------------------------------------------------------------------
+  +// TT-LEDGER — temporary vllm.cpp diagnostic instrumentation (NOT upstream).
+  +// Gate: TT_LEDGER=1 in the environment. Logs every Buffer allocation/free with
+  +// the allocation's host call site (module-relative backtrace frames) so a
+  +// post-pass can name which call-site class retains device DRAM across
+  +// requests. Zero overhead when the env is absent.
+  +// ---------------------------------------------------------------------------
+  +#include <cstdio>
+  +#include <cstdlib>
+  +#include <cstring>
+  +#include <execinfo.h>
+  +#include <dlfcn.h>
+  +#include <unordered_map>
+  +
+  +namespace tt::tt_metal {
+  +namespace {
+  +bool ttledger_enabled() {
+  +    static const bool on = std::getenv("TT_LEDGER") != nullptr;
+  +    return on;
+  +}
+  +std::mutex& ttledger_mtx() {
+  +    static std::mutex m;
+  +    return m;
+  +}
+  +// Resolve a host PC to "<module-basename>+0x<offset>" (small cache; frames repeat).
+  +void ttledger_frame(uintptr_t pc, char* out, size_t outsz) {
+  +    static std::unordered_map<uintptr_t, std::pair<std::string, uintptr_t>> cache;
+  +    auto it = cache.find(pc);
+  +    if (it == cache.end()) {
+  +        Dl_info info{};
+  +        if (dladdr(reinterpret_cast<void*>(pc), &info) && info.dli_fname != nullptr) {
+  +            std::string full(info.dli_fname);
+  +            size_t slash = full.rfind('/');
+  +            std::string base = slash == std::string::npos ? full : full.substr(slash + 1);
+  +            it = cache.emplace(pc, std::make_pair(std::move(base), pc - reinterpret_cast<uintptr_t>(info.dli_fbase))).first;
+  +        } else {
+  +            it = cache.emplace(pc, std::make_pair(std::string("?"), 0)).first;
+  +        }
+  +    }
+  +    std::snprintf(out, outsz, "%s+0x%llx", it->second.first.c_str(),
+  +                  static_cast<unsigned long long>(it->second.second));
+  +}
+  +void ttledger_log(char kind, const Buffer* buffer, DeviceAddr address) {
+  +    if (!ttledger_enabled()) return;
+  +    bool want_bt = kind == 'A' &&
+  +                   (buffer->buffer_type() == BufferType::DRAM ||
+  +                    buffer->buffer_type() == BufferType::TRACE);
+  +    void* frames[26] = {};
+  +    int nframes = 0;
+  +    if (want_bt) nframes = ::backtrace(frames, 26);
+  +    const std::string& ctx = current_allocation_context();
+  +    std::lock_guard<std::mutex> g(ttledger_mtx());
+  +    {
+  +        auto tname = enchantum::to_string(buffer->buffer_type());
+  +        std::fprintf(stderr, "[TTLEDGER] %c id=%llu type=%.*s addr=%llu size=%llu",
+  +                      kind,
+  +                      static_cast<unsigned long long>(buffer->unique_id()),
+  +                      static_cast<int>(tname.size()), tname.data(),
+  +                      static_cast<unsigned long long>(address),
+  +                      static_cast<unsigned long long>(buffer->aligned_size()));
+  +    }
+  +    if (!ctx.empty()) std::fprintf(stderr, " ctx='%s'", ctx.c_str());
+  +    if (nframes > 2) {
+  +        std::fprintf(stderr, " bt=");
+  +        char buf[128];
+  +        for (int i = 2; i < nframes; ++i) {  // skip ttledger_log + allocate_buffer
+  +            ttledger_frame(reinterpret_cast<uintptr_t>(frames[i]), buf, sizeof(buf));
+  +            std::fprintf(stderr, "%s%s", i > 2 ? ";" : "", buf);
+  +        }
+  +    }
+  +    std::fprintf(stderr, "\n");
+  +}
+  +}  // namespace
+  +}  // namespace tt::tt_metal
+  +
+   namespace tt::tt_metal {
+   
+   AllocatorImpl::AllocatorImpl(const AllocatorConfig& alloc_config) :
+  @@ -309,6 +384,7 @@ DeviceAddr AllocatorImpl::allocate_buffer(Buffer* buffer) {
+  +    ttledger_log('A', buffer, address);  // TT-LEDGER (temporary)
+       return address;
+   }
+   
+  @@ -316,6 +392,7 @@ void AllocatorImpl::deallocate_buffer(Buffer* buffer) {
+  +    ttledger_log('F', buffer, address);  // TT-LEDGER (temporary)
+   
+       // Per-core deallocation path
+       if (buffer->impl().per_core_allocation_) {
+  +77 -0
+
+ttnn/api/ttnn/device_operation.hpp
+  @@ -14,6 +14,9 @@
+  +#include <atomic>   // TT-LEDGER (temporary)
+  +#include <cstdio>   // TT-LEDGER (temporary)
+  +#include <cstdlib>  // TT-LEDGER (temporary)
+   
+   #include <tt-metalium/program_cache.hpp>
+   #include <tracy/Tracy.hpp>
+  @@ -52,6 +55,13 @@ namespace detail {
+  +// TT-LEDGER (temporary vllm.cpp diagnostic instrumentation, NOT upstream):
+  +// process-wide program-cache hit counter, logged on each PC-INSERT line.
+  +inline std::atomic<unsigned long long>& ttledger_pc_hits() {
+  +    static std::atomic<unsigned long long> hits{0};
+  +    return hits;
+  +}
+  +
+   template <typename... Ts>
+   [[nodiscard]] std::variant<Ts...> map_index_to_variant(std::size_t i, std::variant<Ts...>) {
+       assert(i < sizeof...(Ts));
+  @@ -362,6 +372,20 @@ void create_and_cache_mesh_workload(
+  +                // TT-LEDGER (temporary vllm.cpp diagnostic instrumentation, NOT upstream):
+  +                // log every program-cache insertion with its exact canonical key so a
+  +                // post-pass can see whether per-request cache entries accumulate and what
+  +                // key material differs between them. Gate: TT_LEDGER=1.
+  +                if (std::getenv("TT_LEDGER") != nullptr) {
+  +                    std::fprintf(
+  +                        stderr,
+  +                        "[TTLEDGER] PC-INSERT entries=%zu hits=%llu hash=%016llx op=%.*s\n",
+  +                        program_cache.num_entries(),
+  +                        static_cast<unsigned long long>(ttledger_pc_hits().load(std::memory_order_relaxed)),
+  +                        static_cast<unsigned long long>(program_key.hash),
+  +                        200,
+  +                        program_key.canonical.c_str());
+  +                }
+                   auto& cached_program_factory = program_cache.get(program_key);
+                   auto& workload = cached_program_factory.cached_program.template get<cached_mesh_workload_t>().workload;
+                   enqueue_mesh_workload<mesh_device_operation_t>(
+  @@ -442,6 +466,10 @@ void launch_operation_with_adapter(
+  +    if (program_cache_hit) {  // TT-LEDGER (temporary): count hits for the PC-INSERT line
+  +        detail::ttledger_pc_hits().fetch_add(1, std::memory_order_relaxed);
+  +    }
+  +
+       if (program_cache_hit) {
+           handle_mesh_adapter_cache_hit<mesh_device_operation_t>(
+               operation_attributes, tensor_args, tensor_return_value, mesh_device, program_cache, program_key);
+  +28 -0
