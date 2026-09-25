@@ -1771,6 +1771,17 @@ inline float Bf16(float v) { return BF16ToF32(F32ToBF16(v)); }
 
 // §5 RMSNormGated (norm_before_gate=True, group_size=None):
 // out = x * rsqrt(mean(x^2) + eps) * w * act(gate); act = silu or sigmoid.
+// The chain is vLLM's, end to end in f32 with ONE bf16 round at the store:
+// the CUDA production kernel (layernorm_guard.py layer_norm_fwd_kernel loads
+// x/w/gate as f32, `y = x_hat * w`, `y *= silu(z)`, one tl.store downcast)
+// and RMSNormGated.forward_static (layernorm.py, all-f32, one .to(orig_dtype))
+// — the same chain the CUDA arm RmsNormGatedRowFastKernel and the fused
+// RmsNormGatedQuantFp8Kernel below already carry. The HF-transformers
+// fallback Qwen3_5RMSNormGated (modeling_qwen3_5.py:218) rounds the norm to
+// bf16 BEFORE the weight multiply and the product again before the gate;
+// it is deliberately NOT mirrored here — vLLM is the reference, and the
+// extra roundings saturated the qwen4_exp by-name fixture's prompt
+// separation to zero movement (ISSUE-LOCAL-01M3BXW82K17KT9TYN9H6H99VP).
 void RmsNormGatedKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& gate,
                         const Tensor& w, const RmsNormGatedArgs& args) {
   const int64_t d = x.shape[x.rank - 1];
@@ -1781,12 +1792,6 @@ void RmsNormGatedKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& gate
   // degenerates to i*gate.stride[0] == i*d (group == 1), byte-identical.
   const int64_t gate_group = gate.rank == 3 ? gate.shape[1] : 1;
   const int64_t gate_outer = gate.stride[0];
-  // Match the Python fallback Qwen3_5RMSNormGated (modeling_qwen3_5.py:271):
-  // when the operands are bf16, the norm is cast to bf16 before the weight
-  // multiply, and the weight*norm product is cast to bf16 before the gate.
-  // The f32 arm (VT_GDN_BF16=0) is unchanged — input_dtype=f32 makes the
-  // .to(input_dtype) casts no-ops. StoreF32 applies the final .to(input_dtype).
-  const bool bf16 = (x.dtype == DType::kBF16);
   ForRows(t, [&](int64_t r0, int64_t r1) {
   for (int64_t i = r0; i < r1; ++i) {
     float sumsq = 0.0f;
@@ -1799,13 +1804,7 @@ void RmsNormGatedKernel(Queue&, Tensor& out, const Tensor& x, const Tensor& gate
     for (int64_t j = 0; j < d; ++j) {
       const float z = LoadF32(gate, gbase + j);
       const float act = args.sigmoid_gate ? 1.0f / (1.0f + std::exp(-z)) : Silu(z);
-      if (bf16) {
-        const float norm = Bf16(LoadF32(x, i * d + j) * inv);
-        const float weighted = Bf16(LoadF32(w, j) * norm);
-        StoreF32(out, i * d + j, weighted * act);
-      } else {
-        StoreF32(out, i * d + j, LoadF32(x, i * d + j) * inv * LoadF32(w, j) * act);
-      }
+      StoreF32(out, i * d + j, LoadF32(x, i * d + j) * inv * LoadF32(w, j) * act);
     }
   }
   });
