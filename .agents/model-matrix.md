@@ -110,15 +110,15 @@ Rollup by lifecycle state (must equal the detailed per-state row counts):
 
 | State | Rows |
 |---|---|
-| INVENTORIED | 324 |
+| INVENTORIED | 329 |
 | PARTIAL | 23 |
 | ACTIVE | 13 |
-| SPIKE | 13 |
+| SPIKE | 10 |
 | BLOCKED | 5 |
-| DONE | 3 |
+| DONE | 6 |
 | READY | 3 |
 | GATING | 1 |
-| **Total** | **385** |
+| **Total** | **390** |
 
 Engaged architectures (the 59 non-`INVENTORIED` rows):
 
@@ -185,11 +185,6 @@ Engaged architectures (the 59 non-`INVENTORIED` rows):
 | ✅ | `TinyTransformerScorer` (byte-level encoder + cross-attention scorer) | cua-s1-forms option scoring (not in vLLM; `trycua/cua`) | **DONE** — spec committed; Phases 1-5 implemented (ByteCollator, inference pipeline, registration, `/v1/score` server dispatch); PR #3265, closing commit `53f018247`. E2E tested through LocalAI `/api/score`. | `MODEL-CUA-S1-FORMS` |
 | ✅ | `DecisionModel` (ModernBERT-large encoder + transformer decision head) | Laya System 1 decision model (choice/score/noul) (`convaiinnovations/laya`) | **DONE** — spec committed; Phases 1-5 implemented (ModernBERT encoder, decision head, sequence construction, registration, `/v1/systemone` server dispatch); PR #3263, closing commit `c0320715f`. E2E tested through LocalAI `/v1/systemone`. | `MODEL-LAYA` |
 | ✅ | `KevModel` (Qwen3.5-0.8B-Base + LoRA + PointerHead) | kev System 1 decision model (choice/score/noul) (`jaredpalmer/kev-0.8b`) | **DONE** — spec committed; Phases 1-6 implemented (convert-time LoRA merge, PointerHead readout, ForwardHidden backbone, sequence construction, registration, `/v1/systemone` server dispatch); PR #3295, closing commit `4756d264c`. E2E tested through LocalAI `/v1/systemone`. Frozen Qwen3.5-0.8B-Base backbone (18 DeltaNet + 6 full-attn layers) with rank-16 LoRA merged at convert time and PointerHead readout. Oracle: kev source `jaredpalmer/kev`. | `MODEL-KEV` |
-| 📋 | `ClmModel` (frozen Qwen3-8B encoder + projection heads) | CLM-v0.1-8B System 1 decision model (choice/score/noul) (`Contrastive-LM/CLM-v0.1-8B`) | **INVENTORIED** — not implemented. Built on frozen Qwen3-8B encoder with two projection heads. Reuses `/v1/systemone` API. | `MODEL-CLM` |
-| 📋 | `Tev1Model` (Qwen3.5-4B-Base SFT, standard LM head) | Tev1-4B-experimental autoregressive decision model (`togethercomputer/Tev1-4B-experimental`) | **INVENTORIED** — not implemented. SFT of Qwen3.5-4B-Base; standard next-token LM head (not non-autoregressive). Uses chat completions (temperature=0, max_tokens=8, enable_thinking=false), returns single option letter. Qwen3.5-4B backbone already implemented. Oracle: vLLM. | `MODEL-TEV1` |
-| 📋 | `XorModel` (Qwen3.6-35B-A3B MoE, multimodal) | Xor 35B MoE SystemOne-class decision model (`juspay/xor`) | **INVENTORIED** — not implemented. Post-trained Qwen3.6-35B-A3B MoE (35B total / ~3B activated). SystemOne-class (noul/choice/score) with deterministic single-token candidate readout, forward+reverse option-order evaluation, probability calibration. Multimodal (up to 8 images). Fully merged BF16 weights. Oracle: SGLang. | `MODEL-XOR` |
-| 📋 | `DiffusionGemmaJev` (DiffusionGemma + structured generation) | Jev-like structured generation for DiffusionGemma (vLLM PR #57250) | **INVENTORIED** — not implemented. Structured generation mode for DiffusionGemma enabling Jev-like bounded-choice answers. Canvas seeding, read-only requests, pinned positions, logprobs on converging step. Can answer noul, scale, multiple choice. DiffusionGemma already inventoried; this adds the decision capability. Oracle: vLLM (PR #57250 merged). | `MODEL-JEV` |
-| 📋 | `GLiNER2DecideModel` (DeBERTa-v3-large encoder + classification head) | GLiNER2.5-Decide SystemOne-class decision classifier (`fastino/GLiNER2.5-Decide`) | **INVENTORIED** — not implemented. 340M params, DeBERTa-v3-large encoder + classification head. Single forward pass, no prompt template, no generated tokens. Single-label choice, multi-label, ordinal score, yes/no (noul). Multiple heads in one call. Shares DeBERTa disentangled-attention dependency with `MODEL-GLINER25`. Reuses `/v1/systemone` API. Oracle: `vllm-factory`. | `MODEL-GLINER25-DECIDE` |
 
 ## Row contract
 
