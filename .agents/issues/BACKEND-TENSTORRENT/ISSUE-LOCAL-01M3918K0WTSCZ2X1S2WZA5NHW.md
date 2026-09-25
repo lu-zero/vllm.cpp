@@ -12,6 +12,8 @@ Closed: -
 
 ## Problem
 
+UPSTREAM FILED 2026-09-25: tenstorrent/tt-metal#57970 (ttnn deferred-reader retention, the falsification-proven holder). The package at docs/bench-evidence/tt-ttm-retention-repro-20260925/ is the evidence; the weekly-refresh task tracks the upstream state and this issue closes when the upstream fix lands and our pin advances past it.
+
 Root-cause row: [tenstorrent-ttm-retention-rootcause](../../specs/tenstorrent-ttm-retention-rootcause.md) (2026-09-25).
 
 Spec: [tenstorrent-27b-dram-growth](../../specs/tenstorrent-27b-dram-growth.md) (attribution-first, 2026-09-24).
