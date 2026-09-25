@@ -12,6 +12,8 @@ Closed: -
 
 ## Problem
 
+Root-cause row: [tenstorrent-ttm-retention-rootcause](../../specs/tenstorrent-ttm-retention-rootcause.md) (2026-09-25).
+
 Spec: [tenstorrent-27b-dram-growth](../../specs/tenstorrent-27b-dram-growth.md) (attribution-first, 2026-09-24).
 UPDATE 2026-09-25: the first fix attempt (request-invariant repair planes, spec tenstorrent-keepquant-retention.md) produced an IDENTICAL staircase and a decisive control — the same P=64 prefill ran twice with equal retention both times (-0.195 GiB/bank each). Retention is per-PREFILL-EVENT, not per-new-shape: the program-cache pins-per-new-shape attribution is REFUTED. The owner is tt-metal-side per-execution retention (allocator/program-cache workspace under VT_TT_PROGRAM_CACHE=1), escalated per the spec stop condition; the fix attempt was reverted clean.
 
