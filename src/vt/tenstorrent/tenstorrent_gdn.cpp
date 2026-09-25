@@ -286,36 +286,76 @@ void GdnPrefillKernel(Queue&, Tensor& out, const Tensor& q_in, const Tensor& k_i
   }
 
   MeshDevice& device = SharedMeshDevice();
-  const uint32_t un = static_cast<uint32_t>(n), ul = static_cast<uint32_t>(len),
-                 uhk = static_cast<uint32_t>(hk), uhv = static_cast<uint32_t>(hv),
-                 udk = static_cast<uint32_t>(dk), udv = static_cast<uint32_t>(dv);
-  ttnn::Tensor dev_q =
-      UploadTensor(std::move(qp), ttnn::Shape({un, ul, uhk, udk}),
-                   ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, device);
-  ttnn::Tensor dev_k =
-      UploadTensor(std::move(kp), ttnn::Shape({un, ul, uhk, udk}),
-                   ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, device);
-  ttnn::Tensor dev_v =
-      UploadTensor(std::move(vp), ttnn::Shape({un, ul, uhv, udv}),
-                   ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, device);
-  ttnn::Tensor dev_g =
-      UploadTensor(std::move(gp), ttnn::Shape({un, ul, uhv}),
-                   ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
-  ttnn::Tensor dev_b =
-      UploadTensor(std::move(bp), ttnn::Shape({un, ul, uhv}),
-                   ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
-  ttnn::Tensor dev_s0 =
-      UploadTensor(std::move(s0), ttnn::Shape({un, uhv, udk, udv}),
-                   ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
-  auto [o, final_state] = ttnn::transformer::chunk_gated_delta_rule(
-      dev_q, dev_k, dev_v, dev_g, dev_b, args.scale, dev_s0,
-      /*output_final_state=*/true, static_cast<uint32_t>(kChunk),
-      /*use_qk_l2norm=*/false,  // caller pre-normalized q/k
-      /*output_head_major=*/false);
-  VT_CHECK(final_state.has_value(),
-           "tenstorrent gdn_prefill: chunk_gated_delta_rule returned no final state");
-  const std::vector<float> ov = o.to_vector<float>();           // [N,len,Hv,Dv]
-  const std::vector<float> fv = final_state->to_vector<float>();  // [N,Hv,Dk,Dv]
+  const auto grid = device.compute_with_storage_grid_size();
+  const uint32_t cores =
+      static_cast<uint32_t>(grid.x) * static_cast<uint32_t>(grid.y);
+  VT_CHECK(hv <= static_cast<int64_t>(cores),
+           "tenstorrent gdn_prefill: Hv=" + std::to_string(hv) +
+               " alone exceeds the device compute-core count " +
+               std::to_string(cores) +
+               " — tt-metal chunk_gated_delta_rule distributes BH rows over "
+               "cores and cannot run at any batch size on this device");
+  // BH = batch * value heads is the flattened row count tt-metal's scan
+  // distributes over cores (chunk_gdn_phased_program_factory requires BH <=
+  // ncores). Above that bound, decompose into sub-batch calls: the op
+  // factorizes exactly over the (batch, head) dim — the scan recurrence is
+  // per-row, the final state is one row per (batch, head), and per-sequence
+  // initial states slice along dim 0 — so per-sub-batch outputs and states
+  // concatenate back to the whole-batch result bit-for-bit. sub_b >= n
+  // (hence every c=1 call) stays a single call.
+  int64_t sub_b = n;
+  if (n * hv > static_cast<int64_t>(cores))
+    sub_b = std::min(n, std::max<int64_t>(1, static_cast<int64_t>(cores) / hv));
+  std::vector<float> ov, fv;  // [N,len,Hv,Dv] / [N,Hv,Dk,Dv] slices, in order
+  const size_t qk_stride = static_cast<size_t>(len) * hk * dk;
+  const size_t v_stride = static_cast<size_t>(len) * hv * dv;
+  const size_t gb_stride = static_cast<size_t>(len) * hv;
+  const size_t s0_stride = static_cast<size_t>(hv) * dk * dv;
+  for (int64_t b0 = 0; b0 < n; b0 += sub_b) {
+    const int64_t bn = std::min(sub_b, n - b0);
+    const uint32_t un = static_cast<uint32_t>(bn), ul = static_cast<uint32_t>(len),
+                   uhk = static_cast<uint32_t>(hk), uhv = static_cast<uint32_t>(hv),
+                   udk = static_cast<uint32_t>(dk), udv = static_cast<uint32_t>(dv);
+    // A single full-batch call (sub_b >= n) owns the whole packed vector:
+    // move it into the upload instead of staging a full copy (the pre-fix
+    // single-call path). The split path always slices.
+    auto slice = [&](std::vector<float>& src,
+                     size_t stride) -> std::vector<float> {
+      if (b0 == 0 && bn == n)
+        return std::move(src);
+      return std::vector<float>(src.begin() + b0 * stride,
+                                src.begin() + (b0 + bn) * stride);
+    };
+    ttnn::Tensor dev_q =
+        UploadTensor(slice(qp, qk_stride), ttnn::Shape({un, ul, uhk, udk}),
+                     ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, device);
+    ttnn::Tensor dev_k =
+        UploadTensor(slice(kp, qk_stride), ttnn::Shape({un, ul, uhk, udk}),
+                     ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, device);
+    ttnn::Tensor dev_v =
+        UploadTensor(slice(vp, v_stride), ttnn::Shape({un, ul, uhv, udv}),
+                     ttnn::DataType::BFLOAT16, ttnn::Layout::TILE, device);
+    ttnn::Tensor dev_g =
+        UploadTensor(slice(gp, gb_stride), ttnn::Shape({un, ul, uhv}),
+                     ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
+    ttnn::Tensor dev_b =
+        UploadTensor(slice(bp, gb_stride), ttnn::Shape({un, ul, uhv}),
+                     ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
+    ttnn::Tensor dev_s0 =
+        UploadTensor(slice(s0, s0_stride), ttnn::Shape({un, uhv, udk, udv}),
+                     ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
+    auto [o, final_state] = ttnn::transformer::chunk_gated_delta_rule(
+        dev_q, dev_k, dev_v, dev_g, dev_b, args.scale, dev_s0,
+        /*output_final_state=*/true, static_cast<uint32_t>(kChunk),
+        /*use_qk_l2norm=*/false,  // caller pre-normalized q/k
+        /*output_head_major=*/false);
+    VT_CHECK(final_state.has_value(),
+             "tenstorrent gdn_prefill: chunk_gated_delta_rule returned no final state");
+    std::vector<float> ovec = o.to_vector<float>();             // [bn,len,Hv,Dv]
+    std::vector<float> fvec = final_state->to_vector<float>();  // [bn,Hv,Dk,Dv]
+    ov.insert(ov.end(), ovec.begin(), ovec.end());
+    fv.insert(fv.end(), fvec.begin(), fvec.end());
+  }
 
   // Scatter token-major outputs back into the packed varlen rows.
   for (int64_t s = 0; s < n; ++s) {
@@ -738,32 +778,72 @@ void GdnDecodeKernel(Queue&, Tensor& out, const Tensor& q_in, const Tensor& k,
         bc[static_cast<size_t>(b * hv + h)] = LoadElemF32(beta, b * hv + h);
       }
     }
-    ttnn::Tensor dq = UploadTensor(
-        std::move(qc),
-        ttnn::Shape({ub, 1, static_cast<uint32_t>(hk), udk}),
-        ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
-    ttnn::Tensor dk4 = UploadTensor(
-        std::move(kc),
-        ttnn::Shape({ub, 1, static_cast<uint32_t>(hk), udk}),
-        ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
-    ttnn::Tensor dv4 = UploadTensor(std::move(vc),
-                                    ttnn::Shape({ub, 1, uhv, udv}),
-                                    ttnn::DataType::FLOAT32, ttnn::Layout::TILE,
-                                    device);
-    ttnn::Tensor dg = UploadTensor(std::move(gc), ttnn::Shape({ub, 1, uhv}),
-                                   ttnn::DataType::FLOAT32, ttnn::Layout::TILE,
-                                   device);
-    ttnn::Tensor db = UploadTensor(std::move(bc), ttnn::Shape({ub, 1, uhv}),
-                                   ttnn::DataType::FLOAT32, ttnn::Layout::TILE,
-                                   device);
-    auto [oc, fs] = ttnn::transformer::chunk_gated_delta_rule(
-        dq, dk4, dv4, dg, db, args.scale, s0,
-        /*output_final_state=*/true, /*chunk_size=*/64,
-        /*use_qk_l2norm=*/false, /*output_head_major=*/false);
-    VT_CHECK(fs.has_value(),
-             "tenstorrent gdn_decode: chunk_gated_delta_rule returned no final state");
-    o = std::move(oc);
-    S_new = ttnn::permute(*fs, ttsl::SmallVector<int64_t>{0, 1, 3, 2});
+    // Same core bound as prefill: BH = batch * hv is the scan's flattened
+    // row count. Decompose above the bound; sub_b >= batch (hence c=1)
+    // stays a single call: the staged host vectors move whole into the
+    // uploads and the device s0 takes a full-extent slice (a no-op).
+    const auto chunked_grid = device.compute_with_storage_grid_size();
+    const uint32_t chunked_cores = static_cast<uint32_t>(chunked_grid.x) *
+                                   static_cast<uint32_t>(chunked_grid.y);
+    VT_CHECK(hv <= static_cast<int64_t>(chunked_cores),
+             "tenstorrent gdn_decode: Hv=" + std::to_string(hv) +
+                 " alone exceeds the device compute-core count " +
+                 std::to_string(chunked_cores) +
+                 " — tt-metal chunk_gated_delta_rule distributes BH rows over "
+                 "cores and cannot run at any batch size on this device");
+    int64_t sub_b = batch;
+    if (batch * hv > static_cast<int64_t>(chunked_cores))
+      sub_b = std::min(batch, std::max<int64_t>(
+                                  1, static_cast<int64_t>(chunked_cores) / hv));
+    const size_t qk_stride = static_cast<size_t>(hk) * dk;
+    const size_t v_stride = static_cast<size_t>(hv) * dv;
+    const size_t gb_stride = static_cast<size_t>(hv);
+    std::vector<ttnn::Tensor> os, fss;  // per-sub-batch o ([bn,1,Hv,Dv]) and state
+    for (int64_t b0 = 0; b0 < batch; b0 += sub_b) {
+      const int64_t bn = std::min(sub_b, batch - b0);
+      const uint32_t ubn = static_cast<uint32_t>(bn);
+      // Same single-call rule as prefill: sub_b >= batch moves the whole
+      // staged vector into the upload; the split path always slices.
+      auto slice = [&](std::vector<float>& src,
+                       size_t stride) -> std::vector<float> {
+        if (b0 == 0 && bn == batch)
+          return std::move(src);
+        return std::vector<float>(src.begin() + b0 * stride,
+                                  src.begin() + (b0 + bn) * stride);
+      };
+      ttnn::Tensor s0_sl = ttnn::slice(
+          s0, ttsl::SmallVector<uint32_t>{static_cast<uint32_t>(b0), 0u, 0u, 0u},
+          ttsl::SmallVector<uint32_t>{static_cast<uint32_t>(b0 + bn), uhv, udk,
+                                      udv},
+          ttsl::SmallVector<uint32_t>{1u, 1u, 1u, 1u});
+      ttnn::Tensor dq = UploadTensor(
+          slice(qc, qk_stride), ttnn::Shape({ubn, 1, static_cast<uint32_t>(hk), udk}),
+          ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
+      ttnn::Tensor dk4 = UploadTensor(
+          slice(kc, qk_stride), ttnn::Shape({ubn, 1, static_cast<uint32_t>(hk), udk}),
+          ttnn::DataType::FLOAT32, ttnn::Layout::TILE, device);
+      ttnn::Tensor dv4 = UploadTensor(slice(vc, v_stride),
+                                      ttnn::Shape({ubn, 1, uhv, udv}),
+                                      ttnn::DataType::FLOAT32, ttnn::Layout::TILE,
+                                      device);
+      ttnn::Tensor dg = UploadTensor(slice(gc, gb_stride), ttnn::Shape({ubn, 1, uhv}),
+                                     ttnn::DataType::FLOAT32, ttnn::Layout::TILE,
+                                     device);
+      ttnn::Tensor db = UploadTensor(slice(bc, gb_stride), ttnn::Shape({ubn, 1, uhv}),
+                                     ttnn::DataType::FLOAT32, ttnn::Layout::TILE,
+                                     device);
+      auto [oc, fs] = ttnn::transformer::chunk_gated_delta_rule(
+          dq, dk4, dv4, dg, db, args.scale, s0_sl,
+          /*output_final_state=*/true, /*chunk_size=*/64,
+          /*use_qk_l2norm=*/false, /*output_head_major=*/false);
+      VT_CHECK(fs.has_value(),
+               "tenstorrent gdn_decode: chunk_gated_delta_rule returned no final state");
+      os.push_back(std::move(oc));  // [bn,1,Hv,Dv]
+      fss.push_back(
+          ttnn::permute(*fs, ttsl::SmallVector<int64_t>{0, 1, 3, 2}));  // [bn,Hv,Dv,Dk]
+    }
+    o = os.size() == 1 ? std::move(os[0]) : ttnn::concat(os, /*dim=*/0);
+    S_new = fss.size() == 1 ? std::move(fss[0]) : ttnn::concat(fss, /*dim=*/0);
     o = ttnn::reshape(o, ttnn::Shape({bh, udv, 1}));  // [B,1,Hv,Dv] -> [B*Hv,Dv,1]
     S_new = ttnn::reshape(S_new, ttnn::Shape({bh, udv, udk}));
   } else {
