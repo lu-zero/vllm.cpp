@@ -109,6 +109,11 @@ std::string GetInstructions(const nlohmann::ordered_json& qj) {
   return "";
 }
 
+std::vector<std::string> NerLabels(const SystemOneQuestion& q) {
+  if (q.type == "noul") return {q.instructions};
+  return q.labels;
+}
+
 // ── Request parsing ────────────────────────────────────────────────────────
 
 ParsedSystemOne ParseSystemOneBody(const nlohmann::ordered_json& body) {
@@ -198,7 +203,7 @@ ParsedSystemOne ParseSystemOneBody(const nlohmann::ordered_json& body) {
       r.error_msg = "question '" + q.id + "' has unknown type: " + q.type;
       return r;
     }
-    for (const auto& l : q.labels) r.all_labels.push_back(l);
+    for (const auto& l : NerLabels(q)) r.all_labels.push_back(l);
     r.questions.push_back(std::move(q));
   }
   return r;
@@ -208,8 +213,12 @@ ParsedSystemOne ParseSystemOneBody(const nlohmann::ordered_json& body) {
 
 nlohmann::json BuildSystemOneAnswer(const SystemOneQuestion& q,
                                      const NerResult& result) {
+  // The NER label set, not the decision option texts: a noul question's
+  // entities are the ones its INSTRUCTION extracted (NerLabels), while its
+  // q.labels are kev's "no"/"yes" option texts.
+  const std::vector<std::string> labels = NerLabels(q);
   std::vector<float> scores;
-  for (const auto& label : q.labels) {
+  for (const auto& label : labels) {
     float max_conf = 0.0F;
     for (const auto& e : result.entities) {
       if (e.label == label) max_conf = std::max(max_conf, e.confidence);
@@ -225,7 +234,7 @@ nlohmann::json BuildSystemOneAnswer(const SystemOneQuestion& q,
   if (q.type == "noul") {
     nlohmann::json entities = nlohmann::json::array();
     for (const auto& e : result.entities) {
-      if (e.label == q.labels[0]) {
+      if (e.label == labels[0]) {
         entities.push_back(nlohmann::json{
             {"text", e.text}, {"start", e.start}, {"end", e.end},
             {"confidence", e.confidence}});

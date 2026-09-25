@@ -108,6 +108,17 @@ struct ParsedSystemOne {
 
 ParsedSystemOne ParseSystemOneBody(const nlohmann::ordered_json& body);
 
+// The label set the GLiNER NER callback extracts for one question. A noul
+// question's NER label is its instruction (GLiNER extracts entities FOR the
+// question text, so "is there a person" extracts the label "person");
+// choice and score questions extract their option texts, which ARE their
+// q.labels. The DECISION path must not use this: kev/api.py to_record scores
+// a noul over the two option texts option_text("no", criteria["false"]) /
+// option_text("yes", criteria["true"]), which is what ParseSystemOneBody
+// puts in q.labels, and the two meanings diverged when MODEL-KEV aligned
+// q.labels with that reference.
+std::vector<std::string> NerLabels(const SystemOneQuestion& q);
+
 // ── Answer building ───────────────────────────────────────────────────────
 
 // Build one kev answer from NER results for one question.
@@ -121,8 +132,9 @@ nlohmann::json BuildSystemOneAnswerDecision(const SystemOneQuestion& q,
                                              const DecisionResult& result);
 
 // Render option texts for the Laya decision path, matching
-// rl_common.py:render_options. The GLiNER NER path uses q.labels directly
-// (kev format); the Laya decision path needs the reference option format.
+// rl_common.py:render_options. The GLiNER NER path uses NerLabels(q)
+// (the instruction for noul, the option texts for choice/score); the Laya
+// decision path needs the reference option format.
 std::vector<std::string> RenderDecisionOptions(const SystemOneQuestion& q);
 
 }  // namespace vllm::entrypoints::openai::systemone

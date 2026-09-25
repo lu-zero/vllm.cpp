@@ -997,8 +997,11 @@ ApiServer::DispatchResult ApiServer::handle_systemone_separate(
        total_tokens += dr.prompt_tokens;
        answers[q.id] = BuildSystemOneAnswerDecision(q, dr);
      } else {
-       const NerResult result = ner_(parsed.text, q.labels, parsed.threshold,
-                                     parsed.max_width);
+       // One NER pass per question, so the per-question label set is the
+       // NER label set (the instruction for a noul question), not kev's
+       // "no"/"yes" option texts.
+       const NerResult result = ner_(parsed.text, NerLabels(q),
+                                     parsed.threshold, parsed.max_width);
        total_tokens += result.prompt_tokens;
        answers[q.id] = BuildSystemOneAnswer(q, result);
      }
