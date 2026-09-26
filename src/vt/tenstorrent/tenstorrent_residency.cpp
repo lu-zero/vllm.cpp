@@ -1005,7 +1005,6 @@ void UnregisterHostBuffer(void* host) {
   DropEmbedTableShadow(host);
   DropDecodedWeightShadow(host);
   DropKeepQuantWordShadow(host);
-  DropGroupedActShadow(host);
 }
 
 void MarkHostWritten(void* host) {

@@ -501,27 +501,11 @@ inline std::map<uintptr_t, DecodedWeightShadow>& DecodedWeightShadows() {
   return *m;
 }
 
-// GroupedActShadow: the grouped-quant activation's device-side bf16 TILE
-// staging, keyed by the host activation pointer. EnsureDevice2D's slot
-// staging corrupts under trace capture (ISSUE-LOCAL-01M2NSDATJQ1YNW1PA9ZBMAAM5);
-// from_span stages directly from host, and the shadow cache serves the same
-// device tensor under capture (the warm-first contract — the eager step stages
-// before capture, the capture-time miss refuses). Same collision discipline as
-// the other resident shadows: the free path drops by host pointer.
-struct GroupedActShadow {
-  ttnn::Tensor device;
-  uint32_t rows = 0, cols = 0;
-  DType dtype = DType::kF32;
-};
-inline std::mutex& GroupedActMutex() {
-  static std::mutex m;
-  return m;
-}
-inline std::map<uintptr_t, GroupedActShadow>& GroupedActShadows() {
-  static std::map<uintptr_t, GroupedActShadow>* m =
-      new std::map<uintptr_t, GroupedActShadow>(); // never destroyed (#1486)
-  return *m;
-}
+// (W3 of the capture-warmup redesign removed the GroupedActShadow staging
+// that lived here: the pointer-keyed cache structurally missed between the
+// warmup and capture pool addresses, so the grouped-quant activation is now
+// served from its resident device shadow in-region —
+// ISSUE-LOCAL-01M3918KQ580Z3NHVRNXVF15FZ.)
 
 // ---- moved declarations (definitions in tenstorrent_keepquant.cpp) ----
 ttnn::Tensor EnsureKeepQuantWords(const Tensor& packed, DType enc, int64_t rows,
@@ -537,7 +521,6 @@ void MatmulBTQuantInt8DotKernel(Queue& q, Tensor& out, const Tensor& a,
                                 const Tensor& b);
 void DropKeepQuantWordShadow(void* host);
 void DropDecodedWeightShadow(void* host);
-void DropGroupedActShadow(void* host);
 void CommitDeviceLogical2D(Tensor& out, ttnn::Tensor dev, uint32_t rows,
                            uint32_t cols);
 
