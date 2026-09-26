@@ -102,8 +102,13 @@ at all 51 cells; the golden matches at none), superseded by justified
 numeric drift accumulated since the golden's capture — recorded in
 ISSUE-LOCAL-01M3918KQ580Z3NHVRNXVF15FZ and moved to
 ISSUE-LOCAL-01M3ENS1FCHZ7SR5SJXQM174A2 as the separate, smaller numerics
-row. The 27B APEX anchor is re-derived on the fixed tree (its old numbers
-— the degenerate all-eager reference — are superseded in the issue).
+row. The 27B APEX anchor is re-derived on the fixed tree (its old
+  numbers — the degenerate all-eager reference — are superseded in the
+  issue); the audit's 27B finding — the int8-dot kernel's activation
+  refusal — is fixed with the same in-region serve (9b18e6ab5), and the
+  27B captured arm CAPTURES for the first time since the pair, with the
+  loop stream's oracle adjudication recorded as owed to the 27B's own
+  row.
 
 ## Outcome
 
