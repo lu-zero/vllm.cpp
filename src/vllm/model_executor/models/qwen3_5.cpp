@@ -12587,22 +12587,35 @@ ForwardLogits Qwen3_5DenseDecodeGraph::Step(
   // used). (Re)allocate the persistent hidden buffer to this size.
   s.hidden = std::make_unique<DBuf>(d, DType::kBF16, std::vector<int64_t>{S, H});
   DenseEmbedInto(d, *s.hidden, s.token_ids, impl_->weights, impl_->config);
-  // Snapshot the GDN state device shadows before the warmup modifies them.
-  // The warmup runs a real decode step that commits new state shapes; the
-  // capture step must see the SAME initial state as the warmup did, so the
-  // program cache hits (same shapes → same hashes).
+  // Snapshot the GDN SSM state device shadows before the warmup modifies
+  // them. The warmup runs a real decode step that commits new state shapes;
+  // the capture step must see the SAME initial state as the warmup did, so
+  // the program cache hits (same shapes → same hashes).
+  //
+  // W1 (capture-warmup redesign): the CONV slot must NOT ride the
+  // snapshot/restore. The warmup's decode step COMMITS the conv state's
+  // transposed shadow (CommitConvTransposed: [sl+1, R] TILE f32,
+  // conv_transposed), and `ConvShadowServeable` — the `conv_shadow_stale`
+  // gate above — recognizes exactly that commit. Restoring the slot to its
+  // pre-warmup shadow un-serves it on every step, the gate resets `s.warm`,
+  // and the "captured" arm silently runs all-eager with a 0 B trace demand
+  // (the 2ed5e912e4 cascade, ISSUE-LOCAL-01M3918KQ580Z3NHVRNXVF15FZ). The
+  // capture step's first conv read serves the warmup's commit at the SAME
+  // geometry the warmup's own conv read produced (the commit and the read
+  // agree on [sl+1, R] TILE f32), so leaving it in place costs the program
+  // cache nothing.
   std::vector<const void*> gdn_ptrs;
   for (const auto& gs : gdn_state) {
     gdn_ptrs.push_back(gs.ssm_state.data);
-    gdn_ptrs.push_back(gs.conv_state.data);
   }
   auto gdn_snapshot = vt::tenstorrent::SnapshotGdnStateShadows(gdn_ptrs);
   DBuf lg = DenseForwardLayers(d, s.hidden->t(), s.positions, s.attn_meta,
                                s.gdn_meta, attn_kv, gdn_state, impl_->weights,
                                impl_->config, {}, nullptr, nullptr, aux_ids_arg,
                                aux_out_arg);
-  // Restore the GDN state device shadows so the capture step sees the
-  // same initial state as the warmup did.
+  // Restore the GDN SSM state device shadows so the capture step sees the
+  // same initial state as the warmup did (the conv slot stays with the
+  // warmup's commit — see the snapshot comment above).
   vt::tenstorrent::RestoreGdnStateShadows(gdn_ptrs, gdn_snapshot);
   s.warm = true;
   // #1380: the cold step is the ONE eager run of this exact forward at this exact
