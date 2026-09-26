@@ -12,7 +12,8 @@ Closed: -
 
 ## Problem
 
-Fix row: [tenstorrent-qwen35-q4km-degen-fix](../../specs/tenstorrent-qwen35-q4km-degen-fix.md) (2026-09-25).
+Fix row: [tenstorrent-qwen35-q4km-degen-fix](../../specs/tenstorrent-qwen35-q4km-degen-fix.md) (2026-09-25, STOPPED at the warmup-path redesign its own stop condition named).
+Redesign row: [tenstorrent-capture-warmup-redesign](../../specs/tenstorrent-capture-warmup-redesign.md) (2026-09-26, the four waves).
 
 **CULPRIT PINNED 2026-09-25 (git bisect, pinned tt-metal):** the degenerate stream entered with `14d7a25077` "fix: capture-safe reshapes and zero-cache warmup for Tenstorrent decode graph" (`2ed5e912e4`, its adjacent follow-up, inherits it). Bisect: good `46dbc7c1e` (09-13) -> bad `455a2de84` -> narrowed to the two-commit pair -> boundary leg at `14d7a25077` DIFFERS, so the first-bad is that commit itself. The committed goldens stand: vllm@2415a6b22 on the confirmed pin reproduces the committed stream byte-for-byte; the gated-norm fix (#3311) did not cure it (post-fix main still degenerate). The fix must reconcile the commit's capture-safety intent with the eager/first-decode numerics it broke (the zero-cache warmup path is the prime mechanism candidate for the period-3 degeneration).
 

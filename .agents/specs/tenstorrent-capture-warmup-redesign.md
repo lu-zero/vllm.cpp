@@ -1,0 +1,84 @@
+# Spec: redesign the captured arm's warmup/staging path
+
+Row: `BACKEND-TENSTORRENT-QWEN35` (with the TT backend as its execution
+surface). State: DRAFT (2026-09-26).
+Issue: `ISSUE-LOCAL-01M3918KQ580Z3NHVRNXVF15FZ` (this row closes it).
+Follow-up to: `tenstorrent-qwen35-q4km-degen-fix.md` (the stopped
+reconciliation; its record carries the instrumented falsifications).
+Git integration: one pull request (spec + the four waves + gates), branch
+`row/TT-CAPTURE-WARMUP-REDESIGN`. This is the bigger unit the stop
+condition named.
+
+## Problem
+
+The captured decode arm has not completed a single real capture since
+the `14d7a25077`/`2ed5e912e4` pair: the shadow restore silences the
+capture (the conv slot reads unserveable, the warm gate resets every
+step, trace demand 0 B — the "captured" arm runs all-eager) while also
+freezing the GDN recurrence (state rolled back past the warmup's commit
+— the period-3 degeneration). Removing the restore re-exposes the capture
+defects it papered over, in an unbounded stack: the capture-branch
+reshape spec divergence, then the pointer-keyed grouped-act staging
+(warmup and capture allocate activations at different pool addresses —
+the lookup structurally misses). The eager numerics are intact; the
+capture path's warmup/staging design is what is broken.
+
+## The four waves (sequential, each with its own gate leg)
+
+**W1 — the conv slot leaves the snapshot/restore.** Drop the conv slot
+from any snapshot/restore so `ConvShadowServeable` stays true and the
+warm gate does not reset. Gate: the decode-graph cold step reports a
+non-zero trace demand (a capture actually begins) and the conv shadow
+serves.
+
+**W2 — the ssm restore becomes value-preserving.** Either copy the
+warmup's committed values into the restored geometry, or serve the
+warmup's commit directly (no rollback). Gate: the recurrence advances —
+the red's period-3 signature is gone at the instrumented state probe
+(the warmup's state update survives into the next step).
+
+**W3 — grouped-act staging becomes device-resident in-region.** Replace
+the #3042 pointer-keyed `GroupedActShadows` staging with device-resident
+in-region activation serving (the GDN device-pure pattern) or persistent
+staging buffers whose addresses are stable across warmup and capture.
+Gate: the `grouped-quant: activation staging miss during trace capture`
+refusal is gone — the capture pass finds its activations.
+
+**W4 — the full re-audit and the decisive gates.** Re-audit every
+capture-pass spec against its warmup counterpart until the trace
+COMPLETES (each divergence gets its own fix in this wave; the stack is
+bounded by the audit, not by hope). Then: (1) the q4km TT-lane capture
+is BYTE-IDENTICAL to the committed golden; (2) the device suite 92/92 /
+525,723; (3) the 27B APEX anchor re-derived (its committed evidence
+embeds the degenerate all-eager reference — the new capture's TPOT and
+token stream become the fresh anchor evidence, with the old numbers
+explicitly superseded in the record); (4) standard gates.
+
+## Risks
+
+- W3 is the load-bearing design change: in-region activation serving
+  must not change eager numerics (the eager path keeps the same values
+  it has today — byte-identity gates it).
+- The W4 audit may find more capture-pass divergences (the stack was
+  "unbounded from here"); each is in-scope for this row, fixed one at a
+  time, and if any one of them is a DESIGN-level impossibility (not an
+  implementation gap), the row stops and records it — same discipline as
+  the previous row.
+- The capture/replay behavior the original pair fixed (the
+  mid-capture reshape fatals) must stay fixed — W1-W4 may not regress
+  the capture-safe reshape discipline; the capture-lane suite cases are
+  the regression detector.
+
+## Non-goals
+
+- No tt-metal changes; no golden updates (the goldens stand as the
+  byte-identity target).
+- No INT8DOT sweep, no TPOT claims — they reopen/derive fresh after W4.
+
+## Stop conditions
+
+- Any wave's design-level impossibility (recorded with the instrumented
+  evidence; the row stops rather than forces).
+- W4's byte-identity unreachable after the trace completes: stop and
+  record — at that point the capture runs and the residual divergence
+  is a separate, smaller numerics row.
