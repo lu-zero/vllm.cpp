@@ -82,3 +82,60 @@ explicitly superseded in the record); (4) standard gates.
 - W4's byte-identity unreachable after the trace completes: stop and
   record — at that point the capture runs and the residual divergence
   is a separate, smaller numerics row.
+
+## Now
+
+2026-09-26: the four waves LANDED on branch `row/TT-CAPTURE-WARMUP-REDESIGN`
+(spec 6e1f80b0b; W1 a94a348ce, W2 1a5dff77d, W3 9b9bd6dfe, W4 c0ee3a41a,
+suite repair 24c6ccc22). The captured decode arm COMPLETES its trace for
+the first time since the `14d7a25077`/`2ed5e912e4` pair: the q4km battery
+reports "device trace demand at last capture end = 436,273,152 B" (the red
+printed 0 B), 16/16 prompts, and the captured token stream is
+byte-identical to the all-eager stream — the capture-vs-warmup spec audit
+passes at the token level. The device suite holds 92/92 / 525,723 (the
+first W3 cut's 13 keep-quant capture failures — the op-level tests'
+host-staged activation pattern — are repaired by the narrowed fallback
+and all clear green). The byte-identity gate stopped at its spec's stop
+condition: the residual 51-cell divergence is the committed golden's own
+in-band deviation from the oracle (the current stream matches the oracle
+at all 51 cells; the golden matches at none), superseded by justified
+numeric drift accumulated since the golden's capture — recorded in
+ISSUE-LOCAL-01M3918KQ580Z3NHVRNXVF15FZ and moved to
+ISSUE-LOCAL-01M3ENS1FCHZ7SR5SJXQM174A2 as the separate, smaller numerics
+row. The 27B APEX anchor is re-derived on the fixed tree (its old numbers
+— the degenerate all-eager reference — are superseded in the issue).
+
+## Outcome
+
+- Measured (P150, pinned tt-metal vllm-cpp-pin/20260925, all legs under
+  the file mutex): red baseline dump md5 6ae141e5e4184e48071a7b3413d8df83
+  (period-3 279/6511/314, 188/256 cells diverged, trace demand 0 B); the
+  fixed captured battery dump md5 c403afe36f31b324ba22216136be66e2 ==
+  the all-eager dump (both arms byte-identical), trace demand 436,273,152
+  B, 16/16 prompts (13/16 strict-exact vs the per-prompt oracle greedy,
+  all inside the 500-mnat band).
+- Rejected: keeping the ssm snapshot/restore with a value-copy (the
+  spec's other W2 option) — the warmup's scatter commit already lands at
+  the exact geometry the capture's first read serves, so the rollback
+  bought nothing and discarded the state update; serving the commit
+  directly is both simpler and semantically correct. Rejected: routing
+  CaptureSafeReshape through the member-view branch during capture (the
+  14d7a25077 design) — the relabeled padded shape is a spec no eager
+  warmup produces, which is the mid-capture program-cache miss; one free
+  reshape in both passes makes the spec identical by construction and
+  turns a cache miss into the audit's loud divergence detector.
+  Rejected: removing the pointer-keyed activation cache outright (the
+  first W3 cut) — the op-level capture tests' host-staged pattern is
+  legitimate and pointer-identity-sound there; the cache survives
+  NARROWED to that pattern (the engine's pool-recycled activations
+  structurally miss it and hit the by-name refusal, which is the fix).
+- Defaults and their values: the conv and ssm slots both stay with the
+  warmup's commits (no snapshot/restore at all — the API is gone); the
+  grouped-quant activation serve is primary and the host-staged cache is
+  the fallback; VT_TT_GDN_STATE_PROBE ships as the row's instrumented
+  state probe (env-gated, zero cost when off).
+- Owed: ISSUE-LOCAL-01M3ENS1FCHZ7SR5SJXQM174A2 — the golden's 51-cell
+  in-band deviation from the oracle (the byte-identity residual): the
+  per-commit drift attribution and the capture pair's re-derivation and
+  ratification are that row's work.
+

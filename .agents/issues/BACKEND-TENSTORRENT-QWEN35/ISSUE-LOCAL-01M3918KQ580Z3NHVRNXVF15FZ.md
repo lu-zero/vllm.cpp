@@ -105,3 +105,74 @@ The qwen35-gguf-q4km lane battery fails at prompt[0] on the committed golden —
   gate byte-identity. The red dump, the instrumented logs, and the anchor
   tokens live under /tmp/q4km-red/ (this session).
 
+- 2026-09-26 (row tenstorrent-capture-warmup-redesign, branch
+  row/TT-CAPTURE-WARMUP-REDESIGN, commits 6e1f80b0b spec + a94a348ce W1 +
+  1a5dff77d W2 + 9b9bd6dfe W3 + c0ee3a41a W4 + 24c6ccc22 suite repair;
+  pinned tt-metal vllm-cpp-pin/20260925, P150, local Blackhole under the
+  file mutex): THE FOUR WAVES LANDED AND THE CAPTURE COMPLETES. The red
+  baseline reproduced first (dump md5 6ae141e5e4184e48071a7b3413d8df83,
+  period-3 279/6511/314 from prompt[0] tok 4, 188/256 cells vs the
+  committed golden, "device trace demand at last capture end = 0 B").
+  W1: the conv slot left the snapshot/restore — the capture BEGINS
+  (in-capture [TT-OP] entries through GdnDecode; the conv shadow serves;
+  the warm branch is entered at all). W2: the ssm restore is gone (the
+  commit is served directly — same split geometry, correct values) and
+  the VT_TT_GDN_STATE_PROBE instrument landed; the gate leg (all eager)
+  shows the recurrence ADVANCING (270 forwards x 16 layers, every layer's
+  state checksum distinct at every step; period-3 GONE: 13/16 prompts
+  strict-exact vs the oracle where the red was 0/16). W3: the grouped-quant
+  activation serves device-resident in-region (ServeDeviceShadowRaw/
+  Window + the geometry reinterpretation); the suite repair narrowed the
+  pointer-keyed cache to the HOST-STAGED fallback only. W4:
+  CaptureSafeReshape runs the free reshape in both passes. Decisive
+  gates: the captured battery completes with "device trace demand at last
+  capture end = 436,273,152 B" (the red printed 0 B) and its token stream
+  is BYTE-IDENTICAL to the all-eager stream (md5
+  c403afe36f31b324ba22216136be66e2 both arms); the device suite is at
+  the bar (92/92 / 525,723, the red run's 13 keep-quant capture failures
+  all clear with the narrowed fallback); the 27B APEX anchor is
+  re-derived (see the anchor note below).
+
+  **The byte-identity residual (this row's stop condition, recorded).**
+  The captured stream diverges from the committed golden
+  74f003d783f94e6589e04cd3452bc8df at 51 cells on prompts 2,3,9,10,11
+  (first: prompt[2] tok 2 — the golden's own max-gap cell). Adjudication:
+  at EVERY one of the 51 cells the CURRENT stream matches the vLLM
+  per-prompt oracle greedy and the committed golden does not (51/51 vs
+  0/51; 13/16 vs 8/16 prompts strict-exact); all gaps are inside the
+  ratified 500-mnat band (max 250 mnats). The divergence is the golden
+  era's own in-band deviation, superseded by justified numeric changes
+  accumulated since the golden's capture (2415a6b22, 2026-09-12): the
+  14d7a25077 eager tree measures 9/16 strict-exact (eager dump md5
+  ca4bd359d2a841a08de67283825c73d7, a mid-point), the current tree 13/16.
+  Byte-identity to the OLD golden is unreachable without a golden
+  re-derivation (a non-goal of this row: the goldens stand), so per the
+  spec's stop condition the residual moves to
+  ISSUE-LOCAL-01M3ENS1FCHZ7SR5SJXQM174A2 as the separate, smaller
+  numerics row: attribute the per-commit drift chain, then re-derive and
+  ratify the capture pair under the pinned recipe.
+
+  **The 27B APEX anchor (re-derived; the old numbers superseded by this
+  measurement).** The committed evidence embedded the degenerate all-eager
+  reference (0.02 tok/s output, mean TPOT 34225.60 ms, period-2 loops
+  e.g. [220,17,220,17,...] / [220,16,...] — the stop record's before-leg,
+  /tmp/q4km-red/anchor_before.log). The re-derivation on the fixed tree
+  (4 prompts, c=1, seed 0, ignore-eos, the committed fixture,
+  --output-token-ids): the 27B captured arm CAPTURES for the first time
+  since the pair ("[DenseDecodeGraph] captured Qwen3.5 dense decode graph
+  for padded size S=1" + replays, VT_DECODE_GRAPH_STATS), after the W4
+  audit's 27B finding — the int8-dot kernel's activation refusal ("bf16
+  activation staging during trace capture") — got the same in-region
+  serve as the grouped kernel (the APEX anchor leg fatalled on it before
+  the serve; the debug print [TT-I8DOT] records the miss state under
+  VT_TT_TRACE_DEBUG). Measured: output throughput 0.02 tok/s, mean TPOT
+  35041.16 ms (median 34962.10, P99 35327.76) — the same per-token class
+  as the before-leg on this host; token stream
+  [[220,17]x8, [220,17/16 mixed], [220,17/16], [220,16]x8] — still the
+  loop SIGNATURE, but a DIFFERENT stream from the before-leg (req1 moved
+  from [220,17,23066]* to [220,17,220,16]*: the numerics moved with the
+  waves). The old numbers are superseded by this measurement; the 27B
+  stream's adjudication (loop vs the model's true output under the pinned
+  llama.cpp oracle) is owed — the re-derivation does NOT ratify the loop
+  stream as correct, and the 27B anchor's oracle leg belongs to the 27B's
+  own row.

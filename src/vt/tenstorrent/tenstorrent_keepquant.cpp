@@ -1814,7 +1814,66 @@ void MatmulBTQuantInt8DotKernel(Queue& q, Tensor& out, const Tensor& a,
   // (0,0). from_span FLOAT32 ROW_MAJOR is the same direct staging the words
   // shadow uses; capture-time arrival refuses by name (the words-shadow
   // discipline — no captured consumer exists for an f32 activation today).
+  // W4 (capture-warmup redesign): the activation serves device-resident
+  // in-region FIRST — the same treatment the grouped kernel got in W3. The
+  // engine's producers commit their outputs device-side in every phase, and
+  // the 27B decode reaches this kernel inside the captured region (the
+  // APEX anchor leg fatalled on the refusal below before this serve
+  // existed). The serve lands the MASTER'S OWN dtype ("an f32 master
+  // stages as f32") through the shadow's — an f32 shadow over a bf16
+  // buffer typecasts with the same RNE the host round-trip applied. The
+  // program reads dev_a's
+  // raw bytes, so the serve normalizes to ROW_MAJOR at [M, K]: a TILE shadow
+  // converts through the recorded to_layout ahead of the launch (the comment
+  // above already named that conversion as the design), and the volume-equal
+  // native geometry (the GDN head-row commits) reinterprets through
+  // CaptureSafeReshape — same numel, and both passes run the identical chain
+  // so the programs the serve records are warmed by the eager step.
   ttnn::Tensor dev_a;
+  bool act_served = false;
+  {
+    ttnn::Tensor raw;
+    const uint32_t um = static_cast<uint32_t>(M);
+    const uint32_t uk = static_cast<uint32_t>(K);
+    if (ServeDeviceShadowRaw(a, um, uk, raw) ||
+        ServeDeviceWindow(a, um, uk, raw)) {
+      // The master's own dtype, reached through the shadow's: the norm
+      // chain commits an F32 shadow over a bf16-declared buffer (rms_norm
+      // computes f32), and the host staging this replaces rounded that
+      // shadow to the master's dtype through the host round-trip — the
+      // device typecast is the same RNE (the SigmoidGateBf16 doctrine),
+      // so the serve is value-identical either way.
+      const ttnn::DataType want =
+          a.dtype == DType::kF32 ? ttnn::DataType::FLOAT32
+                                : ttnn::DataType::BFLOAT16;
+      const auto ls = raw.logical_shape();
+      if (ls.rank() != 2 || ls[0] != um || ls[1] != uk)
+        raw = CaptureSafeReshape(std::move(raw), ttnn::Shape({um, uk}));
+      if (raw.dtype() != want)
+        raw = ttnn::typecast(std::move(raw), want);
+      if (raw.layout() != ttnn::Layout::ROW_MAJOR)
+        raw = ttnn::to_layout(std::move(raw), ttnn::Layout::ROW_MAJOR);
+      dev_a = std::move(raw);
+      act_served = true;
+    }
+  }
+  if (!act_served) {
+    if (std::getenv("VT_TT_TRACE_DEBUG") != nullptr) {
+      std::lock_guard<std::mutex> g(SlotMutex());
+      BufferSlot* s = FindSlot(a.data);
+      std::fprintf(stderr,
+                   "[TT-I8DOT] act-serve miss ptr=%p M=%lld K=%lld dtype=%d "
+                   "slot=%d devcur=%d hostcur=%d hasdev=%d devr=%u devc=%u "
+                   "devdt=%d cap=%d\n",
+                   a.data, (long long)M, (long long)K, (int)a.dtype,
+                   s != nullptr, s ? (int)s->device_current : -1,
+                   s ? (int)s->host_current : -1, s && s->device.has_value(),
+                   s ? s->dev_rows : 0u, s ? s->dev_cols : 0u,
+                   s && s->device.has_value()
+                       ? static_cast<int>(s->device->dtype())
+                       : -1,
+                   (int)tt_capture_active());
+    }
   if (a.dtype == DType::kF32) {
     VT_CHECK(!tt_capture_active(),
              "tenstorrent kMatmulBTQuant int8-dot: f32 activation staging "
@@ -1840,6 +1899,7 @@ void MatmulBTQuantInt8DotKernel(Queue& q, Tensor& out, const Tensor& a,
                                      static_cast<uint32_t>(K)}),
                ttnn::DataType::BFLOAT16, ttnn::Layout::ROW_MAJOR),
         &device);
+  }
   }
 
   // The out pages must be 16-B multiples: Blackhole moves DRAM writes in
