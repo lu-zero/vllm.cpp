@@ -479,11 +479,30 @@ inline std::map<uintptr_t, DecodedWeightShadow>& DecodedWeightShadows() {
   return *m;
 }
 
-// (W3 of the capture-warmup redesign removed the GroupedActShadow staging
-// that lived here: the pointer-keyed cache structurally missed between the
-// warmup and capture pool addresses, so the grouped-quant activation is now
-// served from its resident device shadow in-region —
+// (W3 of the capture-warmup redesign narrowed the GroupedActShadow staging
+// to the HOST-STAGED fallback: the engine's activations are served from
+// their resident device shadows in-region (the serve in
+// MatmulBTQuantGroupedKernel), and this pointer-keyed cache now only serves
+// activations that were HOST-STAGED by the same kernel's from_span fallback
+// — a pattern where pointer identity holds by construction (one buffer,
+// staged eagerly then captured, no pool recycling in between: the op-level
+// capture tests). The engine's pool-recycled activations structurally miss
+// this cache and reach the by-name refusal, as designed —
 // ISSUE-LOCAL-01M3918KQ580Z3NHVRNXVF15FZ.)
+struct GroupedActShadow {
+  ttnn::Tensor device;
+  uint32_t rows = 0, cols = 0;
+  DType dtype = DType::kF32;
+};
+inline std::mutex& GroupedActMutex() {
+  static std::mutex m;
+  return m;
+}
+inline std::map<uintptr_t, GroupedActShadow>& GroupedActShadows() {
+  static std::map<uintptr_t, GroupedActShadow>* m =
+      new std::map<uintptr_t, GroupedActShadow>(); // never destroyed (#1486)
+  return *m;
+}
 
 // ---- moved declarations (definitions in tenstorrent_keepquant.cpp) ----
 ttnn::Tensor EnsureKeepQuantWords(const Tensor& packed, DType enc, int64_t rows,
@@ -499,6 +518,7 @@ void MatmulBTQuantInt8DotKernel(Queue& q, Tensor& out, const Tensor& a,
                                 const Tensor& b);
 void DropKeepQuantWordShadow(void* host);
 void DropDecodedWeightShadow(void* host);
+void DropGroupedActShadow(void* host);
 void CommitDeviceLogical2D(Tensor& out, ttnn::Tensor dev, uint32_t rows,
                            uint32_t cols);
 

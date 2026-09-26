@@ -1002,9 +1002,11 @@ void DropDecodedWeightShadow(void* host) {
   DecodedWeightShadows().erase(reinterpret_cast<uintptr_t>(host));
 }
 
-// (W3 of the capture-warmup redesign removed DropGroupedActShadow and the
-// pointer-keyed GroupedActShadows map: the activation is now served from its
-// resident device shadow in-region — ISSUE-LOCAL-01M3918KQ580Z3NHVRNXVF15FZ.)
+void DropGroupedActShadow(void* host) {
+  if (host == nullptr) return;
+  std::lock_guard<std::mutex> g(GroupedActMutex());
+  GroupedActShadows().erase(reinterpret_cast<uintptr_t>(host));
+}
 
 // kMatmulBTQuantGrouped (KEEPQUANT W4a wave-2, #3030): out[P,N], act[Pa,K]
 // (Pa==1 broadcast), weight[E*N,K] PACKED block-quant, expert_ids[P] i32 —
@@ -1148,10 +1150,32 @@ void MatmulBTQuantGroupedKernel(Queue&, Tensor& out, const Tensor& act,
         raw = ttnn::to_layout(std::move(raw), ttnn::Layout::TILE);
       dev_a = std::move(raw);
     } else {
-      VT_CHECK(!tt_capture_active(),
-               "tenstorrent grouped-quant: activation arrived without a "
-               "servable device shadow during trace capture — the producer "
-               "must commit device-side before the captured region");
+      // The HOST-STAGED fallback (narrowed W3): an activation this kernel
+      // itself staged from host bytes earlier in the SAME buffer is served
+      // from the staged-tensor cache — pointer identity holds by
+      // construction for that pattern (one buffer, staged eagerly then
+      // captured, no pool recycling in between: the op-level capture
+      // tests). The engine's pool-recycled activations structurally miss
+      // here and reach the refusal below, which is the design.
+      if (tt_capture_active()) {
+        std::lock_guard<std::mutex> g(GroupedActMutex());
+        auto it = GroupedActShadows().find(reinterpret_cast<uintptr_t>(act.data));
+        VT_CHECK(it != GroupedActShadows().end() &&
+                     it->second.rows == ua && it->second.cols == uk &&
+                     it->second.dtype == act.dtype,
+                 "tenstorrent grouped-quant: activation arrived without a "
+                 "servable device shadow during trace capture — the producer "
+                 "must commit device-side before the captured region");
+        raw = it->second.device;
+        const auto ls = raw.logical_shape();
+        if (ls.rank() != 2 || ls[0] != ua || ls[1] != uk)
+          raw = CaptureSafeReshape(std::move(raw), ttnn::Shape({ua, uk}));
+        if (raw.dtype() == ttnn::DataType::FLOAT32)
+          raw = ttnn::typecast(std::move(raw), ttnn::DataType::BFLOAT16);
+        if (raw.layout() != ttnn::Layout::TILE)
+          raw = ttnn::to_layout(std::move(raw), ttnn::Layout::TILE);
+        dev_a = std::move(raw);
+      } else {
       EnsureHost(act);
       if (act.dtype == DType::kF32) {
         ttnn::Tensor dev_f32 = ttnn::Tensor::from_span(
@@ -1173,6 +1197,17 @@ void MatmulBTQuantGroupedKernel(Queue&, Tensor& out, const Tensor& act,
                    ttnn::DataType::BFLOAT16, ttnn::Layout::ROW_MAJOR),
             &device);
         dev_a = ttnn::to_layout(std::move(dev_bf16), ttnn::Layout::TILE);
+      }
+      // Register the staged tensor under THIS buffer's host pointer so a
+      // later capture of the same host-staged buffer can serve it (the
+      // narrowed warm-first contract above).
+      std::lock_guard<std::mutex> g(GroupedActMutex());
+      GroupedActShadow& sh =
+          GroupedActShadows()[reinterpret_cast<uintptr_t>(act.data)];
+      sh.device = dev_a;
+      sh.rows = ua;
+      sh.cols = uk;
+      sh.dtype = act.dtype;
       }
     }
   }
