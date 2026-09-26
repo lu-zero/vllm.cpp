@@ -742,6 +742,35 @@ void GdnDecodeKernel(Queue&, Tensor& out, const Tensor& q_in, const Tensor& k,
     S = CaptureSafeReshape(cache2d, ttnn::Shape({bh, udv, udk}));
   }
 
+  // W2 (capture-warmup redesign) instrumented state probe. VT_TT_GDN_STATE_PROBE
+  // checksums the step's INITIAL state rows as served from the cache (one
+  // line per eager decode call, outside capture only — a download is the
+  // read the trace refuses, and a replay runs no host code at all). The
+  // frozen-recurrence defect prints ONE IDENTICAL checksum at every step of
+  // a sequence (the pre-warmup state rolled back over each step's commit);
+  // an advancing recurrence prints changing checksums. The gate leg that
+  // adjudicates it runs VLLM_CPP_CUDAGRAPH=0 so every step is eager.
+  if (const char* st_probe = std::getenv("VT_TT_GDN_STATE_PROBE");
+      st_probe != nullptr && st_probe[0] != '\0' && !tt_capture_active()) {
+    std::vector<float> sv = S.to_vector<float>();
+    uint64_t fnv = 1469598103934665603ULL;
+    double acc = 0.0;
+    for (float f : sv) {
+      uint32_t bits;
+      std::memcpy(&bits, &f, sizeof(bits));
+      fnv = (fnv ^ bits) * 1099511628211ULL;
+      acc += f > 0.0f ? f : -f;
+    }
+    std::fprintf(stderr,
+                 "[GDN-STATE-PROBE] step=%llu slots=%lld bh=%u n=%zu "
+                 "fnv=%016llx asum=%a\n",
+                 static_cast<unsigned long long>(GdnDecodeSteps().load(
+                     std::memory_order_relaxed)),
+                 static_cast<long long>(slots), bh, sv.size(),
+                 static_cast<unsigned long long>(fnv), acc);
+    std::fflush(stderr);
+  }
+
   const char* mode = std::getenv("VT_TT_GDN_DECODE");
   const bool chunked = mode != nullptr && std::string_view(mode) == "chunked";
   VT_CHECK(!chunked || !tt_capture_active(),
@@ -1068,56 +1097,11 @@ void GdnStateScatterKernel(Queue&, Tensor& cache, const Tensor& working,
                         static_cast<uint32_t>(cache_row));
 }
 
-namespace {
-
-struct GdnShadowData {
-  std::optional<ttnn::Tensor> device;
-  uint32_t dev_rows = 0, dev_cols = 0;
-  bool device_current = false, conv_transposed = false;
-};
-
-}  // namespace
-
-std::vector<GdnStateShadowSnapshot> SnapshotGdnStateShadows(
-    const std::vector<const void*>& ptrs) {
-  std::vector<GdnStateShadowSnapshot> out;
-  out.reserve(ptrs.size());
-  std::lock_guard<std::mutex> g(SlotMutex());
-  for (const void* p : ptrs) {
-    GdnShadowData data;
-    BufferSlot* s = FindSlot(const_cast<void*>(p));
-    if (s != nullptr) {
-      data.device = s->device;
-      data.dev_rows = s->dev_rows;
-      data.dev_cols = s->dev_cols;
-      data.device_current = s->device_current;
-      data.conv_transposed = s->conv_transposed;
-    }
-    GdnStateShadowSnapshot snap;
-    static_assert(sizeof(GdnShadowData) <= sizeof(snap.storage),
-                  "GdnStateShadowSnapshot storage too small");
-    new (snap.storage) GdnShadowData(std::move(data));
-    out.push_back(snap);
-  }
-  return out;
-}
-
-void RestoreGdnStateShadows(
-    const std::vector<const void*>& ptrs,
-    const std::vector<GdnStateShadowSnapshot>& snapshots) {
-  std::lock_guard<std::mutex> g(SlotMutex());
-  for (size_t i = 0; i < ptrs.size() && i < snapshots.size(); ++i) {
-    auto* data = reinterpret_cast<GdnShadowData*>(
-        const_cast<char*>(snapshots[i].storage));
-    BufferSlot* s = FindSlot(const_cast<void*>(ptrs[i]));
-    if (s == nullptr) continue;
-    s->device = data->device;
-    s->dev_rows = data->dev_rows;
-    s->dev_cols = data->dev_cols;
-    s->device_current = data->device_current;
-    s->conv_transposed = data->conv_transposed;
-  }
-}
+// (W2 of the capture-warmup redesign removed the GDN-shadow
+// snapshot/restore pair that lived here: the warmup's scatter commit IS
+// the geometry the capture's first read serves, and restoring pre-warmup
+// shadows only discarded the warmup's state update — the frozen GDN
+// recurrence. ISSUE-LOCAL-01M3918KQ580Z3NHVRNXVF15FZ.)
 
 // ---- BACKEND-TENSTORRENT-GDN W2: GDN state/conv-shadow traffic counters ----
 // Readers for the tenstorrent_device.h API; the counters themselves live in
