@@ -72,3 +72,17 @@ behavior; its original gates must stay green.
   redesign of the warmup path, a bigger unit.
 - If gate 1 cannot reach byte-identity without reverting capture-safety
   wholesale, stop with the evidence; the trade becomes a decision.
+
+## Now
+
+2026-09-26: STOPPED at the first stop condition, with the root cause
+proven and the reconciliation evidence recorded in
+ISSUE-LOCAL-01M3918KQ580Z3NHVRNXVF15FZ (## Resolution). The degeneration
+is the `2ed5e912e4` snapshot/restore inside the bisected pair (the frozen
+GDN recurrence plus the conv-restore cascade that kept the "captured" arm
+silently all-eager — trace demand 0 B). Removing the restore re-exposes a
+stack of capture-arm defects (the CaptureSafeReshape member-view spec
+divergence, then the #3042 pointer-keyed grouped-act staging, which
+structurally misses between the warmup and capture pool addresses). The
+fix splits into the warmup-path redesign named above; the issue's
+Resolution lists the next unit's four steps.
