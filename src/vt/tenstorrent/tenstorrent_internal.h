@@ -198,46 +198,24 @@ inline bool& tt_capture_active() {
   return b;
 }
 
-// Capture-safe reshape: the free ttnn::reshape (from reshape_view/reshape.hpp)
-// launches ReshapeViewTiledProgramFactory::create_program_artifacts which
-// calls to_device — forbidden during trace capture, and a cache miss when
-// the slot state differs between eager warmup and capture. During capture,
-// the member Tensor::reshape(logical, old_padded) is a pure metadata view
-// (view_device, same buffer, no program). The old padded shape is reused so
-// the buffer size check passes. The data is correct for same-numel reshapes
-// because TILE layout stores data in flat row-major within the tile grid —
-// element i maps to the same physical byte regardless of the logical shape
-// interpretation (the tile grid is the same; only the logical dims change).
-// Downstream ops may see a different padded shape than the eager step warmed,
-// but element-wise ops (sigmoid, multiply, typecast, add) don't depend on
-// the padded shape for correctness; shape-dependent ops (matmul, rms_norm)
-// use the logical shape which matches.
+// Capture-safe reshape (W4 of the capture-warmup redesign): BOTH passes run
+// the FREE ttnn::reshape, always. The member-view branch this replaced
+// relabeled the capture pass's tensors with the ORIGINAL padded shape (the
+// double-failure `return t` fallback returned the input unchanged), so the
+// first consumer saw a different spec than every warmed program — the
+// mid-capture program-cache miss ("Cannot load new binaries during trace
+// capture") the rows2d scatter fatalled on
+// (ISSUE-LOCAL-01M3918KQ580Z3NHVRNXVF15FZ). One code path in both passes
+// makes the capture's reshape spec IDENTICAL to the eager warmup's by
+// construction: the free reshape is a program-cache HIT under capture (the
+// eager step created the program for the same input/output spec), and a spec
+// the warmup did NOT warm fatals LOUDLY at the miss — which is the W4 audit's
+// divergence detector, not a defect to paper over. The free reshape's own
+// to_device runs only on the program-creation (cache-miss) path, which the
+// loud fatal names anyway; the metadata-view (same-tile-count) cases launch
+// no program in either pass.
 inline ttnn::Tensor CaptureSafeReshape(const ttnn::Tensor& t, const ttnn::Shape& shape) {
-  if (!tt_capture_active()) {
-    return ttnn::reshape(t, shape);
-  }
-  // During capture, use the member Tensor::reshape (pure metadata view,
-  // same buffer, no device program). Try the old padded shape first
-  // (always fits the buffer), then tile-aligned padded as fallback.
-  const auto old_padded = t.padded_shape();
-  try {
-    return t.reshape(shape, old_padded);
-  } catch (...) {
-    const auto rank = shape.rank();
-    ttsl::SmallVector<uint32_t> padded_dims;
-    for (uint32_t i = 0; i < rank; ++i) {
-      if (i + 2 >= rank) {
-        padded_dims.push_back(((shape[i] + 31u) / 32u) * 32u);
-      } else {
-        padded_dims.push_back(shape[i]);
-      }
-    }
-    try {
-      return t.reshape(shape, ttnn::Shape(padded_dims));
-    } catch (...) {
-      return t;  // both failed: return original (may cause downstream issues)
-    }
-  }
+  return ttnn::reshape(t, shape);
 }
 
 // KEEPQUANT W3 capture-safety probe (tenstorrent_device.h): staging writes the
