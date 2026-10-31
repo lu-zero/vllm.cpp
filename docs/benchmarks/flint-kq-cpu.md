@@ -53,3 +53,10 @@ floor is 4.8x and OPEN — the named next levers are the NEON
 `vec_dot_q4_K_q8_K` port (the scalar generic dot is ~55% of the matched-pool
 routed phase), the attribution of the ~88% of serving decode time outside the
 routed-expert phase, and the affinity-aware pool default. No ceiling declared.
+
+Update 2026-10-31: the NEON `vec_dot_q4_K_q8_K` port LANDED
+(`FLINT-NEON-Q4K-DOT`, bit-identical to the scalar kernel; keep-quant token
+gate unmoved at 53/60) — same-binary A/B on the loaded shared box measured
+16t 5.57 -> 5.93 tok/s median (+6.5%), 32t noise-bound
+([evidence](../bench-evidence/flint-neon-q4k-dot-20261031/README.md)). The
+table above keeps the pre-port record; a quiet-box re-pin is owed.

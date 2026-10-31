@@ -62,3 +62,32 @@ failure).
 ## Git integration
 
 One pull request, `row/FLINT-NEON-Q4K-DOT`, spec committed first.
+
+## Outcome
+
+Landed 2026-10-31, kernel commit `273bdb9d1`. Measured:
+
+- Bit-identity: 16130/16130 assertions (randomized + adversarial grid +
+  scale-mask sweep + traits-dispatch leg). Three draft shapes FAILED before
+  the landed one passed; the failures are recorded in the kernel header —
+  the strided aux32 partition and the per-lane float fold are the contract,
+  the integer dot alone is not.
+- Harness: isolated dot 0.234 -> 0.111 ms per 512-row gate tower (2.11x);
+  the scalar-dot share of the harness's routed-phase leg re-measures at
+  ~4.2%, NOT the ~55% the FLINT-SLIDING-ATTN attribution reported — the
+  harness's class-(a) leg carries gather/scatter/alloc overhead the
+  attribution excluded; instruments disagree on the denominator, recorded
+  rather than reconciled away.
+- Serving (same-binary VT_CPU_Q4K_DOT A/B, interleaved, load-gated):
+  16t 5.57 -> 5.93 tok/s median (+6.5%); 32t 5.71 -> 5.74 (+0.5%,
+  noise-bound; box carried load 11-18, absolute numbers below the
+  7.01/6.83 records for that reason). Evidence:
+  docs/bench-evidence/flint-neon-q4k-dot-20261031/.
+- Gates: test_flint_gguf keep-quant 53/60, 0 hard, worst 2.48648 — UNMOVED,
+  which is itself the bit-identity check on the serving path.
+
+Rejected: horizontal integer reduction (vaddvq) before the float stage —
+changes the float partition; a 16-byte sub-block q4 read — wrong layout
+(sub-blocks pair 32 q4 bytes by nibble plane). Defaults: `VT_CPU_Q4K_DOT`
+defaults `auto` because the tier is bit-identical by construction and
+suite-gated; `portable` remains the same-binary rollback.
