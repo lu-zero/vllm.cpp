@@ -89,6 +89,18 @@ VecDotFn SelectQuantQ8VecDot(VecDotFn portable);
 bool QuantQ8SdotActive();
 bool QuantQ8A76AsmActive();
 
+// Q4_K x Q8_K NEON DotProd variant for FLINT-NEON-Q4K-DOT
+// (cpu_quant_dot_q4k_neon.cpp). Same shape as the Q8_0 tier above:
+// `SelectQuantQ4KVecDot` applies `VT_CPU_Q4K_DOT=auto|portable|neon` with the
+// portable scalar kernel (quants.c:645 order) as the universal fallback.
+// `QuantQ4KPortableVecDot` is the TRUE scalar reference — on a DotProd host
+// the QuantTraits vec_dot IS the NEON tier, so a bit-identity test that used
+// it as its reference would compare the kernel against itself.
+VecDotFn QuantQ4KPortableVecDot();
+VecDotFn QuantQ4KNeonVecDot();
+VecDotFn SelectQuantQ4KVecDot(VecDotFn portable);
+bool QuantQ4KNeonActive();
+
 // The Arm i8mm (mmla) `nrc == 2` `vec_dot` for a block WEIGHT dtype — QUANT-
 // GGUF-CIQ-GEMM work row G6 (cpu_quant_dot_arm.cpp). Non-null ONLY when the
 // process runs on i8mm-capable aarch64 (compile-time `__ARM_FEATURE_MATMUL_INT8`

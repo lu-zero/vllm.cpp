@@ -1483,6 +1483,7 @@ add_library(vllm STATIC
   src/vt/cpu/cpu_quant_act.cpp
   src/vt/cpu/cpu_quant_dot.cpp
   src/vt/cpu/cpu_quant_dot_sdot.cpp
+  src/vt/cpu/cpu_quant_dot_q4k_neon.cpp
   src/vt/cpu/cpu_quant_dot_arm.cpp
   src/vt/cpu/cpu_paged_attn_bfdot_arm.cpp
   src/vt/cpu/cpu_quant_repack.cpp
@@ -1555,6 +1556,15 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
   set_source_files_properties(
     src/vt/cpu/cpu_quant_dot_sdot.cpp PROPERTIES
     COMPILE_DEFINITIONS VT_CPU_ARM_Q8_DOT=1
+    COMPILE_OPTIONS "$<$<COMPILE_LANGUAGE:CXX>:-march=armv8.2-a+dotprod+fp16>")
+  # FLINT-NEON-Q4K-DOT: the Q4_K x Q8_K NEON DotProd tier needs the same
+  # surgical per-file +dotprod build so `vdotq_s32` is exposed; runtime entry is
+  # gated by the same HWCAP dotprod probe (VT_CPU_Q4K_DOT, default auto). The
+  # global -ffp-contract=off keeps its mul-then-add non-fused, which is what
+  # keeps the float stage bit-identical to the portable tier.
+  set_source_files_properties(
+    src/vt/cpu/cpu_quant_dot_q4k_neon.cpp PROPERTIES
+    COMPILE_DEFINITIONS VT_CPU_ARM_Q4K_DOT=1
     COMPILE_OPTIONS "$<$<COMPILE_LANGUAGE:CXX>:-march=armv8.2-a+dotprod+fp16>")
   # KERNEL-CPU-A76-Q8-DOT is Linux-only because its dispatch uses HWCAP/MIDR
   # and the hand-written file carries ELF assembler directives. Other arm64

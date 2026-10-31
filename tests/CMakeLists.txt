@@ -3423,6 +3423,10 @@ vllm_cpp_add_test(test_ops_embedding_quant vt/test_ops_embedding_quant.cpp)
 # header (SwapForTesting) used by the thread-count determinism case. CPU-only.
 vllm_cpp_add_test(test_ops_quant_dot vt/test_ops_quant_dot.cpp)
 target_include_directories(test_ops_quant_dot PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# FLINT-NEON-Q4K-DOT: the NEON Q4_K x Q8_K dot bit-identity suite. The TU
+# includes cpu_quant_blocks.h from src/, hence the same private include.
+vllm_cpp_add_test(test_neon_q4k_dot vt/test_neon_q4k_dot.cpp)
+target_include_directories(test_neon_q4k_dot PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # MODEL-DSV4-EXL3 W1a: the EXL3 (exllamav3) trellis reference dequant. Gated by
 # tiles the TEST packs itself off the ENCODE side (tests/test_quant_fn.py:83-128
 # + pack.cu:29-57), so the fixture never shares code with the decode under test,
