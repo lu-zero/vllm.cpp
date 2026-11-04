@@ -1,0 +1,95 @@
+2026-11-04 19:12:44.461 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-11-04 19:12:44.461 | info     |             UMD | Cluster constructor started. (cluster.cpp:389)
+2026-11-04 19:12:44.461 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-11-04 19:12:44.461 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-11-04 19:12:44.465 | info     |             UMD | Established firmware bundle version: 19.15.0 (topology_discovery.cpp:575)
+2026-11-04 19:12:44.465 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-11-04 19:12:44.493 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[0] and remote chip ids {} (cluster.cpp:167)
+2026-11-04 19:12:44.493 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-11-04 19:12:44.493 | info     |             UMD | KMD version: 2.11.1 (cluster.cpp:150)
+2026-11-04 19:12:44.493 | info     |             UMD | Cluster constructor completed. (cluster.cpp:648)
+2026-11-04 19:12:44.494 | info     |             UMD | Starting devices in cluster (cluster.cpp:1184)
+2026-11-04 19:12:44.565 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1192)
+vllm-bench: /mnt/models/flint-GGUF/flint-Q4_K_M.gguf engine | num_prompts=4 input_len=32 output_len=400 concurrency=4 seed=0 temp=0.00 dataset=generated output_wait=poll kv_cache_dtype=auto ignore_eos=1 chat_template=skipped
+engine: device placement: --fit resolved NO placement: the device memory budget is UNKNOWN (the platform reports no total), so there is nothing to fit against; placing nothing rather than placing everything against a budget of zero
+2026-11-04 19:12:44.856 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:437)
+2026-11-04 19:12:44.856 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:499)
+2026-11-04 19:12:44.856 | warning  |          Always | Unknown motherboard 'AMPONED8-2T/BCM' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:113)
+2026-11-04 19:12:44.857 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2406)
+2026-11-04 19:12:44.857 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:2414)
+INFO auto-fit max_model_len: reduced from 262144 to 4064 to fit the KV cache (256 blocks, one of them the null block, shared by 2 KV cache groups). Raise --num-blocks / --kv-cache-memory for a longer context.
+vllm.cpp: Asynchronous scheduling is enabled (max_concurrent_batches=2)
+
+============= vllm.cpp Benchmark Result =============
+Engine frontend:                           AsyncLLM    
+Output wait:                               poll        
+Blocking wait calls:                       0           
+Async scheduling enabled:                  1           
+Pretokenized prompt admission:             1           
+KV cache dtype (requested):                auto
+KV cache dtype (resolved storage):         bf16
+Ignore EOS (requested):                    1           
+Ignore EOS (resolved sampling):            1           
+Chat template:                             skipped (raw prompt)
+Chat template kwargs:                      {}
+Maximum concurrent batches:                2           
+Successful requests:                       4           
+Maximum request concurrency:               4           
+Benchmark duration (s):                    140.12      
+Total input tokens:                        130         
+Total generated tokens:                    1600        
+Request throughput (req/s):                0.03        
+Output token throughput (tok/s):           11.42       
+Total token throughput (tok/s):            12.35       
+-------- Time to First Token --------
+Mean TTFT (ms):                            2730.58     
+Median TTFT (ms):                          2730.58     
+P99 TTFT (ms):                             2730.58     
+-------- Time per Output Token (excl. 1st token) --------
+Mean TPOT (ms):                            344.35      
+Median TPOT (ms):                          344.35      
+P99 TPOT (ms):                             344.35      
+-------- Inter-token Latency --------
+Mean ITL (ms):                             344.35      
+Median ITL (ms):                           339.92      
+P99 ITL (ms):                              395.64      
+-------- End-to-end Latency --------
+Mean E2EL (ms):                            140124.48   
+Median E2EL (ms):                          140124.48   
+P99 E2EL (ms):                             140124.49   
+-------- Prefill vs Decode split (gate #1) --------
+Input token throughput (tok/s, over whole run): 0.93        
+Prefill token throughput (tok/s, in/TTFT): 11.90       
+Output (decode) token throughput (tok/s):  11.42       
+Mean per-stream decode rate (tok/s):       2.90        
+====================================================
+2026-11-04 19:15:12.057 | info     |    BuildKernels | JIT cache stats: 8/8 hits (100.0%) [8 cached, 0 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:197)
+2026-11-04 19:15:12.057 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-11-04 19:15:12.060 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-11-04 19:15:12.060 | info     |             UMD | Closing devices in cluster (cluster.cpp:1197)
+2026-11-04 19:15:12.103 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1206)
+2026-11-04 19:15:12.104 | info     |             UMD | Cluster destructor started. (cluster.cpp:912)
+2026-11-04 19:15:12.104 | info     |             UMD | Cluster destructor completed. (cluster.cpp:915)
+	Command being timed: "taskset -c 32-63 /tmp/build-p150bench/examples/vllm-bench --model /mnt/models/flint-GGUF/flint-Q4_K_M.gguf --num-prompts 4 --input-len 32 --output-len 400 --concurrency 4 --seed 0 --temperature 0 --ignore-eos"
+	User time (seconds): 4278.13
+	System time (seconds): 198.03
+	Percent of CPU this job got: 3031%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:27.66
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 48519808
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 11507680
+	Voluntary context switches: 1565178
+	Involuntary context switches: 5126458
+	Swaps: 0
+	File system inputs: 96
+	File system outputs: 15744
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 65536
+	Exit status: 0
