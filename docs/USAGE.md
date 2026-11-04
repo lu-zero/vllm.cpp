@@ -1099,6 +1099,23 @@ Correctness record, all on the published Q4_K_M container:
 CUDA/ROCm and safetensors arms are refused by name. The container's
 `flint.context_length` drives the engine context; the KV pool auto-fits it.
 
+On a Tenstorrent P150 the same container serves through the bench with the
+device-attention default on (`VT_FLINT_TT_DEVICE_ATTN` unset), under the
+pinned tt-metalium substrate and the keep-quant arm:
+
+```sh
+VT_FLINT_KEEP_QUANT=1 VLLM_CPP_CPU_THREADS=32 taskset -c 32-63 \
+  build/examples/vllm-bench --model /mnt/models/flint-GGUF/flint-Q4_K_M.gguf \
+  --num-prompts 4 --input-len 32 --output-len 200 --concurrency 4 \
+  --seed 0 --temperature 0 --ignore-eos
+```
+
+Size the pool to the `taskset` budget exactly as on CPU. The measured
+device-vs-host attention serving cells, the MoE-dominated step profile, and
+the P150 device recipe (mutex, reset, pinned substrate) are recorded in
+[the flint-p150-serving benchmark](benchmarks/flint-p150-serving.md) and its
+[evidence](bench-evidence/flint-p150-serving-20261102/README.md).
+
 ## Muse Glimmer 30B from a GGUF k-quant
 
 The text tower loads from a `muse-glimmer`-architecture GGUF, so the 30B model

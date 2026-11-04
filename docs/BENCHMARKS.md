@@ -17,6 +17,7 @@ to the file stem.
 | `mlx-lm-apple-m4` | MLX-LM on Apple M4, warm, batch 1, 6 interleaved runs | Results | [Detail](benchmarks/mlx-lm-apple-m4.md) |
 | `flint-cpu-paged` | Flint (RecursiveSI) Q4_K_M on CPU through the paged engine: the first prefill/decode numbers | Results | [Detail](benchmarks/flint-cpu-paged.md) |
 | `flint-kq-cpu` | Flint Q4_K_M served PACKED on CPU (`VT_FLINT_KEEP_QUANT=1`) through the paged engine, against the llama.cpp floor; the threadpool-vs-cpu-budget finding | Results | [Detail](benchmarks/flint-kq-cpu.md) |
+| `flint-p150-serving` | Flint Q4_K_M served on the Flint P150, device-vs-host attention at serving shapes; the step is MoE-dominated | Results | [Detail](benchmarks/flint-p150-serving.md) |
 | `dwarfstar-gguf` | DwarfStar vs ds4 on DeepSeek-V4-Flash GGUF, GB10, byte-exact | Results | [Detail](benchmarks/dwarfstar-gguf.md) |
 | `speculative-decoding` | MTP / DFlash / n-gram / DSpark rows against vLLM | Results | [Detail](benchmarks/speculative-decoding.md) |
 | `tt-capture-default-decode` | Qwen3-0.6B decode on the P150 with captured decode as the shipped default | Results | [Detail](benchmarks/tt-capture-default-decode.md) |
