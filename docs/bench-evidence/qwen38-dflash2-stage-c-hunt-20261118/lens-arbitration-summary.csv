@@ -1,0 +1,14 @@
+fact,value
+decoder_verification_wmeta_sq040_N6144,1.0 exact match (face-packed 32x32/1088B vs tt-metal metadata readback)
+decoder_verification_wmeta_sq000_N1280,"first-128-row region mismatch (decoder-side interleave gap, small N=1280 weight); not used for the verdict"
+corrupted_fraction_sq48_weight,0.0001475
+bad_tiles_sq48,"8 of 51200: tile (0,0)..(0,7) = rows 0..31, cols 0..255"
+corrupted_bytes,512 B exponent headers (8 x 64 B) at tile stride 1088; mantissas intact
+clobbered_dumps,"wraw_sq048_N10240, wraw_sq055_N6144, wraw_sq061_N6144 (first-8-tile exp headers all-zero)"
+clean_dumps,"wraw_sq030_N10240, wraw_sq040_N6144, wraw_sq049_N6144, wraw_sq060_N10240 (exp headers intact)"
+output_garbage_sq48,"c cols 0..31 only: bf16-max/Inf patterns (29 Infs), exp-hist dominated by exp 31; consistent with the matmul consuming foreign exp bytes ~2^(E-127), E near max"
+w23_two_layouts_verdict,DECODER ARTIFACT: raw bytes ARE the pin's face-packed BFP8_B layout; plain-BFP8 decode of face-packed bytes is garbage by construction
+w23_fresh_restage_verdict,CONFIRMED: re-stage output is clean; the corruption lands in the STAGED buffer AFTER staging (runtime writer)
+repair,"Bfp8RestageWeight at M==9 (VT_TT_BFP8_RESTAGE, default on): fresh typecast = fresh allocation = clean bytes"
+repaired_repro,"sq48 c_asum 32186.3 (was 3.46266e+40, inf=108); all 64 lens calls finite, 0 NaN"
+repaired_stream_sha,"913e637c9e88d41ef9b67de6b6072e5aeac161f8cc75c6ad495e99179a009d96 (lens-instrumented leg, keep-alive ON — non-degenerate, structured)"

@@ -1,0 +1,12 @@
+USER        PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+lu_zero  124084 16.4  0.1 5768128 481984 ?      Sl   22:01   6:21 /home/lu_zero/.local/share/uv/tools/huggingface-hub/bin/python /home/lu_zero/.local/bin/hf download maxwell-model/Maxwell-V1-Flash --include *.safetensors --include config.json --include *.jinja
+lu_zero    6416  5.0  0.9 21309952 2535040 pts/1 Sl+ 15:53  20:20 maki -c
+lu_zero    7052  2.5  0.2 21064320 536128 ?     Ssl  15:54  10:26 /home/lu_zero/.bun/install/global/node_modules/@opencode/cli/bin/opencode.exe serve --service
+lu_zero   86517  2.2  0.2 6241472 578816 pts/7  Sl+  18:06   6:12 claude -c
+lu_zero  111866  1.4  0.1 11061248 334272 pts/8 Sl+  18:11   3:47 opencode -c
+lu_zero    7043  0.9  0.1 11126144 335104 pts/2 Sl+  15:54   3:59 opencode -c
+lu_zero   87698  0.8  1.9 29862272 5176832 pts/7 Sl+ 18:08   2:22 /usr/bin/rust-analyzer
+root       1560  0.4  0.0      0     0 ?        S    15:45   1:47 [btrfs-transaction]
+root        826  0.2  0.0      0     0 ?        S    15:44   0:56 [kswapd2]
+root        827  0.1  0.0      0     0 ?        S    15:44   0:43 [kswapd3]
+lu_zero    4441  0.1  0.0  11136  5312 ?        Ss   15:52   0:33 tmux

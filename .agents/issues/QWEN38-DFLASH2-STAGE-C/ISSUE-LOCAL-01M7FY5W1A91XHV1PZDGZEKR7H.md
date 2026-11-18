@@ -7,7 +7,7 @@ GitHub: -
 Mirror: PENDING
 Availability: FULL
 Created: 2026-11-15
-Updated: 2026-11-16
+Updated: 2026-11-18
 Closed: -
 
 ## Problem
@@ -270,3 +270,54 @@ is clean, seq=64 is clean, and the RAC's writes land in all 40 reps
 misaddressing — at an out-of-engine form (the engine's PA windows are never
 that small): a real PA device-SDPA defect at seq=2/5/7, the next row's
 lever, not this poison's mechanism.
+
+## W25 (2026-11-18): the rebuilt lens instrument — the corruption map, the verdict, the repair
+
+The reboot-killed W23 lens-arbitration instrument was rebuilt from the
+consolidated findings (`run-w25-lens.sh`, `decode_bfp8_lens.py`, the new
+`docs/bench-evidence/qwen38-dflash2-stage-c-hunt-20261118/` record) and the
+arbitration re-ran on the failing call. Facts:
+
+- **The failing call reproduces byte-identically**: sq=48 in the lens
+  sequence — the 7th mixed qkvz GEMM of the first spec step (N=10240) —
+  output `c_asum=3.46266e+40, inf=108` (the W22 signature exactly; the z GEMM
+  on the same h: `21911.1`, also exact).
+- **The corruption map** (`corruption-map-sq48-N10240.csv`): 0.015% bad
+  fraction — EXACTLY the W23 number — confined to 8 tiles (0,0)..(0,7):
+  the weight's first 32 rows x 256 cols. The corrupted bytes are the 512 B of
+  BFP8 EXPONENT HEADERS (8 x 64 B, stride 1088), ZERO at dump time, mantissas
+  intact. The same zero-header signature on the sq55/sq61 z-GEMM weights, and
+  intact headers on the other-step dumps: a RUNTIME writer, landing between
+  staging and the spec-geometry matmul on whichever buffer holds the weight.
+- **The output garbage decodes as compute-side**: the c garbage is confined
+  to output cols 0..31 (29 Infs, bf16 exp-31-dominated 2^126..2^128 patterns
+  = the exact output columns the zeroed-exp weight rows feed, at the exact
+  magnitude foreign exp bytes produce); the activation h is finite (max 1272).
+- **The W23 "two layouts" finding was a DECODER ARTIFACT**: the staged bytes
+  decode 100% identical to the metadata readback under the pin's face-packed
+  tile order (`bfloat8.cpp pack_as_bfp8_tiles` +
+  `blockfloat_common.cpp convert_u32_to_bfp`, read at the pin) — raw-as-plain
+  BFP8 is garbage by construction. Hypotheses (a) staging-layout and
+  (c) metadata-mismatch are falsified; the verdict is (b), the partial-write
+  clobber.
+- **The repair** (`Bfp8RestageWeight`, `tenstorrent_residency.cpp` +
+  the MatmulBTKernel M==9 arm, `VT_TT_BFP8_RESTAGE=0` rolls back): at the
+  spec geometry re-run the cold staging unconditionally — fresh typecast =
+  fresh allocation = clean bytes (the W23-verified fact). The lever's
+  viability is intact (no re-architecture; footprint unchanged).
+- **Repaired repro**: sq48 reads `c_asum=32186.3` (was 3.46e40); all 64 lens
+  calls finite, 0 NaN/Inf; the stream is non-degenerate (the instrumented leg
+  `913e637c...` — probes and the keep-alive instrument perturb exact bytes, so
+  identity is judged on the probe-free gate legs).
+- **Gates** (`run-w25-gate.sh`, 2026-11-18): (b) OFF Q4_K_M x3 —
+  `d49c53d2...` byte-identical 3/3, TPOT 6646.65/6648.11/6648.95 vs 6607;
+  (c) OFF Q6_K_XL x3 — `b36bc61a...` 3/3, TPOT 5349.75/5353.04/5351.08 vs
+  5340.9; Q6_K_XL ON — the standing capacity blocker. The w20-bfp8 isolated
+  arms with the repair: PASS (cold 0.75% max_rel, warm 200/200, unsynced
+  0/50). **(a) ON x3: FAILS — the STOP condition.** 3/3 deterministic
+  (`af77d5d3...`), non-degenerate, 22/24 tokens equal the recorded stream
+  with one 3-token shift at index 7; TPOT 26975 ms — the unconditional
+  re-stage costs ~18.5 s/token. THE ACCEPTANCE MULTIPLE remains
+  UNMEASURABLE. Next: the verify-side acceptance trace at the divergent
+  step, and the detect-and-repair form of the fix (store the 512 B head
+  reference at staging; re-stage only the clobbered weight).

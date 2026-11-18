@@ -459,6 +459,11 @@ bool DeviceShadowExact(const Tensor& t, uint32_t rows, uint32_t cols);
 // weight). Read fresh on every call so a test can flip the env mid-process.
 bool Bfp8WeightsEnabled();
 ttnn::Tensor EnsureBfp8WeightDevice(const Tensor& b, MeshDevice& device);
+// W25 repair (the lens corruption map, ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H):
+// re-run the cold BFP8 staging unconditionally — fresh typecast = fresh
+// allocation = clean bytes — and install it as the weight's shadow. See the
+// residency TU for the defect this repairs.
+ttnn::Tensor Bfp8RestageWeight(const Tensor& b, MeshDevice& device);
 void Bfp8MatmulUse();  // a matmul consumed a BFP8-resident weight operand
 // Probes for the focused tests (declared in the test TU, defined here — the
 // test TU never includes internal headers).

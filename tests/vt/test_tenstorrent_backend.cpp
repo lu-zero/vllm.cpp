@@ -15183,6 +15183,28 @@ void PaSmallWindowReport(const char* arm, const std::vector<PaSeqRow>& rows) {
 }  // namespace
 
 TEST_CASE("kTENSTORRENT TT-PA-SMALL-WINDOW W1: RAC-seeded PA decode seq sweep 1..64 (the focused red)") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
+  Backend& backend = vt::GetBackend(DeviceType::kTENSTORRENT);
+  Queue q = backend.CreateQueue();
+  auto lcg = [x = 31337u]() mutable {
+    x = x * 1664525u + 1013904223u;
+    return static_cast<float>(static_cast<double>(x >> 8) / 8388608.0f) - 0.5f;
+  };
+  std::vector<float> host_q(static_cast<size_t>(kPaSweepHq * kPaSweepD));
+  for (auto& v : host_q) v = lcg() * 0.3f;
+  const float scale = 1.0f / std::sqrt(static_cast<float>(kPaSweepD));
+
+  const auto rows = PaSmallWindowSweep(backend, q, host_q, scale,
+                                       /*rac_seeded=*/true, 1, 64);
+  PaSmallWindowReport("rac-sweep", rows);
+  for (const auto& r : rows)
+    CHECK_MESSAGE(r.max_abs < kPaSweepGarbage,
+                  "rac-sweep seq=" << r.seq << " max_abs=" << r.max_abs);
+}
+
 // ── W20 (QWEN38-DFLASH2-STAGE-C, ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H) ────
 // The engine's z GEMM committed garbage (asum 3.75e40, 113 Infs) at the first
 // spec step's l=9 with VERIFIED-CLEAN inputs — the only staging difference
@@ -15297,22 +15319,71 @@ TEST_CASE("kTENSTORRENT kMatmulBT bf16 BFP8 M=9 repeated warm calls") {
     MESSAGE("SKIPPED: no Tenstorrent device on this box");
     return;
   }
+  REQUIRE(vt::OpRegistered(vt::OpId::kMatmulBT, DeviceType::kTENSTORRENT));
   Backend& backend = vt::GetBackend(DeviceType::kTENSTORRENT);
-  Queue q = backend.CreateQueue();
-  auto lcg = [x = 31337u]() mutable {
-    x = x * 1664525u + 1013904223u;
-    return static_cast<float>(static_cast<double>(x >> 8) / 8388608.0f) - 0.5f;
-  };
-  std::vector<float> host_q(static_cast<size_t>(kPaSweepHq * kPaSweepD));
-  for (auto& v : host_q) v = lcg() * 0.3f;
-  const float scale = 1.0f / std::sqrt(static_cast<float>(kPaSweepD));
+  setenv("VT_TT_WEIGHT_RESIDENCY", "bfp8", 1);
 
-  const auto rows = PaSmallWindowSweep(backend, q, host_q, scale,
-                                       /*rac_seeded=*/true, 1, 64);
-  PaSmallWindowReport("rac-sweep", rows);
-  for (const auto& r : rows)
-    CHECK_MESSAGE(r.max_abs < kPaSweepGarbage,
-                  "rac-sweep seq=" << r.seq << " max_abs=" << r.max_abs);
+  constexpr int64_t M = 9, K = 5120, N = 6144;
+  constexpr int kReps = 200;
+  Queue q = backend.CreateQueue();
+  auto lcg = [x = 12345u]() mutable {
+    x = x * 1664525u + 1013904223u;
+    return static_cast<float>(static_cast<double>(x >> 8) / 8388608.0) - 0.5f;
+  };
+  std::vector<float> host_a(M * K), host_b(N * K);
+  for (auto& v : host_a) v = lcg() * 2.0f;
+  for (auto& v : host_b) v = lcg() * 0.4f;
+  std::vector<uint16_t> a_bf(M * K), b_bf(N * K);
+  for (size_t i = 0; i < host_a.size(); ++i) a_bf[i] = vt::F32ToBF16(host_a[i]);
+  for (size_t i = 0; i < host_b.size(); ++i) b_bf[i] = vt::F32ToBF16(host_b[i]);
+  void* mem_ab = backend.Alloc(a_bf.size() * sizeof(uint16_t));
+  void* mem_bb = backend.Alloc(b_bf.size() * sizeof(uint16_t));
+  backend.Copy(q, mem_ab, a_bf.data(), a_bf.size() * sizeof(uint16_t));
+  backend.Copy(q, mem_bb, b_bf.data(), b_bf.size() * sizeof(uint16_t));
+  Tensor a = Tensor::Contiguous(mem_ab, vt::DType::kBF16,
+                                Device{DeviceType::kTENSTORRENT, 0}, {M, K});
+  Tensor b = Tensor::Contiguous(mem_bb, vt::DType::kBF16,
+                                Device{DeviceType::kTENSTORRENT, 0}, {N, K});
+  auto matmul_bt = reinterpret_cast<vt::MatmulFn>(
+      vt::GetOp(vt::OpId::kMatmulBT, DeviceType::kTENSTORRENT));
+  uint64_t bad = 0;
+  for (int rep = 0; rep < kReps; ++rep) {
+    // Fresh output allocation per call — the engine's DBuf Alloc/Free cycle.
+    void* mem_ob = backend.Alloc(M * N * sizeof(uint16_t));
+    Tensor out = Tensor::Contiguous(mem_ob, vt::DType::kBF16,
+                                    Device{DeviceType::kTENSTORRENT, 0}, {M, N});
+    matmul_bt(q, out, a, b);
+    std::vector<uint16_t> ob(M * N);
+    backend.Copy(q, ob.data(), mem_ob, ob.size() * sizeof(uint16_t));
+    backend.Free(mem_ob);
+    uint64_t nonfinite = 0;
+    double max_rel = 0.0;
+    for (int64_t i = 0; i < M && nonfinite == 0; ++i) {
+      for (int64_t j = 0; j < N; ++j) {
+        float acc = 0.0f;
+        for (int64_t k = 0; k < K; ++k)
+          acc += host_a[i * K + k] * host_b[j * K + k];
+        float got = vt::BF16ToF32(ob[i * N + j]);
+        if (!std::isfinite(got)) {
+          ++nonfinite;
+          break;
+        }
+        const double rel = std::fabs(static_cast<double>(got) - acc) /
+                           (std::fabs(acc) + 1.0);
+        if (rel > max_rel) max_rel = rel;
+      }
+    }
+    if (nonfinite != 0 || max_rel > 0.05) {
+      ++bad;
+      MESSAGE("rep " << rep << " BAD: nonfinite=" << nonfinite
+                     << " max_rel=" << max_rel);
+    }
+  }
+  backend.Free(mem_ab);
+  backend.Free(mem_bb);
+  unsetenv("VT_TT_WEIGHT_RESIDENCY");
+  CHECK(bad == 0);
+  MESSAGE("warm: " << (kReps - bad) << "/" << kReps << " clean");
 }
 
 TEST_CASE("kTENSTORRENT TT-PA-SMALL-WINDOW W1: Copy-seeded PA decode seq sweep 1..64 (coherence discriminator)") {
@@ -15631,6 +15702,18 @@ TEST_CASE("kTENSTORRENT TT-PA-SMALL-WINDOW W1: RAC-seeded sweep with the program
   for (const auto& r : rows)
     CHECK_MESSAGE(r.max_abs < kPaSweepGarbage,
                   "nocache-sweep seq=" << r.seq << " max_abs=" << r.max_abs);
+}
+
+// W20c (QWEN38-DFLASH2-STAGE-C, ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): the
+// engine's STAGING LIFECYCLE — a bf16_dev temporary created, typedcast on
+// device ASYNC, dropped with NO sync, then the matmul — x 50 fresh weights
+// through the real cold path (Bfp8StageForTest). RED at rep k = the
+// unsynced-temporary reuse defect.
+TEST_CASE("kTENSTORRENT kMatmulBT bf16 BFP8 unsynced staging lifecycle (50 fresh weights)") {
+  if (!TenstorrentPresent()) {
+    MESSAGE("SKIPPED: no Tenstorrent device on this box");
+    return;
+  }
   REQUIRE(vt::OpRegistered(vt::OpId::kMatmulBT, DeviceType::kTENSTORRENT));
   Backend& backend = vt::GetBackend(DeviceType::kTENSTORRENT);
   setenv("VT_TT_WEIGHT_RESIDENCY", "bfp8", 1);

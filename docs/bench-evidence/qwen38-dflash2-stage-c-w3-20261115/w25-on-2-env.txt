@@ -1,0 +1,12 @@
+date: 2026-11-18T21:16:22+01:00
+head: a486aaa83ec56105ebe206808b4853ea361f61d1
+worktree: dirty (W25 BFP8 re-stage repair, uncommitted)
+governor: schedutil
+load1: 1.56
+bench: /tmp/build-stagec-w3/examples/vllm-bench
+model: /mnt/models/unsloth-qwen3.8-27B-gguf/Qwen3.8-27B-Q4_K_M.gguf
+model sha256: 7e78da5d7e3ae28d178121f58646953305f3e5bd3cb46f4a75584e8b6c6fe169
+num-blocks: 64
+extra-env: VLLM_CPP_CUDAGRAPH=0 VT_TT_WEIGHT_RESIDENCY=bfp8 VT_DFLASH_DRAFT=1 VT_TT_GEMM_OUT_KEEPALIVE=0
+output-len: 24
+spec: 1

@@ -1,0 +1,12 @@
+date: 2026-11-18T23:16:39+01:00
+head: a486aaa83ec56105ebe206808b4853ea361f61d1
+worktree: dirty (W25 BFP8 re-stage repair, uncommitted)
+governor: schedutil
+load1: 1.70
+bench: /tmp/build-stagec-w3/examples/vllm-bench
+model: /mnt/models/unsloth-qwen3.8-27B-gguf-v2/Qwen3.8-27B-UD-Q6_K_XL.gguf
+model sha256: 701d8fa9ed214ab21bfc130cd2a7df19ca89bbef7713e2dfb19f3c63696aa917
+num-blocks: 8
+extra-env: VT_TT_GEMM_OUT_KEEPALIVE=0
+output-len: 200
+spec: 0

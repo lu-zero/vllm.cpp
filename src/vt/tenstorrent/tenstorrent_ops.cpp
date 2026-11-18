@@ -20,6 +20,10 @@
 
 #include <deque>
 
+#include <tt-metalium/buffer.hpp>
+#include <tt-metalium/mesh_buffer.hpp>
+#include <tt-metalium/tt_metal.hpp>
+
 #include <ttnn/operations/data_movement/bcast/bcast.hpp>
 #include <ttnn/operations/data_movement/repeat/repeat.hpp>
 #include <ttnn/operations/experimental/topk_large_indices/topk_large_indices.hpp>
@@ -155,6 +159,24 @@ void MatmulBTKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
   MeshDevice& device = SharedMeshDevice();
   ttnn::Tensor dev_a = EnsureDevice2D(a, device);
   ttnn::Tensor dev_b = EnsureMatmulWeightDevice(b, device);
+  // W25 repair (ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): the lens corruption
+  // map shows a RUNTIME writer clobbering the staged BFP8 weight's exponent
+  // headers (the first 8 tiles' 64-byte headers — 512 B at the buffer start;
+  // mantissas intact) between staging and the spec-geometry matmul, and the
+  // compute then consuming foreign exp bytes as huge values (the output's
+  // first tile: bf16-max/Inf patterns while the pre-dump weight reads zeros —
+  // the metadata decode is blind because exp-zero tiles decode to zero). At
+  // the spec geometry (M == 9, the population the map was built on) re-stage
+  // the weight unconditionally: fresh typecast = fresh allocation = clean
+  // bytes (the W23-verified fact). VT_TT_BFP8_RESTAGE=0 rolls back to the
+  // unrepaired arm on the SAME binary.
+  static const bool bfp8_restage = [] {
+    const char* e = std::getenv("VT_TT_BFP8_RESTAGE");
+    return e == nullptr || e[0] != '0';
+  }();
+  if (bfp8_restage && M == 9 && dev_b.dtype() == ttnn::DataType::BFLOAT8_B) {
+    dev_b = Bfp8RestageWeight(b, device);
+  }
   // W20: the bf16 GEMM's operand ledger at the spec geometry — the z GEMM
   // (N=6144) committed garbage at the first spec step's l=9 while the mixed
   // GEMM (N=10240, same h) stayed clean. The weight's staged address per
@@ -276,6 +298,119 @@ void MatmulBTKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
     auto& dq = (*keepalive)[key];
     dq.push_back(dev_c);  // handle copy — holds THIS call's block alive too
     while (static_cast<int>(dq.size()) > kGemmOutKeepAliveDepth) dq.pop_front();
+  }
+  // W25 (2026-11-18, ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): the W23 lens
+  // instrument, rebuilt. At every M==9 BFP8-staged matmul call (the spec
+  // geometry — the failing call is the mixed qkvz GEMM), dump the RAW device
+  // bytes of the staged weight (tt::tt_metal::detail::ReadFromBuffer at the
+  // pin — the bytes as DRAM holds them, NOT the metadata decode), the raw
+  // device bytes of the activation and the output, the host bf16 weight
+  // source, and (once, for decoder verification) the metadata decode of the
+  // weight. The offline decoder decodes the raw bytes under BOTH layouts
+  // (plain row-major BFP8 vs the pin's BFP8_B tile/face-packed order —
+  // tt_metal/impl/data_format/bfloat8.cpp pack_as_bfp8_tiles) and builds the
+  // per-tile/face corruption map. Env-gated: VT_TT_BFP8_LENS=<dir>,
+  // VT_TT_BFP8_LENS_MAX=<calls, default 64>. Files go OUTSIDE the tree.
+  if (M == 9 && dev_b.dtype() == ttnn::DataType::BFLOAT8_B &&
+      !tt_capture_active()) {
+    static const char* lens_dir = std::getenv("VT_TT_BFP8_LENS");
+    static const int lens_max = [] {
+      const char* e = std::getenv("VT_TT_BFP8_LENS_MAX");
+      return e != nullptr ? std::atoi(e) : 64;
+    }();
+    if (lens_dir != nullptr) {
+      static std::atomic<int64_t> lens_seq{0};
+      const int64_t sq = lens_seq.fetch_add(1, std::memory_order_relaxed);
+      if (sq < lens_max) {
+        const bool heavy = (sq == 0) || (sq >= 40) || (N == 10240);
+        // The staged weight's RAW device bytes (heavy: up to ~56 MB per dump).
+        if (heavy) {
+          auto wbuf = dev_b.mesh_buffer().get_reference_buffer();
+          const uint32_t wbytes = wbuf->size();
+          std::vector<uint8_t> wraw(wbytes);
+          tt::tt_metal::detail::ReadFromBuffer(*wbuf, wraw.data());
+          char p[512];
+          std::snprintf(p, sizeof(p), "%s/wraw_sq%03lld_N%u.raw", lens_dir,
+                        static_cast<long long>(sq), N);
+          if (FILE* f = std::fopen(p, "wb"); f != nullptr) {
+            std::fwrite(wraw.data(), 1, wraw.size(), f);
+            std::fclose(f);
+          }
+          // The HOST bf16 source (the ground truth the staging packed).
+          EnsureHostBytes(b.data);
+          std::snprintf(p, sizeof(p), "%s/whost_sq%03lld_N%u.b16", lens_dir,
+                        static_cast<long long>(sq), N);
+          if (FILE* f = std::fopen(p, "wb"); f != nullptr) {
+            std::fwrite(b.data, 1,
+                        static_cast<size_t>(b.shape[0]) *
+                            static_cast<size_t>(b.shape[1]) * 2,
+                        f);
+            std::fclose(f);
+          }
+          // The METADATA decode, once per run (decodes the same buffered
+          // bytes through tt-metal's own reader): the lens' arbitration
+          // anchor. Dual-read verified.
+          if (sq == 0 || sq == 40) {
+            std::vector<float> m1 = dev_b.to_vector<float>();
+            std::vector<float> m2 = dev_b.to_vector<float>();
+            std::snprintf(p, sizeof(p), "%s/wmeta_sq%03lld_N%u.f32", lens_dir,
+                          static_cast<long long>(sq), N);
+            if (FILE* f = std::fopen(p, "wb"); f != nullptr) {
+              std::fwrite(m1.data(), 4, m1.size(), f);
+              std::fclose(f);
+            }
+            std::fprintf(stderr, "[BFP8-LENS] wmeta agree=%d n=%zu\n",
+                         (m1 == m2) ? 1 : 0, m1.size());
+          }
+        }
+        // The activation and the output: RAW bytes + the output's metadata
+        // decode (small dumps, every lens call).
+        {
+          char p[512];
+          auto dump_raw = [&](const ttnn::Tensor& t, const char* what) {
+            auto buf = t.mesh_buffer().get_reference_buffer();
+            std::vector<uint8_t> raw(buf->size());
+            tt::tt_metal::detail::ReadFromBuffer(*buf, raw.data());
+            std::snprintf(p, sizeof(p), "%s/%s_sq%03lld_N%u.raw", lens_dir,
+                          what, static_cast<long long>(sq), N);
+            if (FILE* f = std::fopen(p, "wb"); f != nullptr) {
+              std::fwrite(raw.data(), 1, raw.size(), f);
+              std::fclose(f);
+            }
+          };
+          dump_raw(dev_a, "araw");
+          dump_raw(dev_c, "craw");
+          std::vector<float> cm = dev_c.to_vector<float>();
+          std::snprintf(p, sizeof(p), "%s/cmeta_sq%03lld_N%u.f32", lens_dir,
+                        static_cast<long long>(sq), N);
+          if (FILE* f = std::fopen(p, "wb"); f != nullptr) {
+            std::fwrite(cm.data(), 4, cm.size(), f);
+            std::fclose(f);
+          }
+          double cacc = 0.0;
+          uint64_t cnan = 0, cinf = 0;
+          for (float f : cm) {
+            if (std::isnan(f)) ++cnan;
+            else if (std::isinf(f)) ++cinf;
+            else cacc += f > 0.0f ? f : -f;
+          }
+          std::fprintf(stderr,
+                       "[BFP8-LENS] sq=%lld N=%u w_addr=%llx a_addr=%llx "
+                       "c_addr=%llx c_dt=%d c_asum=%.6g c_nan=%llu c_inf=%llu\n",
+                       static_cast<long long>(sq), N,
+                       static_cast<unsigned long long>(
+                           dev_b.mesh_buffer().address()),
+                       static_cast<unsigned long long>(
+                           dev_a.mesh_buffer().address()),
+                       static_cast<unsigned long long>(
+                           dev_c.mesh_buffer().address()),
+                       static_cast<int>(dev_c.dtype()), cacc,
+                       static_cast<unsigned long long>(cnan),
+                       static_cast<unsigned long long>(cinf));
+          std::fflush(stderr);
+        }
+      }
+    }
   }
   // W20: the PRE-COMMIT trusted read of the matmul's own output — before
   // any commit/slot machinery touches it. With the keep-alive this must read

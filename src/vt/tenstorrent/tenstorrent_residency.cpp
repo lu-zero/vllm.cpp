@@ -873,6 +873,22 @@ void DropWeightViewShadowsInRange(void* host, size_t bytes, bool drain) {
   }
 }
 
+// The cold staging body, shared by EnsureBfp8WeightDevice and the W25 repair:
+// bf16 from_span + on-device typecast to BFLOAT8_B. The device typecast is the
+// SAME single RNE BFP pack the tt-metal host packer performs
+// (typecast_sharded_program_factory.cpp:48 — BFLOAT16 -> BFLOAT8_B is a
+// supported TILE conversion), executed on-device so the packed operand never
+// exists on the host and the bf16 staging is dropped with the temporary.
+ttnn::Tensor Bfp8TypecastInstall(const Tensor& b, MeshDevice& device) {
+  const uint32_t rows = static_cast<uint32_t>(b.shape[0]);
+  const uint32_t cols = static_cast<uint32_t>(b.shape[1]);
+  const size_t n = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+  ttnn::Tensor bf16_dev = ttnn::Tensor::from_span(
+      ttsl::Span<const bfloat16>(static_cast<const bfloat16*>(b.data), n),
+      TileSpecOf(rows, cols), &device);
+  return ttnn::typecast(bf16_dev, ttnn::DataType::BFLOAT8_B);
+}
+
 ttnn::Tensor EnsureBfp8WeightDevice(const Tensor& b, MeshDevice& device) {
   const uint32_t rows = static_cast<uint32_t>(b.shape[0]);
   const uint32_t cols = static_cast<uint32_t>(b.shape[1]);
@@ -902,22 +918,41 @@ ttnn::Tensor EnsureBfp8WeightDevice(const Tensor& b, MeshDevice& device) {
     }
   }
   EnsureHost(b);
-  const size_t n = static_cast<size_t>(rows) * static_cast<size_t>(cols);
-  ttnn::Tensor bf16_dev = ttnn::Tensor::from_span(
-      ttsl::Span<const bfloat16>(static_cast<const bfloat16*>(b.data), n),
-      TileSpecOf(rows, cols), &device);
-  // The device typecast is the SAME single RNE BFP pack the tt-metal host
-  // packer performs (typecast_sharded_program_factory.cpp:48 — BFLOAT16 ->
-  // BFLOAT8_B is a supported TILE conversion), executed on-device so the
-  // packed operand never exists on the host and the bf16 staging is dropped
-  // with the temporary.
-  ttnn::Tensor bfp8_dev = ttnn::typecast(bf16_dev, ttnn::DataType::BFLOAT8_B);
+  ttnn::Tensor bfp8_dev = Bfp8TypecastInstall(b, device);
   g_bfp8_resident.fetch_add(1, std::memory_order_relaxed);
   std::lock_guard<std::mutex> g(Bfp8WeightMutex());
   Bfp8WeightShadow& s = Bfp8WeightShadows()[key];
   s.device = bfp8_dev;
   s.rows = rows;
   s.cols = cols;
+  return bfp8_dev;
+}
+
+// W25 repair (2026-11-18, ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): the lens
+// instrument's corruption map (docs/bench-evidence/qwen38-dflash2-stage-c-w3-
+// 20261115/, the W25 section) shows the staged BFP8 weight's EXPONENT HEADERS
+// of its first 8 tiles (512 B at the buffer start, mantissas intact) clobbered
+// at RUNTIME — zero at dump time on the failing call, with the matmul's output
+// first-tile garbage (bf16-max patterns, the compute must have consumed
+// foreign exp bytes) — while the metadata readback stays blind: an exp-zero
+// tile decodes to all-zero through tt-metal's own reader, so the trusted
+// dual-read lens saw "sane". NOT a layout mismatch: the W25 lens verified the
+// staged bytes decode 100% identical to the metadata readback under the pin's
+// face-packed tile order (bfloat8.cpp pack_as_bfp8_tiles) — the W23
+// "two layouts" reading was a plain-BFP8 decoder artifact. The repair rides
+// the W23-verified fact that a FRESH re-stage is clean every time: re-run the
+// cold path unconditionally (fresh typecast = fresh allocation = fresh bytes)
+// and install it as the weight's shadow. Cost: one bf16->bfp8 device typecast
+// per spec-geometry weight per call (~ms); the memory footprint is unchanged.
+ttnn::Tensor Bfp8RestageWeight(const Tensor& b, MeshDevice& device) {
+  EnsureHost(b);
+  ttnn::Tensor bfp8_dev = Bfp8TypecastInstall(b, device);
+  const uintptr_t key = reinterpret_cast<uintptr_t>(b.data);
+  std::lock_guard<std::mutex> g(Bfp8WeightMutex());
+  Bfp8WeightShadow& s = Bfp8WeightShadows()[key];
+  s.device = bfp8_dev;
+  s.rows = static_cast<uint32_t>(b.shape[0]);
+  s.cols = static_cast<uint32_t>(b.shape[1]);
   return bfp8_dev;
 }
 
