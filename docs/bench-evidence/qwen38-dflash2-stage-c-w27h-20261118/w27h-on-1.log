@@ -131,3 +131,70 @@
 2026-11-19 12:33:13.470 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
 2026-11-19 12:33:13.479 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
 2026-11-19 12:33:13.596 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:36:44.628 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:36:50.742 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:37:55.972 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:37:59.523 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:39:01.138 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:40:02.088 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:41:02.878 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:42:03.678 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:43:04.458 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:44:05.280 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:45:06.005 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-19 12:46:06.857 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+
+============= vllm.cpp Benchmark Result =============
+Engine frontend:                           AsyncLLM    
+Output wait:                               poll        
+Blocking wait calls:                       0           
+Async scheduling enabled:                  0           
+Pretokenized prompt admission:             1           
+KV cache dtype (requested):                auto
+KV cache dtype (resolved storage):         bf16
+Ignore EOS (requested):                    1           
+Ignore EOS (resolved sampling):            1           
+Chat template:                             skipped (raw prompt)
+Chat template kwargs:                      {}
+Maximum concurrent batches:                1           
+Successful requests:                       1           
+Maximum request concurrency:               1           
+Benchmark duration (s):                    834.22      
+Total input tokens:                        32          
+Total generated tokens:                    12          
+Request throughput (req/s):                0.00        
+Output token throughput (tok/s):           0.01        
+Total token throughput (tok/s):            0.05        
+-------- Time to First Token --------
+Mean TTFT (ms):                            217261.87   
+Median TTFT (ms):                          217261.87   
+P99 TTFT (ms):                             217261.87   
+-------- Time per Output Token (excl. 1st token) --------
+Mean TPOT (ms):                            56086.87    
+Median TPOT (ms):                          56086.87    
+P99 TPOT (ms):                             56086.87    
+-------- Inter-token Latency --------
+Mean ITL (ms):                             61695.55    
+Median ITL (ms):                           60831.34    
+P99 ITL (ms):                              68137.16    
+-------- End-to-end Latency --------
+Mean E2EL (ms):                            834217.41   
+Median E2EL (ms):                          834217.41   
+P99 E2EL (ms):                             834217.41   
+-------- Prefill vs Decode split (gate #1) --------
+Input token throughput (tok/s, over whole run): 0.04        
+Prefill token throughput (tok/s, in/TTFT): 0.15        
+Output (decode) token throughput (tok/s):  0.01        
+Mean per-stream decode rate (tok/s):       0.02        
+-------- Speculative decoding (MTP) --------
+Draft tokens proposed:                     80          
+Draft tokens accepted:                     1           
+Acceptance rate (accepted/proposed):       0.01        
+====================================================
+2026-11-19 12:47:08.091 | info     |    BuildKernels | JIT cache stats: 815/815 hits (100.0%) [815 cached, 675 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:268)
+2026-11-19 12:47:08.091 | info     |    BuildKernels | JIT telemetry: 33 registered TelemetryTokens (build_cache_telemetry.cpp:325)
+2026-11-19 12:47:08.133 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:519)
+2026-11-19 12:47:08.133 | info     |             UMD | Closing devices in cluster (cluster.cpp:1319)
+2026-11-19 12:47:08.248 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1329)
+2026-11-19 12:47:08.248 | info     |             UMD | Cluster destructor started. (cluster.cpp:1050)
+2026-11-19 12:47:08.248 | info     |             UMD | Cluster destructor completed. (cluster.cpp:1063)

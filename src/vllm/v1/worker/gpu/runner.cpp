@@ -4905,15 +4905,6 @@ void GPUModelRunner::propose_drafts_block(
   const int num_mask_rows = num_query_per_req - 1;
   const StepInputs& step = exec_state_.step;
 
-  // W27 debug (VT_DFLASH_HOST_DEBUG): co-maintain the DEVICE context-KV stores
-  // in the host arm so the first N steps can run BOTH forwards on the same
-  // state and print the two logits rows' argmaxes — the bisect between "the
-  // host forward's numerics" and "what the host arm feeds it".
-  static const int host_debug = [] {
-    const char* e = std::getenv("VT_DFLASH_HOST_DEBUG");
-    return e == nullptr ? 0 : std::atoi(e);
-  }();
-  static std::atomic<int64_t> host_debug_seq{0};
   // #2008 — THE DRAFT CONTEXT BELONGS TO THE REQUEST, NOT TO THE BATCH ROW.
   //
   // Release the entries of requests that have left the batch, then resolve one
@@ -4951,13 +4942,10 @@ void GPUModelRunner::propose_drafts_block(
       // projects only the newly-accepted rows on the CPU backend, bit-identical
       // to the device append by the same per-row projection independence the D9
       // record pins.
-      if (dflash_host_arm_) {
+      if (dflash_host_arm_)
         c.host_store =
             std::make_shared<Qwen3DFlashModel::PrecomputedContextKV>();
-        if (host_debug > 0)
-          c.store = Qwen3DFlashModel::MakeDeviceKVStore(
-              config, queue_, dflash_ctx_sizing_.slots);
-      } else
+      else
         c.store = Qwen3DFlashModel::MakeDeviceKVStore(config, queue_,
                                                       dflash_ctx_sizing_.slots);
     }
@@ -5105,7 +5093,7 @@ void GPUModelRunner::propose_drafts_block(
     }
   }
   Qwen3DFlashModel::DflashCombinedDevice combined;
-  if (!dflash_host_arm_ || host_debug > 0) {
+  if (!dflash_host_arm_) {
     combined = Qwen3DFlashModel::CombineAuxFeaturesDevice(aux, backbone, config,
                                                           queue_);
   }
@@ -5247,10 +5235,6 @@ void GPUModelRunner::propose_drafts_block(
       }
       Qwen3DFlashModel::AppendContextKVHost(*ctx.host_store, feats, new_pos,
                                             backbone, config, cpu_q);
-      if (host_debug > 0)
-        Qwen3DFlashModel::AppendContextKVDeviceRows(*ctx.store, combined.tensor,
-                                                    new_rows, new_pos, backbone,
-                                                    config, queue_);
     } else {
       Qwen3DFlashModel::AppendContextKVDeviceRows(*ctx.store, combined.tensor,
                                                   new_rows, new_pos, backbone,
@@ -5450,21 +5434,6 @@ void GPUModelRunner::propose_drafts_block(
     const auto t_fwd0 = std::chrono::steady_clock::now();
     Qwen3DFlashModel::DflashBlockDeviceOut dev_out;
     std::vector<float> block_logits;
-    std::vector<float> debug_dev_logits;
-    std::vector<int32_t> debug_dev_cu;
-    std::vector<vllm::DflashDeviceKVStore*> debug_dev_stores;
-    std::vector<int32_t> debug_dev_ctx_cu;
-    int64_t debug_dev_total = 0;
-    if (host_debug > 0) {
-      for (int r = 0; r < P; ++r) {
-        vllm::DflashDeviceKVStore* st =
-            row_ctx[static_cast<size_t>(propose_rows[static_cast<size_t>(r)])]
-                ->store.get();
-        debug_dev_stores.push_back(st);
-        debug_dev_total += Qwen3DFlashModel::DeviceKVNumCtx(*st);
-        debug_dev_ctx_cu.push_back(static_cast<int32_t>(debug_dev_total));
-      }
-    }
     if (dflash_host_arm_) {
       // W27 host arm: the validated W2 forward ON THE HOST. The CPU backend's
       // thread pool parallelizes the block's GEMMs across the cores taskset
@@ -5475,41 +5444,6 @@ void GPUModelRunner::propose_drafts_block(
       // the CPU backend's Synchronize is a no-op by contract.
       block_logits = Qwen3DFlashModel::ForwardBlockLogitsWithPrecomputedKV(
           host_ckv, ctx_cu, blk_ids, blk_pos, blk_cu, backbone, config, cpu_q);
-      if (host_debug > 0 &&
-          host_debug_seq.fetch_add(1, std::memory_order_relaxed) <
-              static_cast<int64_t>(host_debug)) {
-        const int64_t vocab_n = backbone.draft_vocab_size;
-        auto top5 = [](const std::vector<float>& v, int64_t base, int64_t n) {
-          std::vector<std::pair<float, int64_t>> t;
-          for (int64_t j = 0; j < n; ++j)
-            t.emplace_back(v[static_cast<size_t>(base + j)], j);
-          std::sort(t.begin(), t.end(), [](auto& a, auto& b) {
-            return a.first > b.first;
-          });
-          std::string s;
-          for (int j = 0; j < 5 && j < static_cast<int>(t.size()); ++j)
-            s += " " + std::to_string(t[static_cast<size_t>(j)].second) + ":" +
-                 std::to_string(t[static_cast<size_t>(j)].first);
-          return s;
-        };
-        dev_out = {};
-        debug_dev_logits = Qwen3DFlashModel::ForwardBlockLogitsWithDeviceKV(
-            debug_dev_stores, debug_dev_ctx_cu, blk_ids, blk_pos, blk_cu,
-            backbone, config, queue_, nullptr, nullptr, &dev_out);
-        vt::GetBackend(queue_.device.type).Synchronize(queue_);
-        for (int r = 0; r < static_cast<int>(num_query_per_req); ++r) {
-          std::fprintf(stderr,
-                       "[host-debug] row=%d host=%s | dev=%s\n",
-                       r,
-                       top5(block_logits, static_cast<int64_t>(r) * vocab_n,
-                            vocab_n)
-                           .c_str(),
-                       top5(debug_dev_logits,
-                            static_cast<int64_t>(r) * vocab_n, vocab_n)
-                           .c_str());
-        }
-        (void)debug_dev_cu;
-      }
     } else {
       block_logits = Qwen3DFlashModel::ForwardBlockLogitsWithDeviceKV(
           stores, ctx_cu, blk_ids, blk_pos, blk_cu, backbone, config, queue_,
