@@ -1,0 +1,8 @@
+date: 2026-11-19T18:19:34+01:00
+head: 4dca33bc1a4577afa79224b928d42d1fa8b07119
+note: RETRY of the 14:11 leg that OOM'd at target load BEFORE draft wiring (no host-arm banner); fresh luwen reset this time
+model: /mnt/models/unsloth-qwen3.8-27B-gguf-v2/Qwen3.8-27B-UD-Q6_K_XL.gguf
+model sha256: 701d8fa9ed214ab21bfc130cd2a7df19ca89bbef7713e2dfb19f3c63696aa917
+num-blocks: 8
+output-len: 24
+spec: {"method":"dflash","model":"/mnt/models/qwen38-dflash2-drafter","num_speculative_tokens":8}

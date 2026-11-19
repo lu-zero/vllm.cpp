@@ -467,3 +467,53 @@ move and take the D2D repair lever (the concurrent session's reading).
 Untested and owed by this session: the UD-Q6_K_XL KV8 capacity leg (c) of the
 W27 gate list — the drafter-ON device arm never ran it with the trunk off
 device because the host arm's acceptance collapse makes its TPOT meaningless.
+
+## W27h gate capture (2026-11-19, finalizing session): the host arm captured at FULL length — the honest no-win record stands, and the KV8 capacity blocker is NOT the draft
+
+Evidence `docs/bench-evidence/qwen38-dflash2-stage-c-w27h-20261118/` (README
+carries the tables). Head `4dca33bc1` (the stripped committed form; the
+`VT_DFLASH_HOST_DEBUG` probe scaffolding removed, `VT_DFLASH_HOST` and
+`VT_STEP_WALL` documented in `docs/ENVIRONMENT.md`).
+
+- **Q4_K_M KV64 drafter-ON-HOST, FULL 200 tokens** (`w27h-on-full`): Mean
+  TPOT **59522.82 ms** = **8.96x OFF** (6647 recorded; re-pinned same-day at
+  6652.90, +0.1%) and **2.3x the device drafter** (25415). Acceptance
+  **1.03 drafts/step** (bonus token only; `emitted=[ tok -1 x8 ]` on 194
+  steps) vs the device arm's 3.0. The earlier session's acceptance-collapse
+  reading REPRODUCES on the committed form. **NEEDS_DECISION holds**: the
+  host arm cannot beat the OFF baseline.
+- **Tie-band gate** (500 mnats, committed harness): healthy host-arm stream
+  `fa01bf2f…` **PASS** (2 mismatches, both in-band; zero NaN/Inf) — the
+  gate DOES separate corrupted from healthy on host-arm streams: the
+  planted-corruption red leg `w27h-corr` **FAIL**s (23 degenerate ids, 4
+  out-of-band mismatches, NaN markers), the same signature as the W27
+  device-arm red leg.
+- **Drafter-OFF identity**: `w27h-off-gaps-full` (200 tokens, eager-gap
+  trace 220/200) streams `d49c53d2…` — byte-identical to the W26 OFF
+  records at full length; OFF TPOT 6652.90 (+0.1% vs 6647). The OFF
+  surface is untouched by the host arm (every edit sits inside a
+  `dflash_host_arm_`/`host_debug` branch); the W26 6/6 record stands.
+- **UD-Q6_K_XL KV8 capacity verdict: NOT REACHED — for either arm.** The
+  host-arm leg fails at auto-fit BEFORE draft wiring ("not enough GPU
+  memory to serve even a single token"), twice, the second on a fresh
+  luwen reset; and **all three W27 device-drafter q6kl legs failed with
+  the IDENTICAL refusal** (`w27-q6kl-on-1/2/3.stderr.log` — check them;
+  only the OFF q6kl leg ran). The binding constraint at this geometry is
+  the TARGET's bfp8 footprint + the auto-fit accounting at
+  `--num-blocks 8`, not the draft trunk: taking the draft off-device does
+  not unblock it. The W26 "the draft's 3.85 GiB" attribution does not
+  reproduce as the binding term.
+- **Per-step budget** (median, 194 steps): host draft forward **413 ms**,
+  taps D2H + host appends 15.5 ms, sample 1.3 ms — 0.7% of the **61.0 s**
+  step wall. The wall is the verify+DNR residue (~54 s), INFLATED vs
+  W26's 25.4 s; the DNR master-fail storm (master_fail=5399 in one run)
+  is the named unrooted suspect. Owed: the queue-idle DNR ledger
+  re-measure, then a host-arm leg with the DNR master path instrumented.
+
+Owed by this issue after this capture: (a) root the host forward's
+near-tie acceptance collapse (the host-vs-device forward parity gate at
+production shapes does not exist); (b) the auto-fit decomposition at
+UD-Q6_K_XL KV8; (c) the DNR ledger re-measure. The coordinator decision
+this evidence serves: the host arm is functional and token-faithful but
+loses the acceptance multiple 2.3x to the device drafter and 9x to OFF —
+keep or kill on capacity/numerics grounds, not on speed.
