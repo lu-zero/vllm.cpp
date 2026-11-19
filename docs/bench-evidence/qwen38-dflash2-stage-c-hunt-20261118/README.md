@@ -302,3 +302,130 @@ the token-ids JSON, the bench and stderr logs, the env notes, and the
    accept/commit path (proven faithful by the trace).
 3. The acceptance multiple remains UNMEASURABLE as a win at this repair cost
    (ON 25578 ms vs OFF 6647 ms TPOT).
+
+## W27 (2026-11-19): the tie-band gate + the D2D master restore (ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H, the coordinator's two decisions, implemented)
+
+### THE TIE-BAND GATE (decision 1, committed)
+
+`tie-band-gate.py` (this directory, the committed gate harness; fed by the
+W26 acceptance-trace instrument and the new eager gap instrument):
+- **Threshold: `--near-tie-mnats 500`** — the ratified kNearTieMnats band
+  (`tests/parity/test_commandr_paged_engine.cpp:52`). A divergence at
+  position p is permissible only when the EAGER top-2 gap at p, p-1, or p+1
+  (a one-position phase slip of a periodic cycle) sits below 500 mnats
+  (0.5 nats).
+- (a) per-step acceptance telemetry within the recorded band — the committed
+  tokens per verify block parsed from the `[ACCEPT]` lines (recorded healthy
+  band: 8 drafts/step, this run 8/8 across all traced legs);
+- (b) the emitted stream matches the eager stream except at the permissible
+  positions above;
+- (c) zero NaN/Inf markers anywhere + no degenerate token ids (id <= 0
+  mid-stream — the `[220, 0, 0, ...]` corruption signature) — hard fail.
+- `--corrupted` (the red leg): a green gate on a corrupted run is itself a
+  failure (the gate must separate corrupted from healthy).
+- The eager per-position gaps come from `VT_EAGER_TOP2_TRACE=<N>`
+  (`Sampler::greedy_argmax_host` prints `[EAGER-TOP2] step tok gap_mnats` for
+  the first N greedy steps — the arm the drafter-OFF decode takes, so the
+  gaps cover exactly the recorded OFF stream). Committed gap record:
+  `w27-off-gaps-q4.stderr.log` (40 positions; the reference stream's first 24
+  tokens are byte-identical to the recorded OFF stream `d49c53d2...`'s prefix).
+
+Gate verdicts (committed `*-gate-verdict.json`):
+- **W26-form healthy stream `af77d5d3...` (w26-on-1, the 5-leg-stable
+  stream): PASS** — 2 mismatches (positions 7 and 10), both inside the band
+  (eager gaps 118.6 and 477.2 mnats); acceptance 8/step in [7,9]. The gate
+  CAN be green on a healthy lever run.
+- **The W27 D2D build's stream `77688b0a...` (w27-on-1/2/3, 3/3
+  deterministic): FAIL** — 13 mismatches, 4 outside the band, first at 20
+  (eager gap 1107 mnats; positions 20-23 carry eager gaps 952-3236 mnats,
+  far beyond near-tie). The gate correctly refuses a run whose divergence is
+  NOT explainable by near-ties — the poison class.
+- **The corrupted-weights RED leg (decision: gate must fail): FAIL as
+  required** — `w27-on-corr`: the W20 corruption PLANTED on demand
+  (`VT_TT_BFP8_PLANT_HEADERS_ZERO=1`, `Bfp8PlantHeaderZero` zeroes the 8 tile
+  exponent headers of the working buffer, the corruption map's exact region)
+  with the DNR mechanism disabled (`VT_TT_BFP8_RESTAGE=0`) reproduced the
+  EXACT W4/W20 signature `[220, 0, 0, ...]`; the gate fails on (c) 23
+  degenerate token ids and the band. **The gate separates corrupted from
+  healthy at the recorded thresholds: proven both directions.**
+
+### THE D2D MASTER RESTORE (decision 2, implemented; target NOT reached)
+
+`Bfp8WeightShadow.master` — a second on-device BFP8 copy per admitted
+weight. Policy (all measured, recorded in the code comments):
+- LAZY per-CLOBBERED weight, admitted at the SECOND clobber (the writer's
+  repeating footprint self-selects), cap **64 masters**
+  (`kBfp8MasterCap`).
+- The repair is a FRESH-ALLOCATION D2D clone
+  (`ttnn::assign` with no output tensor = a pure same-dtype device copy of
+  the master, ~2 ms) installed as the shadow's served tensor — the W25/W26
+  fresh-allocation form is load-bearing: an in-place restore variant
+  measured 755 repairs/run (vs 617 in W26) and diverged past the band.
+- Weights without a master (cap-exhausted or allocation failure) keep the
+  W26 host re-stage fallback; the ledger counts both transports.
+
+Per-step ledger (w27-on-1/2/3, Q4_K_M KV64 drafter-ON, 24 tokens, 9 verify
+steps each):
+- repairs 806-811 per run = **~90/step** (the repeating writer footprint is
+  ~89 weights, not the W26 estimate of ~55-65); master-covered ~43/step ride
+  the D2D lane at **~2 ms each** (the <50 ms/weight target is met by 25x);
+  ~46/step stay on the host re-stage at ~180 ms.
+- repair time **~77 s/run = ~8.6 s/step** vs W26's ~11.8 s/step — halved,
+  but **the <3 s/step target is NOT reachable at any measured-stable cap**:
+  cap 92 OOMs (a 55 MB activation allocation died with 221 MB free and no
+  large-enough block, `w27-on-1.stderr.log` of the cap-92 run), and the
+  ~111-master eager variant OOMs too. The repeating set (~89) exceeds the
+  master budget the device can hold alongside the KV-64 pool + the draft
+  trunk.
+- TPOT **25286 / 25319 / 25641 ms** (mean 25415) vs OFF 6647 ms —
+  **THE ACCEPTANCE MULTIPLE: ~3.8x SLOWER** (W26: 3.9x). One same-binary leg
+  of an earlier run measured 25304 ms with the PASSING stream `af77d5d3`
+  (log overwritten by the final run; recorded here from the session
+  transcript).
+
+### Gates (run-w27-gate.sh + run-w27-gate2.sh, cap-64 build, 2026-11-19)
+
+Discipline per leg: file mutex `exec 9>${GPU_LOCK:-$HOME/gpu.lock}`;
+flock -x 9; luwen reset + 15 s + /dev/shm cleanup; idle gate (load1 < 16);
+bench on `taskset -c 32-63` FROM THE REPO ROOT, builds on 64-127;
+`INT8DOT=1`, durable-libs-first, `TT_METAL_RUNTIME_ROOT=$HOME/Sources/tt/tt-metal-pin`.
+
+- **(a) Q4_K_M KV64 drafter-ON x3**: streams `77688b0a...` x3 (deterministic
+  within the run); **tie-band gate FAIL x3** (the divergence class above);
+  corrupted-weights red proof re-captured GREEN-as-required (gate fails on
+  the planted run); TPOT 25286/25319/25641 vs OFF 6647. One cross-run leg
+  (earlier run, same binary) produced the PASSING `af77d5d3` stream — the
+  healthy stream shape is run-to-run bimodal under the D2D build (1 of 2
+  same-binary runs), a new standing fact.
+- **(b) UD-Q6_K_XL KV8 drafter-ON x3**: 3/3 exit 1, the standing capacity
+  blocker UNCHANGED (`Cannot auto-fit max_model_len: not enough GPU memory
+  available to serve even a single token` — the KV-8 pool + the draft trunk;
+  the master budget is not the binding constraint there). No TPOT; the tie-
+  band gate never runs. Q6_K_XL OFF re-verified byte-identical to the W26
+  records' 24-token prefix (`ae157086...` json, eager gaps captured).
+- **(c) drafter-OFF byte identity**: the W26 6/6 records STAND (no change
+  expected — the OFF path never hits the spec step); the w27-off-gaps-q4 leg
+  repeats the Q4_K_M OFF 24-token prefix byte-identically.
+- **(d) the DNR per-step ledger with D2D restore**: above; clean checks
+  still ~1 ms/weight, D2D repairs ~2 ms, host fallbacks ~180 ms.
+
+### NEEDS_DECISION (back to the coordinator, with the numbers)
+
+1. **The <3 s/step repair target is unreachable on this device budget**:
+   the writer's repeating clobber set is ~89 weights/verify step; 64 masters
+   (cap) cover ~43/step and cap 92 OOMs the activation allocations. The D2D
+   transport itself is ~2 ms/weight (25x under target) — the shortfall is
+   entirely the uncovered host-restage fallbacks. Levers that need a call:
+   shrink the per-step clobber set (the writer defect itself — the row's
+   standing mystery), a KV-64→KV-32 arm for the identity gate only, or
+   accept the ~8.6 s/step standing cost.
+2. **The healthy stream shape is bimodal across runs under the D2D build**
+   (`af77d5d3` PASS vs `77688b0a` FAIL at the recorded 500-mnat band, both
+   deterministic within a run). The tie-band gate provably separates
+   corrupted from healthy, but gate (a) "tie-band GREEN x3" cannot hold on
+   the failing shape. Options: widen the band (the 20-23 divergences sit at
+   0.95-3.2 nats — widening to ~3.3 nats would pass poison-class noise and
+   is NOT recommended), gate each run's stream against ITS OWN recorded
+   stream (the af77d5d3/77688b0a pair both committed as shape references),
+   or trace the address-dependence of the writer (the corruption is
+   allocation-layout dependent — the real defect).

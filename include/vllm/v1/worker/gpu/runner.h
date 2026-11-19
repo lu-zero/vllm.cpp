@@ -1373,6 +1373,13 @@ class GPUModelRunner final : public ModelRunnerBase {
   // sampler regardless of the knob. Default false — byte-identical to the
   // pre-W3 selector lane.
   bool dflash_direct_arm_ = false;
+  // QWEN38-DFLASH2-STAGE-C W27 (VT_DFLASH_HOST): run the draft's 8-row forward
+  // ON THE HOST (the CPU backend's thread pool) over host-resident draft
+  // weights, reading the residual taps D2H per verify block and returning the
+  // draft tokens H2D. The device keeps the verify, the GDN state and the KV
+  // pool; the draft trunk (3.85 GiB bf16) never stages, so its BFP8 residency
+  // and its runtime-clobber exposure vanish for the draft.
+  bool dflash_host_arm_ = false;
   bool use_dflash() const { return dflash_weights_ != nullptr; }
   // QWEN38-DFLASH2-STAGE-C W3: stage the draft's own bf16 weights to the device
   // AT WIRING time on a weight-staging platform (the `PrepareBf16Resident`
@@ -1444,6 +1451,11 @@ class GPUModelRunner final : public ModelRunnerBase {
   // leaves the batch.
   struct DflashReqCtx {
     std::shared_ptr<vllm::DflashDeviceKVStore> store;
+    // QWEN38-DFLASH2-STAGE-C W27 (VT_DFLASH_HOST): the HOST-side twin of
+    // `store` — the D9 PrecomputedContextKV the host forward reads. The host
+    // arm never constructs the device store (the draft trunk is host-resident,
+    // 3.85 GiB the device never stages), so exactly one of the two is set.
+    std::shared_ptr<vllm::Qwen3DFlashModel::PrecomputedContextKV> host_store;
     // Committed context length L. Kept in lockstep with the store's own num_ctx,
     // and asserted against it every propose (SPEC-DFLASH2 W8, #1838).
     int32_t ctx_len = 0;

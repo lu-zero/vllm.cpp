@@ -1,0 +1,29 @@
+vllm-bench: /mnt/models/unsloth-qwen3.8-27B-gguf/Qwen3.8-27B-Q4_K_M.gguf engine | num_prompts=1 input_len=32 output_len=24 concurrency=1 seed=0 temp=0.00 dataset=generated output_wait=poll kv_cache_dtype=auto ignore_eos=1 chat_template=skipped
+engine: device placement: --fit resolved NO placement: the model has no routed-expert layers, so a placement has nothing to move
+engine: qwen3.5 gguf: SKIPPING the MTP drafter head — 15 tensor(s), 289527808 B, none of them read by this trunk-only load: blk.64.attn_k.weight, blk.64.attn_k_norm.weight, blk.64.attn_norm.weight, blk.64.attn_output.weight, blk.64.attn_q.weight, blk.64.attn_q_norm.weight, blk.64.attn_v.weight, blk.64.ffn_down.weight, blk.64.ffn_gate.weight, blk.64.ffn_up.weight, blk.64.nextn.eh_proj.weight, blk.64.nextn.enorm.weight, blk.64.nextn.hnorm.weight, blk.64.nextn.shared_head_norm.weight, blk.64.post_attention_norm.weight. They are the multi-token-prediction head at blk.64 (block_count 65 = 64 trunk + 1 head); they load only when speculative decoding is configured (speculative-config method "mtp"). Denominator parity: the pinned llama.cpp b10451 oracle IGNORES these same tensors too (64 trunk layers, no MTP head; .agents/oracles/llama-cpp.md), so a gate against it is matched work only with this skip loud.
+INFO auto-fit max_model_len: reduced from 262144 to 992 to fit the KV cache (64 blocks, one of them the null block, shared by 2 KV cache groups). Raise --num-blocks / --kv-cache-memory for a longer context.
+vllm.cpp: Asynchronous scheduling is disabled (max_concurrent_batches=1)
+[EAGER-TOP2] step=0 tok=220 gap_mnats=62.9
+[EAGER-TOP2] step=1 tok=16 gap_mnats=580.8
+[EAGER-TOP2] step=2 tok=23066 gap_mnats=316.7
+[EAGER-TOP2] step=3 tok=220 gap_mnats=1818.6
+[EAGER-TOP2] step=4 tok=16 gap_mnats=442.9
+[EAGER-TOP2] step=5 tok=220 gap_mnats=390.3
+[EAGER-TOP2] step=6 tok=16 gap_mnats=389.6
+[EAGER-TOP2] step=7 tok=23066 gap_mnats=118.6
+[EAGER-TOP2] step=8 tok=220 gap_mnats=808.9
+[EAGER-TOP2] step=9 tok=16 gap_mnats=798.2
+[EAGER-TOP2] step=10 tok=1814 gap_mnats=477.2
+[EAGER-TOP2] step=11 tok=220 gap_mnats=2507.5
+[EAGER-TOP2] step=12 tok=16 gap_mnats=244.8
+[EAGER-TOP2] step=13 tok=220 gap_mnats=258.2
+[EAGER-TOP2] step=14 tok=16 gap_mnats=444.5
+[EAGER-TOP2] step=15 tok=23066 gap_mnats=221.0
+[EAGER-TOP2] step=16 tok=220 gap_mnats=1217.3
+[EAGER-TOP2] step=17 tok=16 gap_mnats=1200.4
+[EAGER-TOP2] step=18 tok=1814 gap_mnats=250.3
+[EAGER-TOP2] step=19 tok=220 gap_mnats=3235.7
+[EAGER-TOP2] step=20 tok=16 gap_mnats=1107.0
+[EAGER-TOP2] step=21 tok=220 gap_mnats=951.6
+[EAGER-TOP2] step=22 tok=16 gap_mnats=1184.6
+[EAGER-TOP2] step=23 tok=23066 gap_mnats=919.4

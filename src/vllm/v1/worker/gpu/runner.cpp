@@ -4750,6 +4750,24 @@ void GPUModelRunner::set_dflash_draft(const vllm::Qwen3DFlashWeights* weights,
   // refusal is bypassed as the operator's explicit choice. Default OFF.
   dflash_direct_arm_ =
       DflashDraftDirectArm() && weights != nullptr && weights->IsDflash2();
+  // QWEN38-DFLASH2-STAGE-C W27 (VT_DFLASH_HOST): resolve the host arm once at
+  // wiring. The host draft forward IS the validated W2 component — the D9 host
+  // path (CombineAuxFeatures + AppendContextKVHost +
+  // ForwardBlockLogitsWithPrecomputedKV) that production ran before D11 —
+  // re-run on a CPU queue, where `ResidentWeight` aliases host bytes instead of
+  // staging, so the trunk never reaches the device. The maths is NOT
+  // reinvented; only the residency moves.
+  dflash_host_arm_ = weights != nullptr && [&] {
+    const char* e = std::getenv("VT_DFLASH_HOST");
+    return e != nullptr && e[0] == '1';
+  }();
+  if (dflash_host_arm_ && weights->IsDflash2() && !dflash_direct_arm_) {
+    throw std::runtime_error(
+        "VT_DFLASH_HOST=1 requires VT_DFLASH_DRAFT=1 for a DFlash2 checkpoint: "
+        "the host arm runs the direct-argmax contract (the candidate selector "
+        "has no host forward and the device trunk it needs is exactly what the "
+        "host arm refuses to stage)");
+  }
   // QWEN38-DFLASH2-STAGE-C W3: stage the draft's OWN bf16 weights at WIRING
   // time, not lazily at the first propose. The target model has
   // `PrepareBf16Resident` for exactly this reason (qwen3_5.cpp, W4d W6): a
@@ -4759,7 +4777,15 @@ void GPUModelRunner::set_dflash_draft(const vllm::Qwen3DFlashWeights* weights,
   // sequential. `ResidentWeight` caches the upload on the OwnedTensor
   // (`d_dev`), so the propose's later calls hit. The shared embed/head are NOT
   // staged here: the rebinds give the draft the TARGET's resident owners.
-  if (weights != nullptr) PreStageDflashWeights(*weights);
+  if (weights != nullptr && !dflash_host_arm_) PreStageDflashWeights(*weights);
+  if (dflash_host_arm_) {
+    std::cerr << "vllm.cpp: VT_DFLASH_HOST=1 — the DFlash draft forward runs on "
+                 "the HOST (CPU thread pool) over host-resident weights; the "
+                 "draft trunk is NOT staged to the device. The residual taps "
+                 "download once per propose (outside the captured verify "
+                 "region) and the k draft tokens upload back. The device keeps "
+                 "the verify, the GDN state and the KV pool.\n";
+  }
   if (dflash_direct_arm_) {
     std::cerr << "vllm.cpp: VT_DFLASH_DRAFT=1 — the DFlash2 draft proposes through "
                  "the DIRECT-ARGMAX arm (bundle dflash2.py "
@@ -4879,6 +4905,15 @@ void GPUModelRunner::propose_drafts_block(
   const int num_mask_rows = num_query_per_req - 1;
   const StepInputs& step = exec_state_.step;
 
+  // W27 debug (VT_DFLASH_HOST_DEBUG): co-maintain the DEVICE context-KV stores
+  // in the host arm so the first N steps can run BOTH forwards on the same
+  // state and print the two logits rows' argmaxes — the bisect between "the
+  // host forward's numerics" and "what the host arm feeds it".
+  static const int host_debug = [] {
+    const char* e = std::getenv("VT_DFLASH_HOST_DEBUG");
+    return e == nullptr ? 0 : std::atoi(e);
+  }();
+  static std::atomic<int64_t> host_debug_seq{0};
   // #2008 — THE DRAFT CONTEXT BELONGS TO THE REQUEST, NOT TO THE BATCH ROW.
   //
   // Release the entries of requests that have left the batch, then resolve one
@@ -4910,10 +4945,21 @@ void GPUModelRunner::propose_drafts_block(
     // #2008's "first sight of a request id", named so #2042's classification
     // below can be gated on it explicitly and so that gate can be mutated on its
     // own. A request the batch merely MOVED is not first-seen.
-    const bool first_sight = c.store == nullptr;
+    const bool first_sight = c.store == nullptr && c.host_store == nullptr;
     if (first_sight) {
-      c.store = Qwen3DFlashModel::MakeDeviceKVStore(config, queue_,
-                                                    dflash_ctx_sizing_.slots);
+      // W27 host arm: the context KV lives on the HOST too — AppendContextKVHost
+      // projects only the newly-accepted rows on the CPU backend, bit-identical
+      // to the device append by the same per-row projection independence the D9
+      // record pins.
+      if (dflash_host_arm_) {
+        c.host_store =
+            std::make_shared<Qwen3DFlashModel::PrecomputedContextKV>();
+        if (host_debug > 0)
+          c.store = Qwen3DFlashModel::MakeDeviceKVStore(
+              config, queue_, dflash_ctx_sizing_.slots);
+      } else
+        c.store = Qwen3DFlashModel::MakeDeviceKVStore(config, queue_,
+                                                      dflash_ctx_sizing_.slots);
     }
     if (first_sight) {
       // #2042 — PREFIX CACHING, CLASSIFIED AT THE ONE POINT THAT CAN CLASSIFY
@@ -5000,6 +5046,18 @@ void GPUModelRunner::propose_drafts_block(
   // up to `t_fwd0` was untimed, which is how ~31 ms/step of aux round trips and
   // hard syncs stayed unattributed in `VT_SPEC_TRACE`.
   const auto t_pre0 = std::chrono::steady_clock::now();
+  // W27 diagnostic (VT_STEP_WALL=1): wall time since the previous propose —
+  // the full verify step's contribution to TPOT, outside every in-step seam.
+  static const bool step_wall = std::getenv("VT_STEP_WALL") != nullptr;
+  static std::chrono::steady_clock::time_point last_propose{};
+  if (step_wall) {
+    const auto now = std::chrono::steady_clock::now();
+    if (last_propose.time_since_epoch().count() != 0)
+      std::fprintf(stderr, "[step-wall] %.1f ms since previous propose\n",
+                   std::chrono::duration<double, std::milli>(now - last_propose)
+                       .count());
+    last_propose = now;
+  }
 
   // 1+2. fc(cat(aux)) -> [T_total, H] combined features (combine_hidden_states),
   // straight off the DEVICE aux tap (SPEC-DFLASH2 W8, #1838). The pre-W8 chain —
@@ -5012,8 +5070,45 @@ void GPUModelRunner::propose_drafts_block(
   const vt::Tensor& aux = exec_state_.spec_aux.tensor;
   VT_CHECK(aux.shape[0] == T_total && aux.shape[1] == H * taps,
            "propose_drafts_block: aux tap shape mismatch");
-  const Qwen3DFlashModel::DflashCombinedDevice combined =
-      Qwen3DFlashModel::CombineAuxFeaturesDevice(aux, backbone, config, queue_);
+  // QWEN38-DFLASH2-STAGE-C W27 (host arm): the taps D2H happens HERE — after
+  // the verify step's replay has drained (this function runs on the host
+  // thread after the captured verify region completes; the W8 pre-phase chain
+  // did the same download before it), so no captured buffer's content is read
+  // mid-capture. The capture-path hazard (the embed row's lesson: capture pins
+  // buffer content) is satisfied by construction: the download is outside the
+  // captured region and synchronizes its own copy.
+  vt::Queue cpu_q = vt::GetBackend(vt::DeviceType::kCPU).CreateQueue();
+  std::vector<float> combined_host;
+  if (dflash_host_arm_) {
+    vt::Backend& dev_b = vt::GetBackend(queue_.device.type);
+    std::vector<uint16_t> aux_raw(static_cast<size_t>(T_total) * H * taps);
+    dev_b.Copy(queue_, aux_raw.data(), aux.data,
+               aux_raw.size() * sizeof(uint16_t));
+    dev_b.Synchronize(queue_);
+    combined_host.reserve(aux_raw.size());
+    for (uint16_t h : aux_raw) {
+      const uint32_t bits = static_cast<uint32_t>(h) << 16;
+      float f;
+      std::memcpy(&f, &bits, sizeof(f));
+      combined_host.push_back(f);
+    }
+    // The fc combine then rounds to bf16 exactly as the device GEMM's output
+    // is bf16 (CombineAuxFeaturesDevice): the context-KV projection input must
+    // see the SAME bf16-rounded values, or the host draft's logits drift at
+    // the near-ties and acceptance collapses (measured: 2.4 -> 1.0 accepted
+    // tokens per verify step, w27h leg of the first run).
+    for (float& f : combined_host) {
+      const uint32_t* b = reinterpret_cast<const uint32_t*>(&f);
+      uint32_t lsb = (*b >> 16) & 1u;
+      uint32_t rounded = (*b + 0x7fffu + lsb) & 0xffff0000u;
+      std::memcpy(&f, &rounded, sizeof(f));
+    }
+  }
+  Qwen3DFlashModel::DflashCombinedDevice combined;
+  if (!dflash_host_arm_ || host_debug > 0) {
+    combined = Qwen3DFlashModel::CombineAuxFeaturesDevice(aux, backbone, config,
+                                                          queue_);
+  }
 
   // 3. Per request: reset a reused slot, PROJECT+APPEND only the newly-accepted
   //    rows to the persistent per-request KV store (D9 — no full recompute), and
@@ -5080,10 +5175,17 @@ void GPUModelRunner::propose_drafts_block(
     // and every gate stayed green — well-formed drafts, lossless verify, only
     // ACCEPTANCE falls, the exact invisible-defect class this row exists to
     // remove. This host integer comparison is what makes that state loud.
-    VT_CHECK(L == Qwen3DFlashModel::DeviceKVNumCtx(*ctx.store),
-             "propose_drafts_block: the runner's context length and the device "
-             "store's num_ctx disagree — the context-KV append is dead or "
-             "double-run (SPEC-DFLASH2 W8, #1838)");
+    if (dflash_host_arm_) {
+      VT_CHECK(L == ctx.host_store->num_ctx,
+               "propose_drafts_block: the runner's context length and the host "
+               "store's num_ctx disagree — the context-KV append is dead or "
+               "double-run (SPEC-DFLASH2 W8, #1838; W27 host arm)");
+    } else {
+      VT_CHECK(L == Qwen3DFlashModel::DeviceKVNumCtx(*ctx.store),
+               "propose_drafts_block: the runner's context length and the device "
+               "store's num_ctx disagree — the context-KV append is dead or "
+               "double-run (SPEC-DFLASH2 W8, #1838)");
+    }
     // Gather this step's `append` accepted-prefix combined features (in ascending
     // position order) + their absolute positions [L, L+append), then project+append
     // to the persistent KV store. This projects ONLY the new rows (D9) — bit-identical
@@ -5111,7 +5213,9 @@ void GPUModelRunner::propose_drafts_block(
     // worth of context and keeps the W11 paged fast route, which
     // `ClassifyDflashBlockAttn` would otherwise drop below its capacity
     // conjunct.
-    const int64_t capacity = Qwen3DFlashModel::DeviceKVCapacity(*ctx.store);
+    const int64_t capacity = dflash_host_arm_
+                                 ? dflash_ctx_sizing_.slots
+                                 : Qwen3DFlashModel::DeviceKVCapacity(*ctx.store);
     if (L + append + num_query_per_req > capacity) {
       ctx.disabled = true;
       std::cerr << "vllm.cpp: request " << exec_state_.req_ids[static_cast<size_t>(i)]
@@ -5134,8 +5238,24 @@ void GPUModelRunner::propose_drafts_block(
       new_rows[static_cast<size_t>(j)] = static_cast<int32_t>(rows[static_cast<size_t>(j)]);
       new_pos[static_cast<size_t>(j)] = static_cast<int32_t>(L + j);
     }
-    Qwen3DFlashModel::AppendContextKVDeviceRows(*ctx.store, combined.tensor, new_rows,
-                                                new_pos, backbone, config, queue_);
+    if (dflash_host_arm_) {
+      std::vector<float> feats(static_cast<size_t>(append) * H);
+      for (int j = 0; j < append; ++j) {
+        const size_t src = static_cast<size_t>(rows[static_cast<size_t>(j)]) * H;
+        std::memcpy(&feats[static_cast<size_t>(j) * H], &combined_host[src],
+                    static_cast<size_t>(H) * sizeof(float));
+      }
+      Qwen3DFlashModel::AppendContextKVHost(*ctx.host_store, feats, new_pos,
+                                            backbone, config, cpu_q);
+      if (host_debug > 0)
+        Qwen3DFlashModel::AppendContextKVDeviceRows(*ctx.store, combined.tensor,
+                                                    new_rows, new_pos, backbone,
+                                                    config, queue_);
+    } else {
+      Qwen3DFlashModel::AppendContextKVDeviceRows(*ctx.store, combined.tensor,
+                                                  new_rows, new_pos, backbone,
+                                                  config, queue_);
+    }
     ctx.ctx_len = static_cast<int32_t>(L + append);
 
     // A discarded (still-prefilling chunk) row commits its chunk's features but
@@ -5268,16 +5388,41 @@ void GPUModelRunner::propose_drafts_block(
     // the D9 host path built, so tokens+acceptance are bit-identical. ctx_cu =
     // running sums of each store's on-device context length (DeviceKVNumCtx).
     std::vector<vllm::DflashDeviceKVStore*> stores;
+    vllm::Qwen3DFlashModel::PrecomputedContextKV host_ckv;
     stores.reserve(static_cast<size_t>(P));
     std::vector<int32_t> ctx_cu = {0};
     int64_t total_ctx = 0;
     for (int r = 0; r < P; ++r) {
+      if (dflash_host_arm_) {
+        // W27 host arm: concatenate the rows' HOST stores into one
+        // PrecomputedContextKV (per-layer flat append, ctx_cu order) — the
+        // same ascending-position layout the device concat reproduces.
+        const vllm::Qwen3DFlashModel::PrecomputedContextKV& st =
+            *row_ctx[static_cast<size_t>(propose_rows[static_cast<size_t>(r)])]
+                 ->host_store;
+        total_ctx += st.num_ctx;
+        ctx_cu.push_back(static_cast<int32_t>(total_ctx));
+        if (host_ckv.k.size() < st.k.size()) {
+          host_ckv.k.resize(st.k.size());
+          host_ckv.v.resize(st.v.size());
+        }
+        for (size_t l = 0; l < st.k.size(); ++l) {
+          std::vector<uint16_t>& dstk = host_ckv.k[static_cast<size_t>(l)];
+          dstk.insert(dstk.end(), st.k[static_cast<size_t>(l)].begin(),
+                      st.k[static_cast<size_t>(l)].end());
+          std::vector<uint16_t>& dstv = host_ckv.v[static_cast<size_t>(l)];
+          dstv.insert(dstv.end(), st.v[static_cast<size_t>(l)].begin(),
+                      st.v[static_cast<size_t>(l)].end());
+        }
+        continue;
+      }
       vllm::DflashDeviceKVStore* st =
           row_ctx[static_cast<size_t>(propose_rows[static_cast<size_t>(r)])]->store.get();
       stores.push_back(st);
       total_ctx += Qwen3DFlashModel::DeviceKVNumCtx(*st);
       ctx_cu.push_back(static_cast<int32_t>(total_ctx));
     }
+    if (dflash_host_arm_) host_ckv.num_ctx = total_ctx;
     // SPEC-DFLASH2 W3 (#1314), reshaped by W8 (#1837): a DFlash2 draft ALSO
     // captures the post-final-norm hidden off this forward -- the candidate
     // selector's `hidden_projection` input. Upstream's `_generate_draft` takes
@@ -5304,10 +5449,72 @@ void GPUModelRunner::propose_drafts_block(
     if (dev_trace) trace_b.Synchronize(queue_);
     const auto t_fwd0 = std::chrono::steady_clock::now();
     Qwen3DFlashModel::DflashBlockDeviceOut dev_out;
-    const std::vector<float> block_logits =
-        Qwen3DFlashModel::ForwardBlockLogitsWithDeviceKV(
-            stores, ctx_cu, blk_ids, blk_pos, blk_cu, backbone, config, queue_,
-            nullptr, nullptr, dflash2 ? &dev_out : nullptr);
+    std::vector<float> block_logits;
+    std::vector<float> debug_dev_logits;
+    std::vector<int32_t> debug_dev_cu;
+    std::vector<vllm::DflashDeviceKVStore*> debug_dev_stores;
+    std::vector<int32_t> debug_dev_ctx_cu;
+    int64_t debug_dev_total = 0;
+    if (host_debug > 0) {
+      for (int r = 0; r < P; ++r) {
+        vllm::DflashDeviceKVStore* st =
+            row_ctx[static_cast<size_t>(propose_rows[static_cast<size_t>(r)])]
+                ->store.get();
+        debug_dev_stores.push_back(st);
+        debug_dev_total += Qwen3DFlashModel::DeviceKVNumCtx(*st);
+        debug_dev_ctx_cu.push_back(static_cast<int32_t>(debug_dev_total));
+      }
+    }
+    if (dflash_host_arm_) {
+      // W27 host arm: the validated W2 forward ON THE HOST. The CPU backend's
+      // thread pool parallelizes the block's GEMMs across the cores taskset
+      // gives the bench process; the forward reads only host-resident weights
+      // (ResidentWeight aliases host bytes on the CPU backend) and the host KV
+      // stores, so the device is idle while it runs. The same seam the device
+      // arm synchronizes at the end (the walk's download) is a no-op here —
+      // the CPU backend's Synchronize is a no-op by contract.
+      block_logits = Qwen3DFlashModel::ForwardBlockLogitsWithPrecomputedKV(
+          host_ckv, ctx_cu, blk_ids, blk_pos, blk_cu, backbone, config, cpu_q);
+      if (host_debug > 0 &&
+          host_debug_seq.fetch_add(1, std::memory_order_relaxed) <
+              static_cast<int64_t>(host_debug)) {
+        const int64_t vocab_n = backbone.draft_vocab_size;
+        auto top5 = [](const std::vector<float>& v, int64_t base, int64_t n) {
+          std::vector<std::pair<float, int64_t>> t;
+          for (int64_t j = 0; j < n; ++j)
+            t.emplace_back(v[static_cast<size_t>(base + j)], j);
+          std::sort(t.begin(), t.end(), [](auto& a, auto& b) {
+            return a.first > b.first;
+          });
+          std::string s;
+          for (int j = 0; j < 5 && j < static_cast<int>(t.size()); ++j)
+            s += " " + std::to_string(t[static_cast<size_t>(j)].second) + ":" +
+                 std::to_string(t[static_cast<size_t>(j)].first);
+          return s;
+        };
+        dev_out = {};
+        debug_dev_logits = Qwen3DFlashModel::ForwardBlockLogitsWithDeviceKV(
+            debug_dev_stores, debug_dev_ctx_cu, blk_ids, blk_pos, blk_cu,
+            backbone, config, queue_, nullptr, nullptr, &dev_out);
+        vt::GetBackend(queue_.device.type).Synchronize(queue_);
+        for (int r = 0; r < static_cast<int>(num_query_per_req); ++r) {
+          std::fprintf(stderr,
+                       "[host-debug] row=%d host=%s | dev=%s\n",
+                       r,
+                       top5(block_logits, static_cast<int64_t>(r) * vocab_n,
+                            vocab_n)
+                           .c_str(),
+                       top5(debug_dev_logits,
+                            static_cast<int64_t>(r) * vocab_n, vocab_n)
+                           .c_str());
+        }
+        (void)debug_dev_cu;
+      }
+    } else {
+      block_logits = Qwen3DFlashModel::ForwardBlockLogitsWithDeviceKV(
+          stores, ctx_cu, blk_ids, blk_pos, blk_cu, backbone, config, queue_,
+          nullptr, nullptr, dflash2 ? &dev_out : nullptr);
+    }
     if (dev_trace) trace_b.Synchronize(queue_);
     const auto t_fwd1 = std::chrono::steady_clock::now();
     // SPEC-DFLASH2 W4 (#1314): the PRODUCTION draft of a DFlash2 block, end to
@@ -5385,8 +5592,11 @@ void GPUModelRunner::propose_drafts_block(
         first += std::to_string(id);
         first += ' ';
       }
-      std::fprintf(stderr, "[spec-propose] rows=%d nqpr=%d drafts/row=%zu first=[%s]\n",
-                   P, num_query_per_req, drafts[0].size(), first.c_str());
+      std::fprintf(stderr, "[spec-propose] rows=%d nqpr=%d ctx=%lld drafts/row=%zu first=[%s]\n",
+                   P, num_query_per_req,
+                   static_cast<long long>(dflash_host_arm_ ? host_ckv.num_ctx
+                                                           : total_ctx),
+                   drafts[0].size(), first.c_str());
     }
   }
   if (propose_trace && propose_rows.empty()) {

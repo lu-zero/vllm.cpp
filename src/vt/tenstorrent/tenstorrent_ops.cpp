@@ -174,6 +174,19 @@ void MatmulBTKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
     const char* e = std::getenv("VT_TT_BFP8_RESTAGE");
     return e == nullptr || e[0] != '0';
   }();
+  // W27 red-proof plant (diagnostic only, VT_TT_BFP8_PLANT_HEADERS_ZERO=1):
+  // fire BEFORE the DNR branch so the leg can run it with
+  // VT_TT_BFP8_RESTAGE=0 (the poison reaches the matmul unrepaired — the
+  // tie-band gate's corrupted-run red proof). Once per process, on the first
+  // spec-geometry BFP8 weight.
+  static const bool plant_corruption = [] {
+    const char* e = std::getenv("VT_TT_BFP8_PLANT_HEADERS_ZERO");
+    return e != nullptr && e[0] == '1';
+  }();
+  if (plant_corruption && M == 9 && dev_b.dtype() == ttnn::DataType::BFLOAT8_B) {
+    static std::atomic<bool> planted{false};
+    if (!planted.exchange(true)) Bfp8PlantHeaderZero(dev_b);
+  }
   if (bfp8_restage && M == 9 && dev_b.dtype() == ttnn::DataType::BFLOAT8_B) {
     // W26: detect-and-repair — re-stage only the clobbered weight. The
     // unconditional W25 form re-staged all 7 weights per verify step

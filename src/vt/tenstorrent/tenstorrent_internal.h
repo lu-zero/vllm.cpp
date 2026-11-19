@@ -469,6 +469,9 @@ ttnn::Tensor Bfp8RestageWeight(const Tensor& b, MeshDevice& device);
 // KB-scale D2H probe each. See the residency TU.
 ttnn::Tensor Bfp8DetectRepair(const Tensor& b, const ttnn::Tensor& dev_b,
                               MeshDevice& device);
+// W27 red-proof plant (diagnostic only): zero the working buffer's first 8
+// tile exponent headers on demand — see the residency TU.
+void Bfp8PlantHeaderZero(const ttnn::Tensor& dev_b);
 void Bfp8MatmulUse();  // a matmul consumed a BFP8-resident weight operand
 // Probes for the focused tests (declared in the test TU, defined here — the
 // test TU never includes internal headers).

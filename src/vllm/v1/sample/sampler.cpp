@@ -4,6 +4,9 @@
 #include "vllm/v1/sample/sampler.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cfloat>
+#include <cmath>
 #include <cstddef>
 #include <limits>
 #include <map>
@@ -273,6 +276,46 @@ std::vector<int64_t> Sampler::greedy_argmax_host(vt::Queue& q,
            static_cast<size_t>(n) * sizeof(int64_t));
   }
   b.Synchronize(q);
+  // W27 tie-band gate input (ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): at the
+  // first VT_EAGER_TOP2_TRACE greedy steps, download the step's logits row
+  // and print the argmax + the top-2 gap in mnats — the per-position eager
+  // near-tie gap that defines the tie-band gate's permissible-divergence
+  // positions (the B2b near-tie-gap transform, kNearTieMnats = 500: a
+  // divergence is permissible only where the eager top-2 gap sits below the
+  // band). Off by default; a traced leg pays one vocab f32 D2H per traced
+  // step. Diagnostic only — the same greedy_argmax_host arm the drafter-OFF
+  // decode takes, so the trace covers exactly the eager reference stream.
+  static const int eager_trace = [] {
+    const char* e = std::getenv("VT_EAGER_TOP2_TRACE");
+    return e == nullptr ? 0 : std::atoi(e);
+  }();
+  static std::atomic<int64_t> eager_trace_seq{0};
+  if (eager_trace > 0 && n == 1 &&
+      eager_trace_seq.fetch_add(1, std::memory_order_relaxed) <
+          static_cast<int64_t>(eager_trace)) {
+    const int64_t vocab_n = logits.shape[1];
+    VT_CHECK(logits.dtype == vt::DType::kF32 && logits.IsContiguous(),
+             "sampler: the eager top-2 trace expects contiguous f32 logits");
+    std::vector<float> row(static_cast<size_t>(vocab_n));
+    b.Copy(q, row.data(), logits.data,
+           static_cast<size_t>(vocab_n) * sizeof(float));
+    b.Synchronize(q);
+    size_t top = 0;
+    for (size_t j = 1; j < row.size(); ++j)
+      if (row[j] > row[top]) top = j;
+    float second = -FLT_MAX;
+    for (size_t j = 0; j < row.size(); ++j)
+      if (j != top && row[j] > second) second = row[j];
+    const float gap_mnats =
+        (std::isfinite(second) ? (row[top] - second) * 1000.0f : 0.0f);
+    std::fprintf(stderr,
+                 "[EAGER-TOP2] step=%lld tok=%lld gap_mnats=%.1f\n",
+                 static_cast<long long>(eager_trace_seq.load(
+                     std::memory_order_relaxed) - 1),
+                 static_cast<long long>(
+                     greedy_scratch_->pinned_host[0]),
+                 static_cast<double>(gap_mnats));
+  }
   return std::vector<int64_t>(greedy_scratch_->pinned_host,
                               greedy_scratch_->pinned_host + n);
 }

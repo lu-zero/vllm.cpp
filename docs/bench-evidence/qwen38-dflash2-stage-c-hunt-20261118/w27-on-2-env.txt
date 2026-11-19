@@ -1,0 +1,12 @@
+date: 2026-11-19T10:25:45+01:00
+head: 4a86c5831ada7527db05287f490de2cc8b0f81b6
+worktree: dirty (W27 tie-band gate + D2D master, uncommitted)
+governor: schedutil
+load1: 1.84
+bench: /tmp/build-stagec-w3/examples/vllm-bench
+model: /mnt/models/unsloth-qwen3.8-27B-gguf/Qwen3.8-27B-Q4_K_M.gguf
+model sha256: 7e78da5d7e3ae28d178121f58646953305f3e5bd3cb46f4a75584e8b6c6fe169
+num-blocks: 64
+extra-env: VLLM_CPP_CUDAGRAPH=0 VT_TT_WEIGHT_RESIDENCY=bfp8 VT_DFLASH_DRAFT=1 VT_TT_GEMM_OUT_KEEPALIVE=0 VT_TT_BFP8_DNR_TRACE=1
+output-len: 24
+spec: 1

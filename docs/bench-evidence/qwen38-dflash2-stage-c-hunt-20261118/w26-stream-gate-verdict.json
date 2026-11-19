@@ -1,0 +1,13 @@
+{
+ "verdict": "PASS",
+ "near_tie_mnats": 500.0,
+ "mismatches": [
+  7,
+  10
+ ],
+ "findings": [
+  "(c) zero NaN/Inf markers: OK",
+  "(b) 2 mismatches, all inside the tie band (threshold 500.0 mnats): OK",
+  "(a) mean accepted drafts/step 8.00 in [7.0,9.0] over 4 steps: OK"
+ ]
+}

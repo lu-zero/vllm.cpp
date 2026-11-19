@@ -364,3 +364,45 @@ README section):
   differences on periodic workloads. The repair-cost lever (device-side D2D
   master restore vs host re-stage, ~2x BFP8 pool footprint) is the second
   decision owed.
+
+## W27 (2026-11-19): the tie-band gate + the D2D master restore — the coordinator's two decisions implemented; both gates land, both targets miss, NEEDS_DECISION with the numbers
+
+The coordinator decided the gate form (a tie-band gate per the ratified
+near-tie precedent) and the perf fix (device-side D2D master restore). Both
+are implemented and measured
+(`docs/bench-evidence/qwen38-dflash2-stage-c-hunt-20261118/`, the W27 README
+section):
+
+- **The tie-band gate is committed and separates corrupted from healthy**:
+  threshold 500 mnats (the ratified kNearTieMnats band), the eager
+  permissible-divergence positions from the new `VT_EAGER_TOP2_TRACE`
+  instrument over the recorded OFF stream, acceptance telemetry from the
+  `[ACCEPT]` trace, and the NaN/Inf + degenerate-id hard check. Verdicts:
+  the W26-form healthy stream `af77d5d3` PASSES (2 mismatches, both
+  near-tie); the W27 D2D build's stream `77688b0a` (3/3 deterministic)
+  FAILS on poison-class divergence at positions 20-23 (eager gaps 0.95-3.2
+  nats); the corrupted-weights RED leg (`Bfp8PlantHeaderZero` +
+  `VT_TT_BFP8_RESTAGE=0`) reproduces the exact W4/W20 signature
+  `[220, 0, 0, ...]` and the gate FAILS as required. **The corruption
+  detection property survives.**
+- **The D2D master restore works and misses the target**: lazy
+  per-clobbered-weight masters (admitted at the second clobber, cap 64),
+  the repair is a fresh-allocation D2D clone at ~2 ms/weight (the <50 ms
+  target met 25x), but the writer's repeating footprint is ~89
+  weights/verify step and cap 92 OOMs the activation allocations —
+  repair time ~8.6 s/step vs W26's 11.8 (halved; the <3 s/step target
+  unreachable at any measured-stable cap). TPOT 25286-25641 ms vs OFF 6647:
+  **the acceptance multiple is ~3.8x SLOWER, unchanged in verdict**.
+- **New standing fact**: the healthy drafter-ON stream shape is bimodal
+  across same-binary runs under the D2D build (`af77d5d3` passes the band,
+  `77688b0a` fails it, each deterministic within its run) — the corruption
+  is allocation-layout dependent.
+- **UD-Q6_K_XL KV8 drafter-ON**: the standing capacity blocker is unchanged
+  (3/3 "not enough GPU memory to serve even a single token"); the tie-band
+  gate never runs on that arm.
+- **NEEDS_DECISION** (the two named conditions of the dispatch are both
+  met, numbers in the README W27 section): (1) the <3 s/step target vs the
+  ~89-weight repeating clobber set and the 64-master budget ceiling; (2)
+  the bimodal healthy stream shape vs the 500-mnat band (band widening is
+  not recommended — it would pass poison-class noise; the options are
+  per-run shape references or tracing the writer's address dependence).

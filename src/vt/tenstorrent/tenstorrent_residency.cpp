@@ -10,10 +10,32 @@
 #include <tt-metalium/buffer.hpp>
 #include <tt-metalium/tt_metal.hpp>
 
+#include <ttnn/operations/data_movement/copy/copy.hpp>
+
 #include "vllm/config/tt_weight_residency.h"
 
 
 namespace vt::tenstorrent {
+
+namespace {
+// Per-check cost ledger (VT_TT_BFP8_DNR_TRACE=1 prints one line per check;
+// the totals answer the <10 ms/step gate). W27 adds the repair transport
+// split (d2d vs host) and the repair microseconds — the D2D target is
+// <50 ms per clobbered weight, <3 s/step total.
+struct Bfp8DnrLedger {
+  std::atomic<int64_t> checks{0};
+  std::atomic<int64_t> repairs{0};
+  std::atomic<int64_t> check_us{0};
+  std::atomic<int64_t> repairs_d2d{0};
+  std::atomic<int64_t> repair_us{0};
+  std::atomic<int64_t> masters{0};
+  std::atomic<int64_t> master_fail{0};
+};
+Bfp8DnrLedger& Bfp8DnrLedgers() {
+  static Bfp8DnrLedger* l = new Bfp8DnrLedger();  // never destroyed (#1486)
+  return *l;
+}
+}  // namespace
 
 // W26 forward decls (defined below EnsureBfp8WeightDevice, which captures the
 // fingerprint at cold staging).
@@ -825,6 +847,26 @@ struct Bfp8WeightShadow {
   // region (the lens map: only these headers ever clobber, mantissas intact).
   // Empty until the weight's first staging captures it.
   std::vector<uint8_t> header_ref;
+  // W27 device-side D2D master restore: a SECOND on-device copy of the
+  // staged BFP8 bytes. The repair becomes a D2D copy from the master (device
+  // bandwidth, no H2D, no typecast re-run) instead of the ~180 ms bf16 H2D +
+  // typecast re-stage. POLICY (measured, the W27 leg w27-on-1 of the first
+  // run): the FULL master set at cold staging OOMs the draft trunk — 156
+  // masters in and the DFlash propose path's next MlpGateUp staging threw
+  // "Out of Memory: 356515840 B" with 75 MB free. The master set is LAZY per
+  // CLOBBERED weight instead: Bfp8RestageWeight attaches the master from the
+  // fresh bytes at the weight's FIRST detected clobber (the observed writer
+  // footprint is ~55-65 weights per verify step; clean weights never pay).
+  // One host re-stage per clobbered weight, once, then D2D forever. If the
+  // allocation fails, the master stays empty and that weight's repair keeps
+  // the host re-stage — the per-availability fallback, counted in the ledger.
+  std::optional<ttnn::Tensor> master;
+  // How many times this weight's headers were detected clobbered. The master
+  // attaches at the SECOND clobber: a weight that clobbers once may be a
+  // transient; the writer's stable footprint repeats every verify step (the
+  // W26 fact), so the second clobber is the admission test that keeps the
+  // master set inside the device budget without a hand-tuned key list.
+  int clobbers = 0;
 };
 std::mutex& Bfp8WeightMutex() {
   static std::mutex m;
@@ -905,6 +947,61 @@ ttnn::Tensor Bfp8TypecastInstall(const Tensor& b, MeshDevice& device) {
   return ttnn::typecast(bf16_dev, ttnn::DataType::BFLOAT8_B);
 }
 
+// W27 D2D master restore: the on-device clone the repair copies from —
+// ttnn::assign with no output tensor allocates a FRESH device tensor and the
+// prim::copy underneath is a PURE same-dtype copy (the capture-safe lane the
+// RAC proof pins), so the master's bytes equal the staged bytes by
+// construction. Used at cold staging and after a host re-stage.
+ttnn::Tensor Bfp8CloneOnDevice(const ttnn::Tensor& src) {
+  return ttnn::assign(src, src.memory_config(), src.dtype(), std::nullopt);
+}
+
+// The master-set cap (W27, measured): each master is one extra BFP8 tensor
+// (~55 MB at the model's widths). The Q4_K_M KV64 + draft-trunk budget
+// absorbs ~111 masters only up to the point where a 60 MB non-master
+// allocation OOMs (w27-on-1 of the second run), and cap 92 OOMs TOO —
+// a 55 MB activation allocation died with 221 MB free but no block large
+// enough (w27-on-1 of the cap-92 run). Cap 64 is the largest MEASURED-STABLE
+// value: two full drafter-ON legs completed at it. The steady writer
+// footprint it leaves uncovered is ~46 host re-stages per verify step
+// (~8.4 s/step) — the <3 s/step repair target is NOT reachable at any
+// measured-stable cap, because the repeating clobber set (~89 weights)
+// exceeds the master budget the device can hold alongside the draft trunk.
+// Beyond the cap the repair keeps the host re-stage and the ledger counts
+// the fallback. Revisit only with a footprint row of its own.
+constexpr size_t kBfp8MasterCap = 64;
+
+// Attach the D2D master to `key`'s shadow from `fresh` (just-staged bytes).
+// Best-effort: an allocation failure (the KV-tight arms) leaves the master
+// empty and that weight's repairs fall back to the host re-stage; the ledger
+// counts both outcomes.
+void Bfp8AttachMaster(const uintptr_t key, const ttnn::Tensor& fresh) {
+  Bfp8DnrLedger& led = Bfp8DnrLedgers();
+  {
+    std::lock_guard<std::mutex> g(Bfp8WeightMutex());
+    size_t held = 0;
+    for (const auto& [k, sh] : Bfp8WeightShadows())
+      if (sh.master.has_value()) ++held;
+    if (held >= kBfp8MasterCap) {
+      led.master_fail.fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+  }
+  try {
+    ttnn::Tensor m = Bfp8CloneOnDevice(fresh);
+    std::lock_guard<std::mutex> g(Bfp8WeightMutex());
+    Bfp8WeightShadows()[key].master = std::move(m);
+    led.masters.fetch_add(1, std::memory_order_relaxed);
+  } catch (const std::exception& e) {
+    led.master_fail.fetch_add(1, std::memory_order_relaxed);
+    if (!tt_capture_active())
+      std::fprintf(stderr,
+                   "[BFP8-DNR] master alloc failed key=%zx (%s) — repairs "
+                   "fall back to the host re-stage\n",
+                   key, e.what());
+  }
+}
+
 ttnn::Tensor EnsureBfp8WeightDevice(const Tensor& b, MeshDevice& device) {
   const uint32_t rows = static_cast<uint32_t>(b.shape[0]);
   const uint32_t cols = static_cast<uint32_t>(b.shape[1]);
@@ -936,7 +1033,7 @@ ttnn::Tensor EnsureBfp8WeightDevice(const Tensor& b, MeshDevice& device) {
   EnsureHost(b);
   ttnn::Tensor bfp8_dev = Bfp8TypecastInstall(b, device);
   g_bfp8_resident.fetch_add(1, std::memory_order_relaxed);
-  std::lock_guard<std::mutex> g(Bfp8WeightMutex());
+  std::unique_lock<std::mutex> g(Bfp8WeightMutex());
   Bfp8WeightShadow& s = Bfp8WeightShadows()[key];
   s.device = bfp8_dev;
   s.rows = rows;
@@ -975,16 +1072,31 @@ std::vector<uint8_t> Bfp8HeaderProbe(const ttnn::Tensor& dev_b) {
   return out;
 }
 
-// Per-check cost ledger (VT_TT_BFP8_DNR_TRACE=1 prints one line per check;
-// the totals answer the <10 ms/step gate).
-struct Bfp8DnrLedger {
-  std::atomic<int64_t> checks{0};
-  std::atomic<int64_t> repairs{0};
-  std::atomic<int64_t> check_us{0};
-};
-Bfp8DnrLedger& Bfp8DnrLedgers() {
-  static Bfp8DnrLedger* l = new Bfp8DnrLedger();  // never destroyed (#1486)
-  return *l;
+// W27 RED-PROOF PLANT (diagnostic only, env VT_TT_BFP8_PLANT_HEADERS_ZERO=1):
+// reproduces the W20 runtime writer's corruption ON DEMAND — zero the 8 tile
+// exponent headers (64 B at tile stride 1088, the face-packed order the W25
+// lens verified) of the working buffer's first tile row, the exact region the
+// corruption map convicted. One full-buffer D2H + write-back round trip
+// (~55 MB, one-time). The corrupted-weights gate leg runs this with the DNR
+// mechanism disabled (VT_TT_BFP8_RESTAGE=0): the poison reaches the matmul
+// unrepaired, the stream degenerates, and the tie-band gate must FAIL — the
+// proof that the gate separates corrupted from healthy runs.
+void Bfp8PlantHeaderZero(const ttnn::Tensor& dev_b) {
+  auto buf = dev_b.mesh_buffer().get_reference_buffer();
+  std::vector<uint8_t> raw(buf->size());
+  tt::tt_metal::detail::ReadFromBuffer(*buf, raw.data());
+  size_t zeroed = 0;
+  for (size_t t = 0; t < kDnrProbeTiles; ++t) {
+    const size_t off = t * kDnrTileStride;
+    if (off + kDnrHeaderBytes > raw.size()) break;
+    std::memset(raw.data() + off, 0, kDnrHeaderBytes);
+    ++zeroed;
+  }
+  tt::tt_metal::detail::WriteToBuffer(*buf, raw);
+  if (!tt_capture_active())
+    std::fprintf(stderr,
+                 "[BFP8-DNR-PLANT] zeroed %zu tile exponent headers in the "
+                 "working buffer (the W20 corruption, planted)\n", zeroed);
 }
 
 // W26 (2026-11-19, ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): the DETECT-AND-
@@ -1015,12 +1127,48 @@ ttnn::Tensor Bfp8DetectRepair(const Tensor& b, const ttnn::Tensor& dev_b,
         for (size_t i = 0; i < cur.size() && i < it->second.header_ref.size(); ++i)
           if (cur[i] != it->second.header_ref[i]) ++bad;
         repair = bad != 0;
+        if (repair) it->second.clobbers += 1;
       }
     }
   }
   ttnn::Tensor out = dev_b;
+  bool d2d = false;
   if (repair) {
-    out = Bfp8RestageWeight(b, device);  // re-stores header_ref from the fresh bytes
+    // W27 D2D master restore: the master holds the cold-staged BFP8 bytes on
+    // device, so the repair is a PURE same-dtype ttnn::copy INTO the working
+    // buffer (device bandwidth, no H2D, no typecast re-run) — the shadow's
+    // `device` tensor stays the served buffer and header_ref stays valid (the
+    // restored bytes equal the reference by construction). Weights without a
+    // master (the allocation failed) keep the W26 host re-stage fallback.
+    bool have_master = false;
+    {
+      std::lock_guard<std::mutex> g(Bfp8WeightMutex());
+      auto it = Bfp8WeightShadows().find(key);
+      have_master = it != Bfp8WeightShadows().end() &&
+                    it->second.master.has_value();
+    }
+    if (have_master) {
+      // FRESH-ALLOCATION D2D restore, not an in-place overwrite: the third
+      // run (w27-on-1 of the capped run) restored into the SAME buffer and
+      // the writer's clobber pattern CHANGED — 755 repairs over the run
+      // (vs W26's 617) and the stream diverged past the tie band, because
+      // the writer re-poisons the address it knows and the poison lands
+      // between the restore and the matmul read. The W25/W26 form's fresh
+      // allocation is load-bearing: the repaired weight moves to an address
+      // the writer has not targeted, and the freed corrupted buffer leaves
+      // the writer's reach. Clone from the master (a pure same-dtype device
+      // copy, ~2 ms — no H2D, no typecast re-run) and install the clone as
+      // the shadow's served tensor.
+      ttnn::Tensor fresh = Bfp8CloneOnDevice(*Bfp8WeightShadows()[key].master);
+      {
+        std::lock_guard<std::mutex> g(Bfp8WeightMutex());
+        Bfp8WeightShadows()[key].device = fresh;
+      }
+      out = std::move(fresh);
+      d2d = true;
+    } else {
+      out = Bfp8RestageWeight(b, device);  // re-stores header_ref from the fresh bytes
+    }
   }
   const int64_t us = std::chrono::duration_cast<std::chrono::microseconds>(
                          std::chrono::steady_clock::now() - t0)
@@ -1028,18 +1176,27 @@ ttnn::Tensor Bfp8DetectRepair(const Tensor& b, const ttnn::Tensor& dev_b,
   Bfp8DnrLedger& led = Bfp8DnrLedgers();
   led.checks.fetch_add(1, std::memory_order_relaxed);
   led.check_us.fetch_add(us, std::memory_order_relaxed);
-  if (repair) led.repairs.fetch_add(1, std::memory_order_relaxed);
+  if (repair) {
+    led.repairs.fetch_add(1, std::memory_order_relaxed);
+    led.repair_us.fetch_add(us, std::memory_order_relaxed);
+    if (d2d) led.repairs_d2d.fetch_add(1, std::memory_order_relaxed);
+  }
   static const bool trace = [] {
     const char* e = std::getenv("VT_TT_BFP8_DNR_TRACE");
     return e != nullptr && e[0] != '\0' && e[0] != '0';
   }();
   if (trace && !tt_capture_active()) {
     std::fprintf(stderr,
-                 "[BFP8-DNR] key=%zx n=%zu us=%lld repair=%d bad=%zu captured=%d "
-                 "repairs=%lld check_us_total=%lld\n",
+                 "[BFP8-DNR] key=%zx n=%zu us=%lld repair=%d d2d=%d bad=%zu "
+                 "captured=%d repairs=%lld repairs_d2d=%lld repair_us=%lld "
+                 "masters=%lld master_fail=%lld check_us_total=%lld\n",
                  key, cur.size(), static_cast<long long>(us), repair ? 1 : 0,
-                 bad, captured ? 1 : 0,
+                 d2d ? 1 : 0, bad, captured ? 1 : 0,
                  static_cast<long long>(led.repairs.load(std::memory_order_relaxed)),
+                 static_cast<long long>(led.repairs_d2d.load(std::memory_order_relaxed)),
+                 static_cast<long long>(led.repair_us.load(std::memory_order_relaxed)),
+                 static_cast<long long>(led.masters.load(std::memory_order_relaxed)),
+                 static_cast<long long>(led.master_fail.load(std::memory_order_relaxed)),
                  static_cast<long long>(led.check_us.load(std::memory_order_relaxed)));
   }
   return out;
@@ -1065,12 +1222,20 @@ ttnn::Tensor Bfp8RestageWeight(const Tensor& b, MeshDevice& device) {
   EnsureHost(b);
   ttnn::Tensor bfp8_dev = Bfp8TypecastInstall(b, device);
   const uintptr_t key = reinterpret_cast<uintptr_t>(b.data);
-  std::lock_guard<std::mutex> g(Bfp8WeightMutex());
+  std::unique_lock<std::mutex> g(Bfp8WeightMutex());
   Bfp8WeightShadow& s = Bfp8WeightShadows()[key];
   s.device = bfp8_dev;
   s.rows = static_cast<uint32_t>(b.shape[0]);
   s.cols = static_cast<uint32_t>(b.shape[1]);
   s.header_ref = Bfp8HeaderProbe(bfp8_dev);
+  const int clobbers = ++s.clobbers;
+  g.unlock();
+  // W27: the master attaches at the SECOND clobber of the weight (the
+  // admission test above) — from the same fresh bytes, so every later repair
+  // of the weight rides the D2D lane. First-time clobbers pay the host
+  // re-stage and stay masterless unless they repeat.
+  if (clobbers >= 2 && !s.master.has_value())
+    Bfp8AttachMaster(key, bfp8_dev);
   return bfp8_dev;
 }
 
