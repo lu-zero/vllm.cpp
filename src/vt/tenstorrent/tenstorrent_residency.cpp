@@ -3,13 +3,24 @@
 // in tenstorrent_internal.h.
 #include "vt/tenstorrent/tenstorrent_internal.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
+
+#include <tt-metalium/buffer.hpp>
+#include <tt-metalium/tt_metal.hpp>
 
 #include "vllm/config/tt_weight_residency.h"
 
 
 namespace vt::tenstorrent {
+
+// W26 forward decls (defined below EnsureBfp8WeightDevice, which captures the
+// fingerprint at cold staging).
+std::vector<uint8_t> Bfp8HeaderProbe(const ttnn::Tensor& dev_b);
+ttnn::Tensor Bfp8DetectRepair(const Tensor& b, const ttnn::Tensor& dev_b,
+                              MeshDevice& device);
+
 namespace {
 // Attribution probe gate (ISSUE-LOCAL-01M54CJVSXAW32PB9AVKGJG2RH): the env
 // must read exactly "1" so an empty shell default stays silent.
@@ -809,6 +820,11 @@ void NoteBfp8Refusal(std::string reason) {
 struct Bfp8WeightShadow {
   std::optional<ttnn::Tensor> device;
   uint32_t rows = 0, cols = 0;
+  // W26 detect-and-repair: the first 8 tiles' 64-byte BFP8 exponent headers
+  // (512 B) as the COLD STAGING produced them — the corruption's fingerprint
+  // region (the lens map: only these headers ever clobber, mantissas intact).
+  // Empty until the weight's first staging captures it.
+  std::vector<uint8_t> header_ref;
 };
 std::mutex& Bfp8WeightMutex() {
   static std::mutex m;
@@ -925,7 +941,108 @@ ttnn::Tensor EnsureBfp8WeightDevice(const Tensor& b, MeshDevice& device) {
   s.device = bfp8_dev;
   s.rows = rows;
   s.cols = cols;
+  s.header_ref = Bfp8HeaderProbe(bfp8_dev);
   return bfp8_dev;
+}
+
+// W26 detect-and-repair: the fingerprint probe. Slices the weight's FIRST 8
+// tile rows region (rows 0..31, cols 0..min(cols,256)) — the corruption map's
+// bad region — and reads the raw device bytes of that small slice (~8.7 KB:
+// 8 BFP8_B tiles x 1088 B), extracting the 8 x 64 B exponent headers at tile
+// stride 1088. KB-scale D2H per weight per check, NOT the ~104 MB full
+// readback and NOT the ~104 MB re-upload of the blanket re-stage.
+constexpr size_t kDnrProbeTiles = 8;
+constexpr size_t kDnrHeaderBytes = 64;   // one BFP8_B tile's exponent region
+constexpr size_t kDnrTileStride = 1088;  // BFP8_B tile = 64 B hdr + 1024 B data
+std::vector<uint8_t> Bfp8HeaderProbe(const ttnn::Tensor& dev_b) {
+  const auto& shape = dev_b.logical_shape();
+  const uint32_t cols = static_cast<uint32_t>(shape[1]);
+  const uint32_t sc = std::min<uint32_t>(cols, 32u * kDnrProbeTiles);
+  ttnn::Tensor head = ttnn::slice(dev_b, ttsl::SmallVector<uint32_t>{0u, 0u},
+                                  ttsl::SmallVector<uint32_t>{32u, sc},
+                                  ttsl::SmallVector<uint32_t>{1u, 1u});
+  auto buf = head.mesh_buffer().get_reference_buffer();
+  std::vector<uint8_t> raw(buf->size());
+  tt::tt_metal::detail::ReadFromBuffer(*buf, raw.data());
+  std::vector<uint8_t> out;
+  out.reserve(kDnrProbeTiles * kDnrHeaderBytes);
+  for (size_t t = 0; t < kDnrProbeTiles; ++t) {
+    const size_t off = t * kDnrTileStride;
+    if (off + kDnrHeaderBytes > raw.size()) break;
+    out.insert(out.end(), raw.begin() + static_cast<long>(off),
+               raw.begin() + static_cast<long>(off + kDnrHeaderBytes));
+  }
+  return out;
+}
+
+// Per-check cost ledger (VT_TT_BFP8_DNR_TRACE=1 prints one line per check;
+// the totals answer the <10 ms/step gate).
+struct Bfp8DnrLedger {
+  std::atomic<int64_t> checks{0};
+  std::atomic<int64_t> repairs{0};
+  std::atomic<int64_t> check_us{0};
+};
+Bfp8DnrLedger& Bfp8DnrLedgers() {
+  static Bfp8DnrLedger* l = new Bfp8DnrLedger();  // never destroyed (#1486)
+  return *l;
+}
+
+// W26 (2026-11-19, ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): the DETECT-AND-
+// REPAIR form of the W25 repair. The W25 unconditional re-stage removed the
+// poison but paid ~18.5 s/token (7 x ~104 MB H2D + typecast per verify step).
+// This form compares each spec-geometry weight's 512 B header fingerprint
+// against the reference the cold staging captured, and re-stages ONLY the
+// weight whose headers clobbered. Clean weights: one KB-scale D2H each.
+ttnn::Tensor Bfp8DetectRepair(const Tensor& b, const ttnn::Tensor& dev_b,
+                              MeshDevice& device) {
+  const uintptr_t key = reinterpret_cast<uintptr_t>(b.data);
+  const auto t0 = std::chrono::steady_clock::now();
+  std::vector<uint8_t> cur = Bfp8HeaderProbe(dev_b);
+  bool repair = false;
+  bool captured = false;
+  size_t bad = 0;
+  {
+    std::lock_guard<std::mutex> g(Bfp8WeightMutex());
+    auto it = Bfp8WeightShadows().find(key);
+    if (it != Bfp8WeightShadows().end() && it->second.device.has_value()) {
+      if (it->second.header_ref.empty()) {
+        // A shadow staged before this wave. Stored as-is: the cold path runs
+        // at load time, long before the runtime writer ever lands, so
+        // first-sight bytes are clean.
+        it->second.header_ref = cur;
+        captured = true;
+      } else {
+        for (size_t i = 0; i < cur.size() && i < it->second.header_ref.size(); ++i)
+          if (cur[i] != it->second.header_ref[i]) ++bad;
+        repair = bad != 0;
+      }
+    }
+  }
+  ttnn::Tensor out = dev_b;
+  if (repair) {
+    out = Bfp8RestageWeight(b, device);  // re-stores header_ref from the fresh bytes
+  }
+  const int64_t us = std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::steady_clock::now() - t0)
+                         .count();
+  Bfp8DnrLedger& led = Bfp8DnrLedgers();
+  led.checks.fetch_add(1, std::memory_order_relaxed);
+  led.check_us.fetch_add(us, std::memory_order_relaxed);
+  if (repair) led.repairs.fetch_add(1, std::memory_order_relaxed);
+  static const bool trace = [] {
+    const char* e = std::getenv("VT_TT_BFP8_DNR_TRACE");
+    return e != nullptr && e[0] != '\0' && e[0] != '0';
+  }();
+  if (trace && !tt_capture_active()) {
+    std::fprintf(stderr,
+                 "[BFP8-DNR] key=%zx n=%zu us=%lld repair=%d bad=%zu captured=%d "
+                 "repairs=%lld check_us_total=%lld\n",
+                 key, cur.size(), static_cast<long long>(us), repair ? 1 : 0,
+                 bad, captured ? 1 : 0,
+                 static_cast<long long>(led.repairs.load(std::memory_order_relaxed)),
+                 static_cast<long long>(led.check_us.load(std::memory_order_relaxed)));
+  }
+  return out;
 }
 
 // W25 repair (2026-11-18, ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): the lens
@@ -953,6 +1070,7 @@ ttnn::Tensor Bfp8RestageWeight(const Tensor& b, MeshDevice& device) {
   s.device = bfp8_dev;
   s.rows = static_cast<uint32_t>(b.shape[0]);
   s.cols = static_cast<uint32_t>(b.shape[1]);
+  s.header_ref = Bfp8HeaderProbe(bfp8_dev);
   return bfp8_dev;
 }
 

@@ -4,8 +4,14 @@
 // rule (with upstream file:line for every clause) and the deferred seams.
 #include "vllm/v1/spec_decode/rejection_sampler.h"
 
+#include <algorithm>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
+#include <numeric>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "vllm/v1/sample/device_scratch.h"
 #include "vt/backend.h"
@@ -117,6 +123,82 @@ void RejectionSamplerDeviceOutput::CopyToHost(vt::Queue& q, int32_t* sampled_out
                  static_cast<size_t>(num_reqs_ * width_) * sizeof(int32_t));
   backend_->Copy(q, num_sampled_out, num_sampled_,
                  static_cast<size_t>(num_reqs_) * sizeof(int32_t));
+}
+
+// W26 acceptance trace (ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): at the first
+// VT_SPEC_ACCEPT_TRACE spec steps, download the verify's target argmax and the
+// logits' top-5 per expanded row and print them beside the draft proposal —
+// the instrument that answers WHO shifted at the drafter-ON identity
+// divergence (the target's verify numerics vs the draft's proposal). Off by
+// default; a traced leg pays a one-shot num_logits*vocab D2H per traced step.
+void TraceVerifyAcceptance(vt::Queue& q, vt::Backend& backend,
+                           const void* target_argmax_dev,
+                           const vt::Tensor& logits,
+                           const std::vector<int32_t>& draft_sampled,
+                           const std::vector<int32_t>& cu_num_logits,
+                           const std::vector<int32_t>& host_sampled,
+                           int64_t width, int64_t seq) {
+  const int64_t num_logits = logits.shape[0];
+  const int64_t vocab = logits.shape[1];
+  std::vector<int32_t> host_argmax(static_cast<size_t>(num_logits));
+  std::vector<float> host_logits(static_cast<size_t>(num_logits) *
+                                 static_cast<size_t>(vocab));
+  backend.Copy(q, host_argmax.data(), target_argmax_dev,
+               static_cast<size_t>(num_logits) * sizeof(int32_t));
+  backend.Copy(q, host_logits.data(), logits.data,
+               static_cast<size_t>(num_logits) * static_cast<size_t>(vocab) *
+                   sizeof(float));
+  backend.Synchronize(q);
+  const int64_t num_reqs = static_cast<int64_t>(cu_num_logits.size()) - 1;
+  for (int64_t i = 0; i < num_reqs; ++i) {
+    const int32_t b0 = cu_num_logits[static_cast<size_t>(i)];
+    const int32_t n =
+        cu_num_logits[static_cast<size_t>(i) + 1] - b0;
+    std::string rows_s;
+    for (int32_t r = 0; r < n; ++r) {
+      const int64_t row = b0 + r;
+      const float* rowp = host_logits.data() + static_cast<size_t>(row) * static_cast<size_t>(vocab);
+      // Token ids via an index partial-sort — find() over the row AFTER a
+      // partial_sort answers with sorted POSITIONS, not ids (the first draft
+      // of this trace printed [0,1,2,3,4] for every row).
+      std::vector<uint32_t> idx(static_cast<size_t>(vocab));
+      std::iota(idx.begin(), idx.end(), 0u);
+      std::partial_sort(idx.begin(), idx.begin() + 5, idx.end(),
+                        [&](uint32_t a, uint32_t b) {
+                          return rowp[a] > rowp[b];
+                        });
+      rows_s += std::to_string(host_argmax[static_cast<size_t>(row)]);
+      rows_s += " [";
+      for (int j = 0; j < 5; ++j) {
+        const uint32_t tok = idx[static_cast<size_t>(j)];
+        const float v = rowp[tok];
+        rows_s += std::to_string(tok);
+        rows_s += ':';
+        rows_s += std::to_string(v);
+        rows_s += j < 4 ? ',' : ']';
+      }
+      if (r < n - 1) rows_s += ' ';
+    }
+    std::string drafts;
+    for (int32_t j = 0; j + 1 < n; ++j) {
+      drafts += std::to_string(
+          draft_sampled[static_cast<size_t>(b0) + static_cast<size_t>(j) + 1]);
+      drafts += ' ';
+    }
+    std::string emitted;
+    const int32_t ns_i = cu_num_logits.empty() ? 0 : n;  // rows carry >= 1
+    (void)ns_i;
+    for (int32_t j = 0; j < n; ++j) {
+      emitted += std::to_string(host_sampled[static_cast<size_t>(i * width + j)]);
+      emitted += ' ';
+    }
+    std::fprintf(stderr,
+                 "[ACCEPT] step=%lld req=%d b0=%d n=%d argmax+top5=[ %s] "
+                 "draft=[ %s] emitted=[ %s]\n",
+                 static_cast<long long>(seq), static_cast<int>(i),
+                 static_cast<int>(b0), static_cast<int>(n), rows_s.c_str(),
+                 drafts.c_str(), emitted.c_str());
+  }
 }
 
 // ─── RejectionSampler ───────────────────────────────────────────────────────
@@ -253,6 +335,18 @@ RejectionSamplerOutput RejectionSampler::forward(
   std::vector<int32_t> host_num_sampled(static_cast<size_t>(num_reqs));
   dev_out.CopyToHost(q, host_sampled.data(), host_num_sampled.data());
   vt::GetBackend(dev_out.device().type).Synchronize(q);
+  // W26 acceptance trace (the who-shifted instrument at the drafter-ON
+  // divergence). Gated, first N spec steps only.
+  static const int accept_trace_max = [] {
+    const char* e = std::getenv("VT_SPEC_ACCEPT_TRACE");
+    return e != nullptr ? std::atoi(e) : 0;
+  }();
+  static int64_t accept_trace_seq = 0;  // never destroyed (#1486)
+  if (accept_trace_max > 0 && accept_trace_seq < accept_trace_max) {
+    TraceVerifyAcceptance(q, vt::GetBackend(dev_out.device().type),
+                          dev_out.target_argmax_scratch(), logits, draft_sampled,
+                          cu_num_logits, host_sampled, width, accept_trace_seq++);
+  }
   return finalize(host_sampled, width, host_num_sampled, cu_num_logits,
                   is_chunked_prefilling);
 }

@@ -175,7 +175,11 @@ void MatmulBTKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
     return e == nullptr || e[0] != '0';
   }();
   if (bfp8_restage && M == 9 && dev_b.dtype() == ttnn::DataType::BFLOAT8_B) {
-    dev_b = Bfp8RestageWeight(b, device);
+    // W26: detect-and-repair — re-stage only the clobbered weight. The
+    // unconditional W25 form re-staged all 7 weights per verify step
+    // (~18.5 s/token); this form pays a KB-scale header probe per weight and
+    // a full re-stage only when the fingerprint differs.
+    dev_b = Bfp8DetectRepair(b, dev_b, device);
   }
   // W20: the bf16 GEMM's operand ledger at the spec geometry — the z GEMM
   // (N=6144) committed garbage at the first spec step's l=9 while the mixed

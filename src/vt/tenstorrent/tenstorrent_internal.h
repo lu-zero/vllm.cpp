@@ -464,6 +464,11 @@ ttnn::Tensor EnsureBfp8WeightDevice(const Tensor& b, MeshDevice& device);
 // allocation = clean bytes — and install it as the weight's shadow. See the
 // residency TU for the defect this repairs.
 ttnn::Tensor Bfp8RestageWeight(const Tensor& b, MeshDevice& device);
+// W26 detect-and-repair: re-stage ONLY the weight whose 512 B header
+// fingerprint differs from the cold-staging reference; clean weights cost one
+// KB-scale D2H probe each. See the residency TU.
+ttnn::Tensor Bfp8DetectRepair(const Tensor& b, const ttnn::Tensor& dev_b,
+                              MeshDevice& device);
 void Bfp8MatmulUse();  // a matmul consumed a BFP8-resident weight operand
 // Probes for the focused tests (declared in the test TU, defined here — the
 // test TU never includes internal headers).

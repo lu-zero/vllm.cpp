@@ -321,3 +321,46 @@ arbitration re-ran on the failing call. Facts:
   UNMEASURABLE. Next: the verify-side acceptance trace at the divergent
   step, and the detect-and-repair form of the fix (store the 512 B head
   reference at staging; re-stage only the clobbered weight).
+
+## W26 (2026-11-19): the detect-and-repair form + the acceptance trace — the accept/commit path is faithful; the residual is the M=9 verify forward's near-tie parity
+
+The detect-and-repair form of the W25 repair landed (`Bfp8DetectRepair`,
+`tenstorrent_residency.cpp` + the `M == 9` arm in `tenstorrent_ops.cpp`;
+`VT_TT_BFP8_RESTAGE=0` still rolls back): the 512 B header fingerprint (8
+tiles x 64 B) is captured at cold staging, probed per spec-geometry call via
+a KB-scale `ttnn::slice` + raw `ReadFromBuffer` (~1 ms per weight), and only
+the clobbered weight re-stages. The acceptance trace (`TraceVerifyAcceptance`
+in `rejection_sampler.cpp`, `VT_SPEC_ACCEPT_TRACE=<N>`) downloads the verify's
+target argmax + logits top-5 per expanded row at the first N spec steps.
+Facts (`docs/bench-evidence/qwen38-dflash2-stage-c-hunt-20261118/`, the W26
+README section):
+
+- **Cost**: clean checks 988/9 steps = ~113 ms/step total (KB-scale, the
+  design target holds for the CHECKS); but **~55-65 repairs per verify step
+  at ~180 ms each = ~11.8 s/step** — the runtime writer RE-CLOBBERS ~60
+  weights every verify step (the same keys, `bad` 33..512 headers, again),
+  so detect-and-repair degenerates toward the blanket restage at this writer
+  rate. ON TPOT 25578 ms vs W25's blanket 26676 ms (-4%) vs OFF 6647 ms.
+- **The 3-token shift's verdict**: the accept walk and the commit are
+  FAITHFUL — the `[ACCEPT]` trace shows the verify's row argmaxes agreeing
+  with the accepted draft prefix and the emitted tokens being exactly the
+  verify's argmaxes. The shift enters in the TARGET's M=9 verify forward:
+  at identical conditioning (last token 16) the eager M=1 decode's argmax is
+  220 while the M=9 verify row's argmax is 23066, with top-2 logit gaps of
+  0.03-0.5 — inside the BFP8 lever's 0.75% max-rel band. The DIRECT-ARGMAX
+  draft (argmax over the target's own taps, the same numerics class) proposes
+  the verify-consistent path, the verify confirms it, and the lossless accept
+  commits it; the periodic `[220,16,23066]` workload re-aligns one element
+  later. The recorded OFF stream is NOT corrupt-tainted (W25 + W26 OFF gates
+  byte-identical `d49c53d2` / `b36bc61a` on the repaired tree) — no
+  re-record.
+- **NEEDS_DECISION (coordinator)**: not "the re-stage changed the target's
+  numerics" (the repaired bytes equal the cold staging by construction and
+  the OFF gates prove the clean path unchanged), but the narrower fact that
+  a token-identity gate defined against the eager stream cannot pass over an
+  M=9 BFP8-batched verify forward whose quantization noise flips near-ties.
+  Options named in the W26 README: a tie-band identity gate, an f32/bf16
+  verify-forward arm for the identity gate only, or accepting cycle-phase
+  differences on periodic workloads. The repair-cost lever (device-side D2D
+  master restore vs host re-stage, ~2x BFP8 pool footprint) is the second
+  decision owed.
