@@ -406,3 +406,64 @@ section):
   the bimodal healthy stream shape vs the 500-mnat band (band widening is
   not recommended — it would pass poison-class noise; the options are
   per-run shape references or tracing the writer's address dependence).
+
+## W27 host-drafter probe (2026-11-19, second W27 session): the host arm WORKS and streams byte-true, but its forward numerics collapse near-tie acceptance — NEEDS_DECISION (coordinator)
+
+The W27 coordinator decision moved the drafter OFF the device (the trunk is
+host-resident, `VT_DFLASH_HOST=1`, the D9 host path re-run on a CPU queue —
+`set_dflash_draft` + `propose_drafts_block` in `runner.cpp`, `DflashReqCtx::
+host_store`; committed inside 649519651). Facts (evidence
+`w27h-on-1.{log,stderr.log}`, Q4_K_M KV64, 12 output tokens, VLLM_CPP_CPU_
+THREADS=32 to match the taskset 32-63 bench):
+
+- **FUNCTIONAL**: the host arm proposes drafts, keeps the host KV store in
+  lockstep (ctx 32, 33, ...), stages NOTHING of the 3.85 GiB trunk to the
+  device (the wiring notice replaces `PreStageDflashWeights`), and the emitted
+  stream byte-matches the recorded drafter-ON stream
+  `[220,16,23066,220,16,220,16,1814,...]` — the verify path is untouched.
+- **ACCEPTANCE COLLAPSE**: 1.0 accepted tokens/verify-step vs the device arm's
+  ~2.4 (`[host-debug]` dual-forward cross-check, `VT_DFLASH_HOST_DEBUG=1`):
+  on IDENTICAL state (same block, same step, both stores appended) the host
+  forward's logits are FLAT and 220-heavy (top ~9 mnats, junk ranks) where the
+  device forward's are confident cycle predictions (top ~19 mnats,
+  `[16,17,18,...]`). Not a near-tie flip — a qualitative divergence. The
+  context is present (host ctx=32 at step 0, built by ONE append == full
+  recompute by D9), so the suspicion is the CPU backend's op numerics at
+  production shapes (5 layers, H 2560, C 32+9 rows, vocab 248320) — the D2
+  CPU forward was parity-validated at fixture scale, never here. NOT rooted:
+  the combined-feature widen and the bf16-rounding alignment are ruled in as
+  correct-to-try (both applied, no change).
+- **TPOT (the acceptance multiple)**: drafter-ON host 55629 ms vs drafter-ON
+  device 25304 ms (w27-on-1) vs OFF 6748 ms (w27-off-gaps-q4) — the host arm
+  LOSES 2.2x to the device arm through acceptance, and 8.2x to OFF.
+- **THE CORRUPTION BET FALSIFIED**: step-wall is ~60.7 s/verify-step in BOTH
+  arms (`VT_STEP_WALL=1`): the drafter trunk's device residency is NOT the
+  runtime writer's cause — the DNR ledger still records ~80 repairs/verify
+  step and ~6.5 s/step of check time with the trunk off the device (the W26
+  "113 ms/step" check figure does not reproduce; the ledger's `us` field
+  counts queue-blocking time behind the replay, so the recorded per-check
+  cost and the wall cost diverge — the ledger needs a queue-idle re-measure
+  before any check-cost target is judged).
+- **TPOT accounting**: OFF ~6.7 s/token at ~2.4 accept/step (~16 s/step);
+  ON-device ~25.3 s/token (~60.7 s/step wall, ~2.4 accept); ON-host ~55.7
+  s/token (~60.7 s/step wall, ~1.0 accept). The verify+DNR wall dominates
+  every ON arm; the draft forward is 187 ms/step on 32 host cores.
+- **WORKTREE COLLISION (process)**: this session and the concurrent W27
+  session (commit 649519651) edited the same worktree; that commit swept this
+  session's uncommitted host-arm code and evidence into its tree, and staged
+  a revert of this session's `VT_DFLASH_HOST_DEBUG` instrumentation (the
+  instrumentation survives in 649519651). Nothing is lost, but the two
+  readings of the W27 decision (host drafter + host-parallel repair vs
+  tie-band gate + D2D repair) were executed in parallel on one checkout.
+
+NEEDS_DECISION (coordinator), per the task's own stop condition "if the host
+draft forward cannot meet the loop's latency": the host draft cannot, at its
+current numerics — the numbers above. Options: (a) root the CPU-backend
+divergence (a host-vs-device forward parity gate at production shapes is the
+missing instrument; it does not exist yet); (b) accept the host arm for
+CAPACITY only (UD-Q6_K_XL KV8 fits with the trunk off device — untested, the
+leg was not run) and keep the device drafter for TPOT; (c) abandon the host
+move and take the D2D repair lever (the concurrent session's reading).
+Untested and owed by this session: the UD-Q6_K_XL KV8 capacity leg (c) of the
+W27 gate list — the drafter-ON device arm never ran it with the trunk off
+device because the host arm's acceptance collapse makes its TPOT meaningless.
