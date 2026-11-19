@@ -187,6 +187,11 @@ void MatmulBTKernel(Queue&, Tensor& out, const Tensor& a, const Tensor& b) {
     static std::atomic<bool> planted{false};
     if (!planted.exchange(true)) Bfp8PlantHeaderZero(dev_b);
   }
+  // W28 writer-catch canary: runs INDEPENDENT of the DNR branch (with
+  // VT_TT_BFP8_RESTAGE=0 it still fires — the corruption-absent proof leg
+  // must read the weights clean with no repair mechanism armed).
+  if (M == 9 && dev_b.dtype() == ttnn::DataType::BFLOAT8_B)
+    Bfp8WriterCanaryTick(b, dev_b, device);
   if (bfp8_restage && M == 9 && dev_b.dtype() == ttnn::DataType::BFLOAT8_B) {
     // W26: detect-and-repair — re-stage only the clobbered weight. The
     // unconditional W25 form re-staged all 7 weights per verify step

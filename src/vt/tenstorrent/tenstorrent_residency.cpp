@@ -3,11 +3,16 @@
 // in tenstorrent_internal.h.
 #include "vt/tenstorrent/tenstorrent_internal.h"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 
 #include <tt-metalium/buffer.hpp>
+#include <tt-metalium/memory_reporter.hpp>
 #include <tt-metalium/tt_metal.hpp>
 
 #include <ttnn/operations/data_movement/copy/copy.hpp>
@@ -931,6 +936,11 @@ void DropWeightViewShadowsInRange(void* host, size_t bytes, bool drain) {
   }
 }
 
+// W28 stage-time check helper (defined with the canary below).
+namespace {
+size_t Bfp8DirectZeroHeaders(const ttnn::Tensor& dev_b);
+}  // namespace
+
 // The cold staging body, shared by EnsureBfp8WeightDevice and the W25 repair:
 // bf16 from_span + on-device typecast to BFLOAT8_B. The device typecast is the
 // SAME single RNE BFP pack the tt-metal host packer performs
@@ -944,7 +954,27 @@ ttnn::Tensor Bfp8TypecastInstall(const Tensor& b, MeshDevice& device) {
   ttnn::Tensor bf16_dev = ttnn::Tensor::from_span(
       ttsl::Span<const bfloat16>(static_cast<const bfloat16*>(b.data), n),
       TileSpecOf(rows, cols), &device);
-  return ttnn::typecast(bf16_dev, ttnn::DataType::BFLOAT8_B);
+  ttnn::Tensor out = ttnn::typecast(bf16_dev, ttnn::DataType::BFLOAT8_B);
+  // W28 stage-time check (VT_TT_BFP8_CANARY=1): is the FRESH typecast output
+  // already header-zeroed? zero>0 here convicts the typecast-into-recycled-
+  // DRAM write itself; zero==0 here with a later zeroed canary convicts an
+  // async writer between the stage and the matmul arm.
+  static const bool canary = [] {
+    const char* e = std::getenv("VT_TT_BFP8_CANARY");
+    return e != nullptr && e[0] == '1';
+  }();
+  if (canary) {
+    static std::atomic<int64_t> stage_seq{0};
+    const int64_t sq = stage_seq.fetch_add(1, std::memory_order_relaxed);
+    if (sq < 400) {
+      const size_t zero = Bfp8DirectZeroHeaders(out);
+      std::fprintf(stderr,
+                   "[W28-STAGE] #%lld %ux%u addr=0x%llx zero_headers=%zu\n",
+                   (long long)sq, rows, cols,
+                   (unsigned long long)out.mesh_buffer().address(), zero);
+    }
+  }
+  return out;
 }
 
 // W27 D2D master restore: the on-device clone the repair copies from —
@@ -1097,6 +1127,208 @@ void Bfp8PlantHeaderZero(const ttnn::Tensor& dev_b) {
     std::fprintf(stderr,
                  "[BFP8-DNR-PLANT] zeroed %zu tile exponent headers in the "
                  "working buffer (the W20 corruption, planted)\n", zeroed);
+}
+
+// W28 WRITER-CATCH CANARY (ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): env
+// VT_TT_BFP8_CANARY=1, dumps under VT_TT_BFP8_CANARY_DIR (default
+// /tmp/tt-w28-canary). At each DNR check of the FIRST BFP8 spec-geometry
+// weight it answers, independently of the slice probe path:
+//   (1) the buffer identity (DRAM base address, size, page size, pages) and
+//       the full DRAM BLOCK TABLE — any OTHER allocated block overlapping
+//       the weight's per-bank range is a double allocation (the allocator
+//       handed a live staged weight's range to another buffer);
+//   (2) a DIRECT full ReadFromBuffer of the weight's own buffer (no slice):
+//       how many of the buffer's tile exponent headers are zero across the
+//       WHOLE buffer, not just the probe's 8-tile window — the writer's
+//       true footprint — plus a raw dump of the first 64 KiB per check and
+//       a FULL raw dump on the first divergent check (the offline byte-diff
+//       against the clean staging);
+//   (3) an immediate re-read for stability (an async hazard shows as a
+//       differing second read).
+// The canary NEVER writes and never repairs; gate legs run without the env.
+void Bfp8WriterCanary(const Tensor& b, const ttnn::Tensor& dev_b, int seq);
+void Bfp8WriterCanaryTick(const Tensor& b, const ttnn::Tensor& dev_b,
+                          MeshDevice& device) {
+  (void)device;
+  (void)b;
+  static const bool canary = [] {
+    const char* e = std::getenv("VT_TT_BFP8_CANARY");
+    return e != nullptr && e[0] == '1';
+  }();
+  if (!canary) return;
+  static std::atomic<int64_t> canary_seq{0};
+  const int64_t seq = canary_seq.fetch_add(1, std::memory_order_relaxed);
+  if (seq >= 64 || dev_b.dtype() != ttnn::DataType::BFLOAT8_B) return;
+  Bfp8WriterCanary(b, dev_b, static_cast<int>(seq));
+}
+
+namespace {
+// Count the ZERO tile exponent headers (64 B at each page's offset 0) across
+// the weight's WHOLE buffer — the writer's true footprint, slice-free.
+size_t Bfp8DirectZeroHeaders(const ttnn::Tensor& dev_b) {
+  tt::tt_metal::Buffer* buf = dev_b.mesh_buffer().get_reference_buffer();
+  const uint64_t size = buf->size();
+  const uint64_t page = buf->page_size();
+  const uint64_t pages = buf->num_pages();
+  std::vector<uint8_t> raw(size);
+  tt::tt_metal::detail::ReadFromBuffer(*buf, raw.data());
+  size_t zero_pages = 0;
+  for (uint64_t p = 0; p < pages && (p + 1) * page <= size; ++p) {
+    const uint8_t* h = raw.data() + p * page;
+    bool z = true;
+    for (uint64_t i = 0; i < kDnrHeaderBytes && i < page; ++i)
+      if (h[i] != 0) { z = false; break; }
+    if (z) ++zero_pages;
+  }
+  return zero_pages;
+}
+}  // namespace
+
+void Bfp8WriterCanary(const Tensor& b, const ttnn::Tensor& dev_b, int seq) {
+  // (MICRO) first check only: does the pin's bf16->bfp8_b typecast WRITE the
+  // tile exponent headers of its output, or leave them at the recycled/zero
+  // backing bytes? Prefill a fresh bfp8 buffer with 0xFF raw, typecast a
+  // nonzero bf16 [64,256] (exactly 8 tiles) INTO it, read the headers back:
+  //   0xFF survives -> the typecast skips the header write and the zeros the
+  //     engine sees come from zeroed recycled backing (the writer is the
+  //     typecast's missing header write over zero-init/recycled DRAM);
+  //   zeros -> the typecast itself zeroes the headers.
+  // A fresh-allocation control typecast runs beside it.
+  if (seq == 0) {
+    MeshDevice& device = SharedMeshDevice();
+    constexpr uint32_t mr = 64, mc = 256;
+    std::vector<bfloat16> host(static_cast<size_t>(mr) * mc);
+    for (size_t i = 0; i < host.size(); ++i)
+      host[i] = bfloat16(0.125f * static_cast<float>(i % 13) + 1.0f);
+    ttnn::Tensor bf16_dev = ttnn::Tensor::from_span(
+        ttsl::Span<const bfloat16>(host.data(), host.size()),
+        TileSpecOf(mr, mc), &device);
+    // (1) the FRESH-allocation control.
+    ttnn::Tensor fresh = ttnn::typecast(bf16_dev, ttnn::DataType::BFLOAT8_B);
+    const size_t fresh_zero = Bfp8DirectZeroHeaders(fresh);
+    // (2) the 0xFF-prefilled-target arm.
+    ttnn::Tensor into = ttnn::zeros(
+        ttnn::Shape({mr, mc}), ttnn::DataType::BFLOAT8_B, ttnn::Layout::TILE,
+        std::ref(device));
+    tt::tt_metal::Buffer* ib = into.mesh_buffer().get_reference_buffer();
+    {
+      std::vector<uint8_t> ff(ib->size(), 0xFF);
+      tt::tt_metal::detail::WriteToBuffer(*ib, ff);
+    }
+    const size_t ff_zero_before = Bfp8DirectZeroHeaders(into);
+    (void)ttnn::typecast(bf16_dev, ttnn::DataType::BFLOAT8_B,
+                         std::nullopt, into);
+    const size_t into_zero_after = Bfp8DirectZeroHeaders(into);
+    std::fprintf(stderr,
+                 "[W28-MICRO] fresh_zero=%zu ff_zero_before=%zu "
+                 "into_zero_after=%zu (0 => headers written; >0 => the "
+                 "typecast leaves/zeroes them)\n",
+                 fresh_zero, ff_zero_before, into_zero_after);
+  }
+  // (PRE) the direct read BEFORE anything else this tick runs — the weight's
+  // state as the matmul arm is about to consume it.
+  const size_t pre = Bfp8DirectZeroHeaders(dev_b);
+  // (PROBE) the exact probe path every detection rides (ttnn::slice on the
+  // TILE-layout bfp8 tensor + the buffer read).
+  const std::vector<uint8_t> probe = Bfp8HeaderProbe(dev_b);
+  size_t probe_zero = 0;
+  for (size_t t = 0; t < kDnrProbeTiles && t * kDnrTileStride + kDnrHeaderBytes <= probe.size(); ++t) {
+    bool z = true;
+    for (size_t i = 0; i < kDnrHeaderBytes; ++i)
+      if (probe[t * kDnrTileStride + i] != 0) { z = false; break; }
+    if (z) ++probe_zero;
+  }
+  // (POST) the direct read again — PRE==POST==0 proves nothing wrote; PRE==0
+  // && POST>0 convicts the probe chain itself as the writer.
+  const size_t post = Bfp8DirectZeroHeaders(dev_b);
+  tt::tt_metal::Buffer* buf = dev_b.mesh_buffer().get_reference_buffer();
+  const uint64_t addr = buf->address();
+  const uint64_t size = buf->size();
+  const uint64_t page = buf->page_size();
+  const uint64_t pages = buf->num_pages();
+  // (1) the DRAM block table: every block, its range, its allocated flag.
+  const auto& view = tt::tt_metal::detail::GetMemoryView(
+      buf->device(), tt::tt_metal::BufferType::DRAM);
+  const uint64_t banks = view.num_banks;
+  std::fprintf(stderr,
+               "[W28-CANARY] #%d addr=0x%llx size=%llu page=%llu pages=%llu "
+               "banks=%llu blocks=%zu\n",
+               seq, (unsigned long long)addr, (unsigned long long)size,
+               (unsigned long long)page, (unsigned long long)pages,
+               (unsigned long long)banks, view.block_table.size());
+  size_t overlaps = 0;
+  for (const auto& b : view.block_table) {
+    const uint64_t ba = std::stoull(b.at("address"));
+    const uint64_t bs = std::stoull(b.at("size"));
+    const bool alloc = b.at("allocated") == "true";
+    if (!alloc) continue;
+    // An interleaved allocation occupies the same per-bank range in every
+    // bank; the block table is per-bank heap space. Overlap test in that
+    // space; the weight's own block is expected.
+    if (ba < addr + size && addr < ba + bs) ++overlaps;
+  }
+  if (overlaps > 1)
+    std::fprintf(stderr,
+                 "[W28-CANARY] #%d OVERLAP: %zu allocated blocks intersect "
+                 "the weight's per-bank range\n",
+                 seq, overlaps);
+  std::fprintf(stderr,
+               "[W28-CANARY] #%d pre=%zu post=%zu probe_zero=%zu/%zu "
+               "verdict=%s capture_hit=%d\n",
+               seq, pre, post, probe_zero, kDnrProbeTiles,
+               post > pre ? "PROBE-CHAIN-WRITES-WEIGHT" : (post > 0 ? "ARRIVED-ZEROED" : "clean"),
+               TraceCaptureBlockHit(addr) ? 1 : 0);
+  if (post > 0) {
+    // W28 attribution: re-typecast the SAME host source into a fresh buffer
+    // (the typecast is deterministic and exonerated by [W28-MICRO]) and diff
+    // the two device buffers byte-for-byte — the differing byte set is the
+    // WRITER's exact write pattern (extent, alignment, page distribution).
+    tt::tt_metal::Buffer* buf0 = dev_b.mesh_buffer().get_reference_buffer();
+    std::vector<uint8_t> raw(buf0->size());
+    tt::tt_metal::detail::ReadFromBuffer(*buf0, raw.data());
+    ttnn::Tensor clean = Bfp8TypecastInstall(b, SharedMeshDevice());
+    tt::tt_metal::Buffer* cb2 = clean.mesh_buffer().get_reference_buffer();
+    std::vector<uint8_t> ref(cb2->size());
+    tt::tt_metal::detail::ReadFromBuffer(*cb2, ref.data());
+    size_t diff = 0, hdr_diff = 0, data_diff = 0, zero_bytes = 0;
+    uint64_t first_diff = size, last_diff = 0;
+    for (uint64_t i = 0; i < size && i < ref.size(); ++i) {
+      if (raw[i] != ref[i]) {
+        ++diff;
+        const uint64_t off = i % page;
+        if (off < kDnrHeaderBytes) ++hdr_diff; else ++data_diff;
+        if (raw[i] == 0) ++zero_bytes;
+        if (i < first_diff) first_diff = i;
+        last_diff = i;
+      }
+    }
+  std::fprintf(stderr,
+               "[W28-DIFF] #%d diff=%llu hdr=%llu data=%llu "
+               "diff_zero=%llu range=[0x%llx,0x%llx] page=%llu "
+               "capture_hit=%d\n",
+               seq, (unsigned long long)diff,
+               (unsigned long long)hdr_diff, (unsigned long long)data_diff,
+               (unsigned long long)zero_bytes,
+               (unsigned long long)first_diff,
+               (unsigned long long)last_diff,
+               (unsigned long long)page,
+               TraceCaptureBlockHit(addr) ? 1 : 0);
+    static const char* dir2 = std::getenv("VT_TT_BFP8_CANARY_DIR");
+    if (dir2 == nullptr) dir2 = "/tmp/tt-w28-canary";
+    std::error_code ec2;
+    std::filesystem::create_directories(dir2, ec2);
+    char path[512];
+    std::snprintf(path, sizeof(path), "%s/w28-clobbered-%02d.raw", dir2, seq);
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(raw.data()),
+            static_cast<std::streamsize>(std::min<uint64_t>(size, 1 << 20)));
+    std::snprintf(path, sizeof(path), "%s/w28-clean-%02d.raw", dir2, seq);
+    std::ofstream f2(path, std::ios::binary);
+    f2.write(reinterpret_cast<const char*>(ref.data()),
+             static_cast<std::streamsize>(std::min<uint64_t>(ref.size(), 1 << 20)));
+    std::fprintf(stderr, "[W28-CANARY] #%d raw dumps (clobbered/clean 1MiB) -> %s\n",
+                 seq, dir2);
+  }
 }
 
 // W26 (2026-11-19, ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): the DETECT-AND-

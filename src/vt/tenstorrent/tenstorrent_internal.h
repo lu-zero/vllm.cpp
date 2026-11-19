@@ -472,6 +472,11 @@ ttnn::Tensor Bfp8DetectRepair(const Tensor& b, const ttnn::Tensor& dev_b,
 // W27 red-proof plant (diagnostic only): zero the working buffer's first 8
 // tile exponent headers on demand — see the residency TU.
 void Bfp8PlantHeaderZero(const ttnn::Tensor& dev_b);
+// W28 writer-catch canary (diagnostic only, VT_TT_BFP8_CANARY=1): at the
+// spec-geometry matmul, reads the weight's buffer identity + the DRAM block
+// table + a slice-free full header scan; never writes, never repairs.
+void Bfp8WriterCanaryTick(const Tensor& b, const ttnn::Tensor& dev_b,
+                          MeshDevice& device);
 void Bfp8MatmulUse();  // a matmul consumed a BFP8-resident weight operand
 // Probes for the focused tests (declared in the test TU, defined here — the
 // test TU never includes internal headers).
@@ -735,6 +740,10 @@ std::atomic<int64_t>& LastTraceBytes();
 // the paged TU and the staying ops.cpp rope-warm path) ----
 int GraphCapturesDone();
 bool ReplayRegimeBisectSkip(const char* flag);
+// W28: the capture-end DRAM allocated-block snapshot and its membership test
+// (the trace-replay writer hypothesis's decisive check; see capture.cpp).
+void SnapshotTraceCaptureBlocks(MeshDevice& device);
+bool TraceCaptureBlockHit(uint64_t addr);
 
 // ---- moved declarations (definitions in tenstorrent_paged.cpp) ----
 void DropPagedKvShadow(void* host);

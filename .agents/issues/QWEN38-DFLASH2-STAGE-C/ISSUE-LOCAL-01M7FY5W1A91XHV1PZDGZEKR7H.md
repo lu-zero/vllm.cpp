@@ -467,3 +467,40 @@ move and take the D2D repair lever (the concurrent session's reading).
 Untested and owed by this session: the UD-Q6_K_XL KV8 capacity leg (c) of the
 W27 gate list — the drafter-ON device arm never ran it with the trunk off
 device because the host arm's acceptance collapse makes its TPOT meaningless.
+
+## W28 (2026-11-19): the writer-catch canary — the write-set proven byte-exact, four suspects exonerated, class (a) stands (this session, worktree /tmp/tt-writer)
+
+The W28 canary (`VT_TT_BFP8_CANARY=1`, diagnostics only, this directory's
+sibling `qwen38-dflash2-stage-c-w28-20261118/README.md` carries the full
+record) ran five instrument legs (Q4_K_M KV64 drafter-ON,
+`VT_TT_BFP8_RESTAGE=0`, 12 tokens, 3 complete legs + 2 partials). Findings:
+
+- **The writer's write-set is EXACTLY 512 B of zeroed BFP8_B tile exponent
+  headers** at the weight's first 8 tiles (the first page of each of the 8
+  DRAM banks): the byte-diff against a fresh deterministic typecast of the
+  same host source is `diff=512 hdr=512 data=0 diff_zero=512` at every
+  strike, three legs in a row, at the same call indexes (#52/#58/#61).
+- **It lands out of band of the command queue**: clean at the stage-time
+  blocking read ([W28-STAGE], 185/185 checks zero-free), zeroed at the
+  matmul-arm blocking read, nothing enqueued between (single CQ, no trace
+  capture exists in the leg — `[W28-CAPTURE]` never fires).
+- **Exonerated with direct evidence**: the staging and the pin's typecast
+  ([W28-MICRO]: headers fully written even into a 0xFF-prefilled target),
+  the slice probe chain (`post == pre` on 192 checks — the probe never
+  writes; it also UNDERREPORTS 1/8 vs the direct read's 8/8, so every
+  slice-mediated reading needs the direct-read caveat), the allocator
+  (block table `blocks=1` at every check, no overlap), the trace replay
+  (falsified: no capture), and the drafter's staging (the struck weights
+  are the target's mixed-qkvz GEMM weights).
+- **Class (a) stands, refined**: a stale (freed-and-reused) address written
+  out of band — the per-call staging recycles the same-size-class blocks
+  (the shadow cache is keyed by the host pointer, which MOVES every call),
+  and the stale write lands in whichever staging now owns the address.
+
+NOT done this session: the writer's op identity (the next instrument is the
+write-path attribution: wrap tt-metal's host write/upload paths with
+address logs over the deterministic strike window), therefore no fix, and
+the gate suite (corruption-absent, token identity, the acceptance multiple,
+drafter-OFF byte identity) is not run. The DNR detect-and-repair keeps
+treating the writer's damage every step (~89 weights/step); the 3.75x
+drafter-ON slowdown is this writer's cost.

@@ -12,7 +12,10 @@
 
 #include "vt/tenstorrent/tenstorrent_internal.h"
 
+#include <tt-metalium/memory_reporter.hpp>
+
 #include <chrono>
+#include <utility>
 #include <vector>
 
 namespace vt::tenstorrent {
@@ -48,6 +51,38 @@ int GraphCapturesDone() { return GraphCapturesCounter().load(); }
 void NoteGraphCaptured() { GraphCapturesCounter().fetch_add(1); }
 bool ReplayRegimeBisectSkip(const char* flag) {
   return std::getenv(flag) != nullptr && GraphCapturesDone() > 0;
+}
+
+// W28 (ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): the DRAM blocks allocated at
+// the end of the LAST trace capture. A replayed trace re-executes the baked
+// writes of the captured region; any of these blocks the allocator later
+// hands to a NEW tensor (a staged weight) eats the replayed write every step.
+// The W28 canary strikes test membership here — the trace-replay hypothesis's
+// decisive check.
+std::vector<std::pair<uint64_t, uint64_t>>& TraceCaptureBlocks() {
+  static std::vector<std::pair<uint64_t, uint64_t>>* b =
+      new std::vector<std::pair<uint64_t, uint64_t>>();  // #1486
+  return *b;
+}
+void SnapshotTraceCaptureBlocks(MeshDevice& device) {
+  const auto& view = tt::tt_metal::detail::GetMemoryView(
+      &device, tt::tt_metal::BufferType::DRAM);
+  auto& out = TraceCaptureBlocks();
+  out.clear();
+  for (const auto& blk : view.block_table) {
+    if (blk.at("allocated") != "true") continue;
+    out.emplace_back(std::stoull(blk.at("address")),
+                     std::stoull(blk.at("size")));
+  }
+  std::fprintf(stderr,
+               "[W28-CAPTURE] snapshot: %zu allocated DRAM blocks at capture "
+               "end\n",
+               out.size());
+}
+bool TraceCaptureBlockHit(uint64_t addr) {
+  for (const auto& [base, size] : TraceCaptureBlocks())
+    if (addr >= base && addr < base + size) return true;
+  return false;
 }
 namespace {
 
@@ -86,6 +121,9 @@ void TraceEndCapture() {
   VT_CHECK(s.capturing, "tenstorrent: TraceEndCapture without Begin");
   MeshDevice& device = SharedMeshDevice();
   ttnn::operations::trace::end_trace_capture(&device, s.capturing_id, kTraceCq);
+  // W28: the capture-end DRAM block snapshot (the trace-replay hypothesis's
+  // decisive check — see the definition above).
+  SnapshotTraceCaptureBlocks(device);
   // W4a wave-3a: expose the device-reported live trace demand so the
   // chunked E=1 arm's fit inside the 50 MiB trace region is a measurement,
   // not an assumption (the wave-1b falsification class).
