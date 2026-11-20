@@ -1,0 +1,40 @@
+2026-11-20 02:19:18.572 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:223)
+2026-11-20 02:19:18.572 | info     |             UMD | Cluster constructor started. (cluster.cpp:405)
+2026-11-20 02:19:18.572 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:131)
+2026-11-20 02:19:18.572 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:150)
+2026-11-20 02:19:43.331 | info     |             UMD | Established firmware bundle version: 19.15.0 (topology_discovery.cpp:654)
+2026-11-20 02:19:43.331 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:154)
+2026-11-20 02:19:43.369 | warning  |             UMD | Sysmem (0x40000000 bytes) using regular pages; pre-allocate hugepages for better DMA performance (e.g. 1 × 1GB or 512 × 2MB; on AArch64 also 2 × 512MB). (silicon_sysmem_manager.cpp:105)
+2026-11-20 02:19:43.369 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[0] and remote chip ids {} (cluster.cpp:172)
+2026-11-20 02:19:43.370 | info     |             UMD | IOMMU: enabled (cluster.cpp:146)
+2026-11-20 02:19:43.370 | info     |             UMD | KMD version: 2.11.1 (cluster.cpp:149)
+2026-11-20 02:19:43.370 | info     |             UMD | Cluster constructor completed. (cluster.cpp:719)
+2026-11-20 02:19:43.370 | info     |             UMD | Starting devices in cluster (cluster.cpp:1305)
+2026-11-20 02:19:43.446 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1314)
+2026-11-20 02:19:43.517 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:439)
+2026-11-20 02:19:43.517 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:501)
+2026-11-20 02:19:43.517 | warning  |          Always | Unknown motherboard 'AMPONED8-2T/BCM' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-11-20 02:19:43.517 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3190)
+2026-11-20 02:19:43.517 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3198)
+2026-11-20 02:19:44.309 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+[repro2] device open
+[repro2] install 0 alive=1 strikes=0
+[repro2] install 10 alive=3 strikes=0
+[repro2] install 20 alive=3 strikes=0
+[repro2] install 30 alive=3 strikes=0
+[repro2] install 40 alive=3 strikes=0
+[repro2] install 50 alive=3 strikes=0
+[repro2] install 60 alive=3 strikes=0
+[repro2] install 70 alive=3 strikes=0
+[repro2] install 80 alive=3 strikes=0
+[repro2] install 90 alive=3 strikes=0
+[repro2] install 100 alive=3 strikes=0
+[repro2] install 110 alive=3 strikes=0
+[repro2] DONE iters=120 strikes=0
+2026-11-20 02:43:13.913 | info     |    BuildKernels | JIT cache stats: 30/36 hits (83.3%) [30 cached, 8 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:268)
+2026-11-20 02:43:13.913 | info     |    BuildKernels | JIT telemetry: 43 registered TelemetryTokens (build_cache_telemetry.cpp:325)
+2026-11-20 02:43:13.947 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:519)
+2026-11-20 02:43:13.947 | info     |             UMD | Closing devices in cluster (cluster.cpp:1319)
+2026-11-20 02:43:14.059 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1329)
+2026-11-20 02:43:14.059 | info     |             UMD | Cluster destructor started. (cluster.cpp:1050)
+2026-11-20 02:43:14.059 | info     |             UMD | Cluster destructor completed. (cluster.cpp:1063)

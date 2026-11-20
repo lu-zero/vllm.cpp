@@ -1,0 +1,12 @@
+date: 2026-11-20T06:32:56+01:00
+head: b7e8c64d4a2ac3094d1a75e092302a4421d8b119
+pin: 611e346884f513b6faf11b25ac0a1f2aea9904e5
+governor: schedutil
+load1: 1.27
+bench: /tmp/build-stagec-w28/examples/vllm-bench
+model: /mnt/models/unsloth-qwen3.8-27B-gguf-v2/Qwen3.8-27B-UD-Q6_K_XL.gguf
+model sha256: 701d8fa9ed214ab21bfc130cd2a7df19ca89bbef7713e2dfb19f3c63696aa917
+num-blocks: 8
+extra-env: VLLM_CPP_CUDAGRAPH=0 VT_TT_WEIGHT_RESIDENCY=bfp8 VT_DFLASH_DRAFT=1 VT_TT_GEMM_OUT_KEEPALIVE=0 VT_TT_BFP8_RESTAGE=1
+output-len: 64
+spec: 1

@@ -1,0 +1,185 @@
+2026-11-20 04:42:34.706 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:223)
+2026-11-20 04:42:34.706 | info     |             UMD | Cluster constructor started. (cluster.cpp:405)
+2026-11-20 04:42:34.706 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:131)
+2026-11-20 04:42:34.706 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:150)
+2026-11-20 04:42:50.904 | info     |             UMD | Established firmware bundle version: 19.15.0 (topology_discovery.cpp:654)
+2026-11-20 04:42:50.904 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:154)
+2026-11-20 04:42:50.944 | warning  |             UMD | Sysmem (0x40000000 bytes) using regular pages; pre-allocate hugepages for better DMA performance (e.g. 1 × 1GB or 512 × 2MB; on AArch64 also 2 × 512MB). (silicon_sysmem_manager.cpp:105)
+2026-11-20 04:42:50.945 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[0] and remote chip ids {} (cluster.cpp:172)
+2026-11-20 04:42:50.945 | info     |             UMD | IOMMU: enabled (cluster.cpp:146)
+2026-11-20 04:42:50.945 | info     |             UMD | KMD version: 2.11.1 (cluster.cpp:149)
+2026-11-20 04:42:50.945 | info     |             UMD | Cluster constructor completed. (cluster.cpp:719)
+2026-11-20 04:42:50.946 | info     |             UMD | Starting devices in cluster (cluster.cpp:1305)
+2026-11-20 04:42:51.019 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1314)
+2026-11-20 04:42:51.117 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:439)
+2026-11-20 04:42:51.117 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:501)
+2026-11-20 04:42:51.117 | warning  |          Always | Unknown motherboard 'AMPONED8-2T/BCM' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-11-20 04:42:51.117 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3190)
+2026-11-20 04:42:51.117 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3198)
+2026-11-20 04:43:11.711 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.716 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.728 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.728 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.729 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.729 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.729 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.758 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.759 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.759 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.759 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.759 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.759 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.759 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.760 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.760 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.760 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.760 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.761 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.761 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.761 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.762 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.762 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.762 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.762 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.762 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.762 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.763 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.764 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.764 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.764 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.764 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.764 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.764 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.764 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.765 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.765 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.765 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.765 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.766 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.766 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.766 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.767 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.767 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.767 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.767 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.767 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.767 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.768 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.768 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.768 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.768 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.769 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.769 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.769 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.769 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.770 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.770 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.770 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.770 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.771 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.771 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.771 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.771 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.772 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.772 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.772 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.772 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.772 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.772 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.773 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.773 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.773 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.773 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.774 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.774 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.774 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.775 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.775 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.775 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.775 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.775 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.775 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.775 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.776 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.776 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.776 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.776 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.777 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.777 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.777 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.778 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.778 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.778 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.778 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.778 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.778 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.779 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.779 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.779 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.780 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.780 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.780 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.780 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.780 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.781 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.781 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.781 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.781 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.781 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.781 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.782 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.791 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:43:11.927 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:46:41.509 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+2026-11-20 04:46:49.800 | info     |           Metal | Enabling program cache on MeshDevice 1 (mesh_device.cpp:1193)
+
+============= vllm.cpp Benchmark Result =============
+Engine frontend:                           AsyncLLM    
+Output wait:                               poll        
+Blocking wait calls:                       0           
+Async scheduling enabled:                  0           
+Pretokenized prompt admission:             1           
+KV cache dtype (requested):                auto
+KV cache dtype (resolved storage):         bf16
+Ignore EOS (requested):                    1           
+Ignore EOS (resolved sampling):            1           
+Chat template:                             skipped (raw prompt)
+Chat template kwargs:                      {}
+Maximum concurrent batches:                1           
+Successful requests:                       1           
+Maximum request concurrency:               1           
+Benchmark duration (s):                    1532.50     
+Total input tokens:                        32          
+Total generated tokens:                    200         
+Request throughput (req/s):                0.00        
+Output token throughput (tok/s):           0.13        
+Total token throughput (tok/s):            0.15        
+-------- Time to First Token --------
+Mean TTFT (ms):                            209614.30   
+Median TTFT (ms):                          209614.30   
+P99 TTFT (ms):                             209614.30   
+-------- Time per Output Token (excl. 1st token) --------
+Mean TPOT (ms):                            6647.67     
+Median TPOT (ms):                          6647.67     
+P99 TPOT (ms):                             6647.67     
+-------- Inter-token Latency --------
+Mean ITL (ms):                             6647.67     
+Median ITL (ms):                           6635.10     
+P99 ITL (ms):                              6657.18     
+-------- End-to-end Latency --------
+Mean E2EL (ms):                            1532500.90  
+Median E2EL (ms):                          1532500.90  
+P99 E2EL (ms):                             1532500.90  
+-------- Prefill vs Decode split (gate #1) --------
+Input token throughput (tok/s, over whole run): 0.02        
+Prefill token throughput (tok/s, in/TTFT): 0.15        
+Output (decode) token throughput (tok/s):  0.13        
+Mean per-stream decode rate (tok/s):       0.15        
+====================================================
+2026-11-20 05:08:44.617 | info     |    BuildKernels | JIT cache stats: 626/626 hits (100.0%) [626 cached, 421 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:268)
+2026-11-20 05:08:44.617 | info     |    BuildKernels | JIT telemetry: 33 registered TelemetryTokens (build_cache_telemetry.cpp:325)
+2026-11-20 05:08:44.658 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:519)
+2026-11-20 05:08:44.658 | info     |             UMD | Closing devices in cluster (cluster.cpp:1319)
+2026-11-20 05:08:44.757 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1329)
+2026-11-20 05:08:44.757 | info     |             UMD | Cluster destructor started. (cluster.cpp:1050)
+2026-11-20 05:08:44.757 | info     |             UMD | Cluster destructor completed. (cluster.cpp:1063)

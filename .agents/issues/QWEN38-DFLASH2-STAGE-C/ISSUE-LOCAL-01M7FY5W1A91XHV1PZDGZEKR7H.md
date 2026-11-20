@@ -545,3 +545,46 @@ the gate suite (corruption-absent, token identity, the acceptance multiple,
 drafter-OFF byte identity) is not run. The DNR detect-and-repair keeps
 treating the writer's damage every step (~89 weights/step); the 3.75x
 drafter-ON slowdown is this writer's cost.
+
+## W30 (2026-11-20): the seam-level bisect — the writer does NOT reproduce outside the engine; the DNR stays DEFAULT-ON
+
+Evidence: `docs/bench-evidence/qwen38-dflash2-stage-c-w30-20261120/` (the
+three repro logs + the gate suite). The named next instrument ran: a
+standalone C++ program against the pin's durable libs directly (outside
+vllm.cpp, `tools/tt-metal-repro/`), looping the engine's exact install
+(`Bfp8TypecastInstall`: bf16 `Tensor::from_span` H2D temp -> on-device
+`ttnn::typecast` to `BFLOAT8_B` -> the temp dropped with the call) over the
+trio shapes (6144x5120 z, 6144x10240 mixed-qkvz, outproj, 5120x5120), with a
+full-buffer direct read of every watched weight after every install counting
+the zero exponent headers (the engine's `Bfp8DirectZeroHeaders`). Three
+variants, each the next named bisect state:
+
+1. `leg-pure.log` — the pure install loop, alive window 2, 120 installs:
+   CLEAN, strikes=0.
+2. `leg-mix.log` — + program-cache-warm op mix: M=9 matmuls through the
+   just-installed weights, D2D `assign` master clones, varying-size bf16
+   temp churn: CLEAN, strikes=0.
+3. `leg-resident.log` — the W29 flip-point residency pattern: 8 RESIDENT
+   weights + 120 churn installs of dropped same-size staging temps, every
+   resident scanned after every churn: CLEAN, strikes=0.
+
+The W22 harness verdict (trio + embed + RAC/PA + DBuf through ONE shared
+program cache, 40 reps, GREEN except the unrelated PA seq-defect) already
+covered the remaining named states short of the full engine. What the
+repro still lacks and the engine has: the ~25 GB load-time residency, the
+GGUF mmap host sources, the drafter staging, the trace-region carve /
+async-executor machinery. Verdict: **the corruption is engine-state-
+dependent; the minimal seam-level repro was NOT found at the states the
+task named.** The writer's identity therefore remains UNFOUND; no pin
+patchset attempt is possible without a mechanism, and no tt-metal issue is
+drafted (an upstream issue without a repro would be noise — the three-leg
+bisect record is the artifact the upstream hunt needs).
+
+Consequence recorded in the tree: the W30 dispatch's "DNR disabled by
+default (the writer fixed)" premise FAILED — the default flip was reverted
+in the same wave and the DNR detect-and-repair stays DEFAULT-ON as the
+working mitigation; `VT_TT_BFP8_RESTAGE` remains the rollback/regression
+knob. The gate suite runs BOTH arms on the same binary: the proof leg
+(`VT_TT_BFP8_RESTAGE=0` + the W28 canary) re-measures whether the writer
+still strikes with no repair armed, and the DNR-armed legs carry the token
+identity + the acceptance multiple. Results in the W30 README.

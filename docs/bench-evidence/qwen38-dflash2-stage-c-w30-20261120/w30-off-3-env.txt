@@ -1,0 +1,12 @@
+date: 2026-11-20T05:35:35+01:00
+head: b7e8c64d4a2ac3094d1a75e092302a4421d8b119
+pin: 611e346884f513b6faf11b25ac0a1f2aea9904e5
+governor: schedutil
+load1: 1.83
+bench: /tmp/build-stagec-w28/examples/vllm-bench
+model: /mnt/models/unsloth-qwen3.8-27B-gguf/Qwen3.8-27B-Q4_K_M.gguf
+model sha256: 7e78da5d7e3ae28d178121f58646953305f3e5bd3cb46f4a75584e8b6c6fe169
+num-blocks: 64
+extra-env: VT_TT_GEMM_OUT_KEEPALIVE=0
+output-len: 200
+spec: 0

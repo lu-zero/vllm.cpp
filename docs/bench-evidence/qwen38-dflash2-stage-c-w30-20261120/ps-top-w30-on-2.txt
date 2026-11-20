@@ -1,0 +1,12 @@
+USER        PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+lu_zero    6416  4.7  0.9 21377088 2590784 pts/1 Sl+ Nov18 103:50 maki -c
+lu_zero   25846  1.8  0.2 8665600 599232 ?      Ssl  Nov19  20:39 /home/lu_zero/.bun/install/global/node_modules/@opencode/cli/bin/opencode.exe serve --service
+lu_zero   25824  0.8  0.1 11063872 365888 pts/9 Sl+  Nov19   9:08 opencode
+lu_zero  111866  0.6  0.1 11061248 346560 pts/8 Sl+  Nov18  12:33 opencode -c
+lu_zero    7043  0.5  0.1 11131072 338304 pts/2 Sl+  Nov18  11:31 opencode -c
+root        808  0.1  0.0      0     0 ?        SN   Nov18   3:19 [khugepaged]
+lu_zero    4441  0.1  0.0  11136  5376 ?        Ss   Nov18   3:07 tmux
+root      83502  0.1  0.0   8512  4736 pts/6    S+   Nov19   1:19 watch -n 1 echo "=== Sandisk ==="; nvme smart-log /dev/nvme0n1 | grep -E "temperature|available_spare|percentage_used"; echo; echo "=== Samsung ==="; nvme smart-log /dev/nvme4n1 | grep -E "temperature|available_spare|percentage_used"
+root       1560  0.0  0.0      0     0 ?        S    Nov18   2:11 [btrfs-transaction]
+root        801  0.0  0.0      0     0 ?        S    Nov18   1:59 [kcompactd1]
+root       2749  0.0  0.0      0     0 ?        S    Nov18   1:24 [btrfs-transaction]
