@@ -8,9 +8,12 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <dlfcn.h>
+#include <span>
 #include <filesystem>
 #include <fstream>
 
+#include <tt-metalium/allocator.hpp>
 #include <tt-metalium/buffer.hpp>
 #include <tt-metalium/memory_reporter.hpp>
 #include <tt-metalium/tt_metal.hpp>
@@ -1032,6 +1035,78 @@ void Bfp8AttachMaster(const uintptr_t key, const ttnn::Tensor& fresh) {
   }
 }
 
+// W29 bracket probe: are a buffer's first-page-per-bank tile headers zero?
+// Reads ONE aligned page straight off each DRAM bank (8 x 2 KiB) instead of
+// the full-buffer ReadFromBuffer, so every staged weight can be scanned
+// cheaply. Returns the number of banks whose first page's 64-byte exponent
+// header is all zero.
+size_t Bfp8BankHeaderZeros(tt::tt_metal::Buffer* buf) {
+  auto* dev = buf->device();
+  const size_t banks = dev->allocator()->get_num_banks(tt::tt_metal::BufferType::DRAM);
+  std::vector<uint8_t> page(2048, 0xAB);
+  size_t zero = 0;
+  for (size_t b = 0; b < banks; ++b) {
+    std::fill(page.begin(), page.end(), 0xAB);
+    tt::tt_metal::detail::ReadFromDeviceDRAMChannel(
+        dev, static_cast<int>(b), buf->address(), std::span<uint8_t>(page));
+    bool z = true;
+    for (size_t i = 0; i < 64; ++i)  // one BFP8_B tile exponent header
+      if (page[i] != 0) { z = false; break; }
+    if (z) ++zero;
+  }
+  return zero;
+}
+
+// The pin's W29 write-trace registry (an env-gated diagnostic in
+// libtt_metal.so; declared here because the engine compiles against the
+// durable headers, which predate the instrument). The enclosing
+// vt::tenstorrent namespace is closed and reopened so tt::tt_metal is the
+// real one, not vt::tenstorrent::tt::tt_metal.
+}  // namespace vt::tenstorrent
+namespace tt::tt_metal {
+namespace wtrace {
+// WEAK: the durable link lib predates the instrument; the symbol resolves at
+// runtime from the instrumented libtt_metal.so when it is first in
+// LD_LIBRARY_PATH, and the call site guards on presence.
+void dump_overlaps(int chip, uint64_t addr, uint64_t extent)
+    __attribute__((weak));
+}  // namespace wtrace
+}  // namespace tt::tt_metal
+namespace vt::tenstorrent {
+
+// W29 bracket scan (env VT_TT_BFP8_CANARY=1, the canary's seq==0 check): the
+// per-bank header state of EVERY staged BFP8 weight at the FIRST spec-geometry
+// call — i.e. after the whole prefill, before any spec compute has touched the
+// weights. A weight already zeroed here was struck during load or prefill; a
+// weight still clean here that the canary strikes later was struck inside the
+// spec step. Rescans the struck set on every later check (new onsets).
+void Bfp8ScanShadowHeaders(int seq) {
+  std::vector<std::pair<uintptr_t, size_t>> hits;
+  {
+    std::lock_guard<std::mutex> g(Bfp8WeightMutex());
+    for (const auto& [key, sh] : Bfp8WeightShadows()) {
+      if (!sh.device.has_value()) continue;
+      tt::tt_metal::Buffer* buf = sh.device->mesh_buffer().get_reference_buffer();
+      const size_t z = Bfp8BankHeaderZeros(buf);
+      if (z != 0) hits.emplace_back(buf->address(), z);
+    }
+  }
+  std::fprintf(stderr, "[W29-SCAN] seq=%d zeroed_weights=%zu", seq, hits.size());
+  for (const auto& [addr, z] : hits)
+    std::fprintf(stderr, " 0x%llx:%zu", (unsigned long long)addr, z);
+  std::fprintf(stderr, "\n");
+  if (!hits.empty()) {
+    // W29: who owns / last owned the struck range at flip time? Resolved via
+    // dlsym: the durable link lib predates the instrument, so a link-time
+    // reference would not bind.
+    using DumpOverlapsFn = void (*)(int, uint64_t, uint64_t);
+    static const DumpOverlapsFn dump = [] {
+      return reinterpret_cast<DumpOverlapsFn>(dlsym(
+          RTLD_DEFAULT, "_ZN2tt8tt_metal6wtrace13dump_overlapsEimm"));
+    }();
+    if (dump != nullptr) dump(0, hits.front().first, 33423360ULL);
+  }
+}
 ttnn::Tensor EnsureBfp8WeightDevice(const Tensor& b, MeshDevice& device) {
   const uint32_t rows = static_cast<uint32_t>(b.shape[0]);
   const uint32_t cols = static_cast<uint32_t>(b.shape[1]);
@@ -1057,19 +1132,56 @@ ttnn::Tensor EnsureBfp8WeightDevice(const Tensor& b, MeshDevice& device) {
     auto it = Bfp8WeightShadows().find(key);
     if (it != Bfp8WeightShadows().end() && it->second.device.has_value() &&
         it->second.rows == rows && it->second.cols == cols) {
+      // W29 load-vs-prefill bracket: at the FIRST spec-geometry-adjacent cache
+      // hits (early prefill, after load), scan every staged weight's per-bank
+      // headers once — a weight zeroed here was struck during LOAD.
+      static std::atomic<int64_t> hits{0};
+      static const bool canary = [] {
+        const char* e = std::getenv("VT_TT_BFP8_CANARY");
+        return e != nullptr && e[0] == '1';
+      }();
+      if (canary) {
+        const int64_t h = hits.fetch_add(1, std::memory_order_relaxed);
+        // W29 serve-time bracket: the first 300 serves each scan THEMSELVES
+        // (8 per-bank page reads) — times each weight's first zeroed read
+        // against its own staging without assuming a call ordering.
+        if (h < 300) {
+          tt::tt_metal::Buffer* sbuf =
+              it->second.device->mesh_buffer().get_reference_buffer();
+          const size_t z = Bfp8BankHeaderZeros(sbuf);
+          std::fprintf(stderr, "[W29-SERVE] #%lld addr=0x%llx rows=%u cols=%u zero_banks=%zu\n",
+                       (long long)h, (unsigned long long)sbuf->address(),
+                       it->second.rows, it->second.cols, z);
+        }
+      }
       return *it->second.device;
     }
   }
   EnsureHost(b);
   ttnn::Tensor bfp8_dev = Bfp8TypecastInstall(b, device);
   g_bfp8_resident.fetch_add(1, std::memory_order_relaxed);
-  std::unique_lock<std::mutex> g(Bfp8WeightMutex());
-  Bfp8WeightShadow& s = Bfp8WeightShadows()[key];
-  s.device = bfp8_dev;
-  s.rows = rows;
-  s.cols = cols;
-  s.header_ref = Bfp8HeaderProbe(bfp8_dev);
-  return bfp8_dev;
+  ttnn::Tensor out = bfp8_dev;
+  {
+    std::unique_lock<std::mutex> g(Bfp8WeightMutex());
+    Bfp8WeightShadow& s = Bfp8WeightShadows()[key];
+    s.device = bfp8_dev;
+    s.rows = rows;
+    s.cols = cols;
+    s.header_ref = Bfp8HeaderProbe(bfp8_dev);
+  }
+  static const bool canary2 = [] {
+    const char* e = std::getenv("VT_TT_BFP8_CANARY");
+    return e != nullptr && e[0] == '1';
+  }();
+  static std::atomic<int64_t> installs{0};
+  const int64_t inst = installs.fetch_add(1, std::memory_order_relaxed);
+  if (canary2) {
+    // W29 flip-point scan (lock released): after EVERY staging, scan every
+    // staged weight's per-bank headers — the line where a weight flips
+    // clean->zeroed names the staging whose install hosts the writer.
+    Bfp8ScanShadowHeaders(-2000 - static_cast<int>(inst));
+  }
+  return out;
 }
 
 // W26 detect-and-repair: the fingerprint probe. Slices the weight's FIRST 8
@@ -1082,22 +1194,71 @@ constexpr size_t kDnrProbeTiles = 8;
 constexpr size_t kDnrHeaderBytes = 64;   // one BFP8_B tile's exponent region
 constexpr size_t kDnrTileStride = 1088;  // BFP8_B tile = 64 B hdr + 1024 B data
 std::vector<uint8_t> Bfp8HeaderProbe(const ttnn::Tensor& dev_b) {
-  const auto& shape = dev_b.logical_shape();
-  const uint32_t cols = static_cast<uint32_t>(shape[1]);
-  const uint32_t sc = std::min<uint32_t>(cols, 32u * kDnrProbeTiles);
-  ttnn::Tensor head = ttnn::slice(dev_b, ttsl::SmallVector<uint32_t>{0u, 0u},
-                                  ttsl::SmallVector<uint32_t>{32u, sc},
-                                  ttsl::SmallVector<uint32_t>{1u, 1u});
-  auto buf = head.mesh_buffer().get_reference_buffer();
-  std::vector<uint8_t> raw(buf->size());
-  tt::tt_metal::detail::ReadFromBuffer(*buf, raw.data());
+  // W29 THE WRITER (ISSUE-LOCAL-01M7FY5W1A91XHV1PZDGZEKR7H): the legacy probe
+  // body — ttnn::slice of the weight's first 8 tiles into an 8-page BFP8
+  // temp — IS the corruption's writer. The slice's output temp lands on the
+  // live weight's own DRAM base (allocator double-hand; caught in the act by
+  // [W29-PROBE] under VT_TT_BFP8_PROBE_ADDR=1), and its exponent headers are
+  // broken — zeroed — by the pin's slice-on-BFP8 header handling (the W28
+  // underreport fact). The write is 8 x 64 zeroed header bytes at the first
+  // page of each of the 8 DRAM banks: EXACTLY the W25-W28 corruption map.
+  // The default probe below reads the same 8 headers DIRECTLY off each bank
+  // (8 x 2 KiB page reads, no device allocation, no slice) and is byte-
+  // identical for the header region. VT_TT_BFP8_SLICE_PROBE=1 selects the
+  // legacy body for the regression/confirmation legs ONLY.
+  static const bool legacy = [] {
+    const char* e = std::getenv("VT_TT_BFP8_SLICE_PROBE");
+    return e != nullptr && e[0] == '1';
+  }();
+  tt::tt_metal::Buffer* wbuf = dev_b.mesh_buffer().get_reference_buffer();
+  if (legacy) {
+    static const bool probe_addr = [] {
+      const char* e = std::getenv("VT_TT_BFP8_PROBE_ADDR");
+      return e != nullptr && e[0] == '1';
+    }();
+    const auto& shape = dev_b.logical_shape();
+    const uint32_t cols = static_cast<uint32_t>(shape[1]);
+    const uint32_t sc = std::min<uint32_t>(cols, 32u * kDnrProbeTiles);
+    ttnn::Tensor head = ttnn::slice(dev_b, ttsl::SmallVector<uint32_t>{0u, 0u},
+                                    ttsl::SmallVector<uint32_t>{32u, sc},
+                                    ttsl::SmallVector<uint32_t>{1u, 1u});
+    auto buf = head.mesh_buffer().get_reference_buffer();
+    if (probe_addr)
+      std::fprintf(stderr,
+                   "[W29-PROBE] weight=0x%llx size=%llu slice_out=0x%llx "
+                   "%s\n",
+                   (unsigned long long)wbuf->address(),
+                   (unsigned long long)wbuf->size(),
+                   (unsigned long long)buf->address(),
+                   buf->address() == wbuf->address() ? "DOUBLE-HAND" : "ok");
+    std::vector<uint8_t> raw(buf->size());
+    tt::tt_metal::detail::ReadFromBuffer(*buf, raw.data());
+    std::vector<uint8_t> out;
+    out.reserve(kDnrProbeTiles * kDnrHeaderBytes);
+    for (size_t t = 0; t < kDnrProbeTiles; ++t) {
+      const size_t off = t * kDnrTileStride;
+      if (off + kDnrHeaderBytes > raw.size()) break;
+      out.insert(out.end(), raw.begin() + static_cast<long>(off),
+                 raw.begin() + static_cast<long>(off + kDnrHeaderBytes));
+    }
+    return out;
+  }
+  // The slice-free default: page 0 of each DRAM bank IS pages 0..7 of the
+  // interleaved buffer (bank = page_index % num_banks), so the 8 tile
+  // headers are the first 64 bytes read straight off each bank. No device
+  // temp is allocated, so the probe cannot write — the writer is gone.
+  auto* dev = wbuf->device();
+  const size_t banks =
+      dev->allocator()->get_num_banks(tt::tt_metal::BufferType::DRAM);
+  std::vector<uint8_t> page(2048, 0xAB);
   std::vector<uint8_t> out;
   out.reserve(kDnrProbeTiles * kDnrHeaderBytes);
-  for (size_t t = 0; t < kDnrProbeTiles; ++t) {
-    const size_t off = t * kDnrTileStride;
-    if (off + kDnrHeaderBytes > raw.size()) break;
-    out.insert(out.end(), raw.begin() + static_cast<long>(off),
-               raw.begin() + static_cast<long>(off + kDnrHeaderBytes));
+  for (size_t b = 0; b < banks && b < kDnrProbeTiles; ++b) {
+    std::fill(page.begin(), page.end(), 0xAB);
+    tt::tt_metal::detail::ReadFromDeviceDRAMChannel(
+        dev, static_cast<int>(b), wbuf->address(), std::span<uint8_t>(page));
+    out.insert(out.end(), page.begin(),
+               page.begin() + static_cast<long>(kDnrHeaderBytes));
   }
   return out;
 }
@@ -1182,6 +1343,7 @@ size_t Bfp8DirectZeroHeaders(const ttnn::Tensor& dev_b) {
   }
   return zero_pages;
 }
+
 }  // namespace
 
 void Bfp8WriterCanary(const Tensor& b, const ttnn::Tensor& dev_b, int seq) {
@@ -1194,6 +1356,11 @@ void Bfp8WriterCanary(const Tensor& b, const ttnn::Tensor& dev_b, int seq) {
   //     typecast's missing header write over zero-init/recycled DRAM);
   //   zeros -> the typecast itself zeroes the headers.
   // A fresh-allocation control typecast runs beside it.
+  if (seq == 0 || seq == 63) {
+    // W29 bracket scan: the per-bank header state of EVERY staged BFP8
+    // weight at the first (#0) and last (#63) spec-geometry canary check.
+    Bfp8ScanShadowHeaders(seq);
+  }
   if (seq == 0) {
     MeshDevice& device = SharedMeshDevice();
     constexpr uint32_t mr = 64, mc = 256;

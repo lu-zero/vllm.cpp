@@ -7,7 +7,7 @@ GitHub: -
 Mirror: PENDING
 Availability: FULL
 Created: 2026-11-15
-Updated: 2026-11-18
+Updated: 2026-11-20
 Closed: -
 
 ## Problem
@@ -17,6 +17,47 @@ With kGdnSpecDecode (id 12) and kGreedyRejectionSample (id 107) ported, the draf
 ## Resolution
 
 -
+
+## W29 (2026-11-19/20): the write-path attribution — the writer is on-device; NEEDS_DECISION
+
+Evidence: `docs/bench-evidence/qwen38-dflash2-stage-c-w29-20261118/README.md`
+(11 instrument legs; the pin write-trace patchset is tt-metal-pin
+`611e346884f`). The W28 facts stand; this wave adds, all instrument-first:
+
+1. The pin's host write trace (live DRAM extent registry + classifier at
+   `WriteToDeviceDRAMChannel` + the CQ issue-escape guard) across a full
+   drafter-ON run: `misses=0` — NO host write ever landed outside a live
+   extent, no CQ escapes, one 1088 B load-time staging page is the only
+   slow-path live write in the run. The writer is NOT a host-side tt-metal
+   write path.
+2. The victims are EXACTLY five 6144x5120 GDN z-GEMM weights (install
+   #22/#28/#31/#37/#43, addrs 0x231d6f00/0x2a146f00/0x2d7cef00/0x3473ef00/
+   0x3a9eef00), each clean at its own `[W28-STAGE]` install check and
+   zeroed by its first reuse; the strikes happen in the LOAD/WARMUP window
+   (all five already zeroed at the first spec-geometry call; zero new
+   onsets by the last). The W26 "repeats every verify step" picture is the
+   DNR repair re-staging into the same minefield.
+3. The flip-point scan (all staged weights scanned after EVERY staging)
+   pins each flip to a specific LATER mixed-weight staging install (#99 for
+   the first victim, #108 for the second); the pin registry's overlap dump
+   at flip time shows NO registered buffer ever overlapping the victim's
+   per-bank range. The writer targets the victim's base with no
+   Buffer-registered vehicle.
+4. The W28 suspicion that the staging slice probe is the writer is
+   FALSIFIED by direct address evidence (96+ probes: the slice temp never
+   lands on a victim) and by the slice-FREE probe default reproducing the
+   strikes identically (same five weights, same flip install).
+
+NOT identified: the device-side agent that holds the victim's base and
+writes the zeros. The named next instrument is device-side: the standalone
+staging-sequence repro (seam-level loop of the engine's install pattern,
+scanning per-bank headers outside the engine), then a dispatch
+write-command trace at the pin — the first layer below where the host-side
+reach ends. The gate suite is NOT RUN: no fix has landed, and the DNR
+machinery stays committed and DEFAULT-ON as the working mitigation. This
+state is NEEDS_DECISION per the row's task rule: the writer is
+upstream-adjacent (device-side tt-metal), and the repro + patchset plan
+above is what the tt-metal issue needs.
 
 ## W6-W13 bisect (2026-11-15 evening — the follow-on session's record)
 
