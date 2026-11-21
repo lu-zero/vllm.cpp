@@ -4900,3 +4900,7 @@ target_include_directories(test_new_candidate_parsers PRIVATE ${CMAKE_SOURCE_DIR
 # bf16 + q6_k artifacts (checkpoint-gated, same skip-loudly pattern).
 vllm_cpp_add_test(test_olala_gguf_weights vllm/models/test_olala_gguf_weights.cpp)
 target_include_directories(test_olala_gguf_weights PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# NEW-CANDIDATE-PORTS W2c-1: olala host-op unit gates (geodesic norm, latent MoE)
+# against in-test f64 transcriptions of the author's modeling_olala.py formulas.
+vllm_cpp_add_test(test_olala_ops vllm/models/test_olala_ops.cpp)
+target_include_directories(test_olala_ops PRIVATE ${CMAKE_SOURCE_DIR}/src)
