@@ -588,3 +588,24 @@ knob. The gate suite runs BOTH arms on the same binary: the proof leg
 (`VT_TT_BFP8_RESTAGE=0` + the W28 canary) re-measures whether the writer
 still strikes with no repair armed, and the DNR-armed legs carry the token
 identity + the acceptance multiple. Results in the W30 README.
+
+## W32 (2026-11-22): the host command-construction trace — dispatch commands exonerated
+
+W32 (evidence `docs/bench-evidence/qwen38-dflash2-stage-c-w32-20261122/`,
+commits 8b6a60706d3 + 35be99e764e in the pin, 8c338b618 in the engine tree)
+ran the instrument W31 named: TT_METAL_CMD_TRACE=1, one ordered [TT-CMD]
+line at the host construction of every DRAM-noc-address-bearing dispatch
+write command, at every DRAM buffer alloc/free, and at every ttnn mesh-trace
+transition. Two legs of the deterministic repro: strikes at #52/#58/#61,
+same bases, same token sha. Result: ZERO of 80,977 constructed write
+commands per leg ever target a victim per-bank window, no txn overruns its
+buffer's extent, and the repro never captures a mesh trace (decode runs
+eager). Both sub-forms of the dispatch-replay hypothesis (stale command
+baked at a cache miss; in-flight write outliving the staging-temp free) are
+exonerated: no such command exists. With W29 (no host write path) and W31
+(no launch arg), every host-side address carrier is clean. Remaining
+candidate: an on-device agent with a stale device-resident descriptor (the
+clobber is exactly one BFP8 tile-0 exponent header per bank — a pack/copy
+writer's tile-0 output). W33 named in the README: device-side runtime-arg
+echo (post-launch readback of worker L1 arg regions, scanned against the
+canary's victim windows). No fix this wave; DNR stays DEFAULT-ON.

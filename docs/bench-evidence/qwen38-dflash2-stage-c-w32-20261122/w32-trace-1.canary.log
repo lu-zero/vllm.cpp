@@ -1,0 +1,828 @@
+vllm-bench: /mnt/models/unsloth-qwen3.8-27B-gguf/Qwen3.8-27B-Q4_K_M.gguf engine | num_prompts=1 input_len=32 output_len=12 concurrency=1 seed=0 temp=0.00 dataset=generated output_wait=poll kv_cache_dtype=auto ignore_eos=1 chat_template=skipped
+vllm.cpp: the draft checkpoint at "/mnt/models/qwen38-dflash2-drafter" declares architecture "DFlash2DraftModel". Its grouped dynamic depthwise convolution, its CANDIDATE SELECTOR and its PATH WALK are all implemented and will run, so this draft DRAFTS -- from safetensors and from GGUF alike (row SPEC-DFLASH2 waves W1-W5, .agents/specs/dflash2-spec-decode.md, issue #1314). Two things are still owed and neither is silent: a GGUF drafter is DEQUANTIZED wholesale to bf16 at load, so a k-quant draft costs its bf16 residency rather than its file size, and no throughput number has been taken for this architecture -- a DFlash2 draft runs its block forward off the paged CUDA-graph fast path, because the candidate selector needs the hidden states of the same forward its logits came from. This port mirrors vllm-project/vllm#52816, which MERGED upstream on 2026-08-21 at head 3406ec1dae9916f920b90f0dbf90dcf54923d042, merge commit b389ac29465b33f9e9c534df221ea3c129e9793f. It does not advance the parity pin, and the port is not yet reconciled onto that merged head (issue #1561).
+engine: device placement: --fit resolved NO placement: the model has no routed-expert layers, so a placement has nothing to move
+engine: qwen3.5 gguf: SKIPPING the MTP drafter head — 15 tensor(s), 289527808 B, none of them read by this trunk-only load: blk.64.attn_k.weight, blk.64.attn_k_norm.weight, blk.64.attn_norm.weight, blk.64.attn_output.weight, blk.64.attn_q.weight, blk.64.attn_q_norm.weight, blk.64.attn_v.weight, blk.64.ffn_down.weight, blk.64.ffn_gate.weight, blk.64.ffn_up.weight, blk.64.nextn.eh_proj.weight, blk.64.nextn.enorm.weight, blk.64.nextn.hnorm.weight, blk.64.nextn.shared_head_norm.weight, blk.64.post_attention_norm.weight. They are the multi-token-prediction head at blk.64 (block_count 65 = 64 trunk + 1 head); they load only when speculative decoding is configured (speculative-config method "mtp"). Denominator parity: the pinned llama.cpp b10451 oracle IGNORES these same tensors too (64 trunk layers, no MTP head; .agents/oracles/llama-cpp.md), so a gate against it is matched work only with this skip loud.
+vllm.cpp: DFlash2 draft: grouped conv taps=2 group=16 block=9
+vllm.cpp: DFlash draft loaded from safetensors /mnt/models/qwen38-dflash2-drafter (k=8, taps=5, mask=248070, vocab=248320, shared head from the GGUF target file)
+vllm.cpp: the draft checkpoint at "/mnt/models/qwen38-dflash2-drafter" declares architecture "DFlash2DraftModel". Its grouped dynamic depthwise convolution, its CANDIDATE SELECTOR and its PATH WALK are all implemented and will run, so this draft DRAFTS -- from safetensors and from GGUF alike (row SPEC-DFLASH2 waves W1-W5, .agents/specs/dflash2-spec-decode.md, issue #1314). Two things are still owed and neither is silent: a GGUF drafter is DEQUANTIZED wholesale to bf16 at load, so a k-quant draft costs its bf16 residency rather than its file size, and no throughput number has been taken for this architecture -- a DFlash2 draft runs its block forward off the paged CUDA-graph fast path, because the candidate selector needs the hidden states of the same forward its logits came from. This port mirrors vllm-project/vllm#52816, which MERGED upstream on 2026-08-21 at head 3406ec1dae9916f920b90f0dbf90dcf54923d042, merge commit b389ac29465b33f9e9c534df221ea3c129e9793f. It does not advance the parity pin, and the port is not yet reconciled onto that merged head (issue #1561).
+vllm.cpp: DFlash draft embed SHARED with the target (one device copy, 2542796800 B saved)
+vllm.cpp: DFlash draft head SHARED with the target (one device copy, 1042944000 B saved)
+INFO auto-fit max_model_len: reduced from 262144 to 576 to fit the KV cache (64 blocks, one of them the null block, shared by 3 KV cache groups). Raise --num-blocks / --kv-cache-memory for a longer context.
+[TT-CMD] armed
+vllm.cpp: DFlash draft weights staged to device at load (5 layers)
+vllm.cpp: VT_DFLASH_DRAFT=1 — the DFlash2 draft proposes through the DIRECT-ARGMAX arm (bundle dflash2.py has_selector=false): full-vocab argmax per block row, candidate selector NOT resident (~254 MB freed). The verify stays lossless (greedy accept = the target's argmax); only acceptance can differ from the selector arm.
+vllm.cpp: draft speculative context is limited to 592 tokens (37 pages x 16, 11.5625 MiB per concurrent request across 5 draft layers, so 11.5625 MiB of device memory at max_num_seqs 1 — NOT counted by gpu_memory_utilization). max_model_len is 576 and the (1+k) draft block needs 9 more, so the whole advertised context is speculated.
+vllm.cpp: Asynchronous scheduling is disabled (max_concurrent_batches=1)
+[W28-STAGE] seq0 10240x5120 addr=0xacaaf00 zero_headers=0
+[W29-SCAN] seq=-2000 zeroed_weights=0
+[W28-STAGE] seq1 6144x5120 addr=0xa7aaf00 zero_headers=0
+[W29-SCAN] seq=-2001 zeroed_weights=0
+[W28-STAGE] seq2 5120x6144 addr=0xbacef00 zero_headers=0
+[W29-SCAN] seq=-2002 zeroed_weights=0
+[W28-STAGE] seq3 10240x5120 addr=0xa02af00 zero_headers=0
+[W29-SCAN] seq=-2003 zeroed_weights=0
+[W28-STAGE] seq4 6144x5120 addr=0xdefaf00 zero_headers=0
+[W29-SCAN] seq=-2004 zeroed_weights=0
+[W28-STAGE] seq5 5120x6144 addr=0xe6f6f00 zero_headers=0
+[W29-SCAN] seq=-2005 zeroed_weights=0
+[W28-STAGE] seq6 10240x5120 addr=0xd77af00 zero_headers=0
+[W29-SCAN] seq=-2006 zeroed_weights=0
+[W28-STAGE] seq7 6144x5120 addr=0x10b22f00 zero_headers=0
+[W29-SCAN] seq=-2007 zeroed_weights=0
+[W28-STAGE] seq8 5120x6144 addr=0x1131ef00 zero_headers=0
+[W29-SCAN] seq=-2008 zeroed_weights=0
+[W28-STAGE] seq9 10240x5120 addr=0x154faf00 zero_headers=0
+[W29-SCAN] seq=-2009 zeroed_weights=0
+[W28-STAGE] seq10 6144x5120 addr=0x14ffaf00 zero_headers=0
+[W29-SCAN] seq=-2010 zeroed_weights=0
+[W28-STAGE] seq11 5120x6144 addr=0x15b9ef00 zero_headers=0
+[W29-SCAN] seq=-2011 zeroed_weights=0
+[W28-STAGE] seq12 10240x5120 addr=0x1487af00 zero_headers=0
+[W29-SCAN] seq=-2012 zeroed_weights=0
+[W28-STAGE] seq13 6144x5120 addr=0x186cef00 zero_headers=0
+[W29-SCAN] seq=-2013 zeroed_weights=0
+[W28-STAGE] seq14 5120x6144 addr=0x1924af00 zero_headers=0
+[W29-SCAN] seq=-2014 zeroed_weights=0
+[W28-STAGE] seq15 10240x5120 addr=0x17f4ef00 zero_headers=0
+[W29-SCAN] seq=-2015 zeroed_weights=0
+[W28-STAGE] seq16 6144x5120 addr=0x1b676f00 zero_headers=0
+[W29-SCAN] seq=-2016 zeroed_weights=0
+[W28-STAGE] seq17 5120x6144 addr=0x1be72f00 zero_headers=0
+[W29-SCAN] seq=-2017 zeroed_weights=0
+[W28-STAGE] seq18 10240x5120 addr=0x2004ef00 zero_headers=0
+[W29-SCAN] seq=-2018 zeroed_weights=0
+[W28-STAGE] seq19 6144x5120 addr=0x1fb4ef00 zero_headers=0
+[W29-SCAN] seq=-2019 zeroed_weights=0
+[W28-STAGE] seq20 5120x6144 addr=0x20e72f00 zero_headers=0
+[W29-SCAN] seq=-2020 zeroed_weights=0
+[W28-STAGE] seq21 10240x5120 addr=0x1f3cef00 zero_headers=0
+[W29-SCAN] seq=-2021 zeroed_weights=0
+[W28-STAGE] seq22 6144x5120 addr=0x231d6f00 zero_headers=0
+[W29-SCAN] seq=-2022 zeroed_weights=0
+[W28-STAGE] seq23 5120x6144 addr=0x239d2f00 zero_headers=0
+[W29-SCAN] seq=-2023 zeroed_weights=0
+[W28-STAGE] seq24 10240x5120 addr=0x22a56f00 zero_headers=0
+[W29-SCAN] seq=-2024 zeroed_weights=0
+[W28-STAGE] seq25 6144x5120 addr=0x25d36f00 zero_headers=0
+[W29-SCAN] seq=-2025 zeroed_weights=0
+[W28-STAGE] seq26 5120x6144 addr=0x26532f00 zero_headers=0
+[W29-SCAN] seq=-2026 zeroed_weights=0
+[W28-STAGE] seq27 10240x5120 addr=0x2a646f00 zero_headers=0
+[W29-SCAN] seq=-2027 zeroed_weights=0
+[W28-STAGE] seq28 6144x5120 addr=0x2a146f00 zero_headers=0
+[W29-SCAN] seq=-2028 zeroed_weights=0
+[W28-STAGE] seq29 5120x6144 addr=0x2b46af00 zero_headers=0
+[W29-SCAN] seq=-2029 zeroed_weights=0
+[W28-STAGE] seq30 10240x5120 addr=0x299c6f00 zero_headers=0
+[W29-SCAN] seq=-2030 zeroed_weights=0
+[W28-STAGE] seq31 6144x5120 addr=0x2d7cef00 zero_headers=0
+[W29-SCAN] seq=-2031 zeroed_weights=0
+[W28-STAGE] seq32 5120x6144 addr=0x2dfcaf00 zero_headers=0
+[W29-SCAN] seq=-2032 zeroed_weights=0
+[W28-STAGE] seq33 10240x5120 addr=0x2d04ef00 zero_headers=0
+[W29-SCAN] seq=-2033 zeroed_weights=0
+[W28-STAGE] seq34 6144x5120 addr=0x303f6f00 zero_headers=0
+[W29-SCAN] seq=-2034 zeroed_weights=0
+[W28-STAGE] seq35 5120x6144 addr=0x30bf2f00 zero_headers=0
+[W29-SCAN] seq=-2035 zeroed_weights=0
+[W28-STAGE] seq36 10240x5120 addr=0x34c3ef00 zero_headers=0
+[W29-SCAN] seq=-2036 zeroed_weights=0
+[W28-STAGE] seq37 6144x5120 addr=0x3473ef00 zero_headers=0
+[W29-SCAN] seq=-2037 zeroed_weights=0
+[W28-STAGE] seq38 5120x6144 addr=0x35a62f00 zero_headers=0
+[W29-SCAN] seq=-2038 zeroed_weights=0
+[W28-STAGE] seq39 10240x5120 addr=0x33fbef00 zero_headers=0
+[W29-SCAN] seq=-2039 zeroed_weights=0
+[W28-STAGE] seq40 6144x5120 addr=0x37e8ef00 zero_headers=0
+[W29-SCAN] seq=-2040 zeroed_weights=0
+[W28-STAGE] seq41 5120x6144 addr=0x3868af00 zero_headers=0
+[W29-SCAN] seq=-2041 zeroed_weights=0
+[W28-STAGE] seq42 10240x5120 addr=0x3770ef00 zero_headers=0
+[W29-SCAN] seq=-2042 zeroed_weights=0
+[W28-STAGE] seq43 6144x5120 addr=0x3a9eef00 zero_headers=0
+[W29-SCAN] seq=-2043 zeroed_weights=0
+[W28-STAGE] seq44 5120x6144 addr=0x3b1eaf00 zero_headers=0
+[W29-SCAN] seq=-2044 zeroed_weights=0
+[W28-STAGE] seq45 10240x5120 addr=0x3f2fef00 zero_headers=0
+[W29-SCAN] seq=-2045 zeroed_weights=0
+[W28-STAGE] seq46 6144x5120 addr=0x3edfef00 zero_headers=0
+[W29-SCAN] seq=-2046 zeroed_weights=0
+[W28-STAGE] seq47 5120x6144 addr=0x40122f00 zero_headers=0
+[W29-SCAN] seq=-2047 zeroed_weights=0
+[W28-STAGE] seq48 10240x5120 addr=0x3e67ef00 zero_headers=0
+[W29-SCAN] seq=-2048 zeroed_weights=0
+[W28-STAGE] seq49 6144x5120 addr=0x42486f00 zero_headers=0
+[W29-SCAN] seq=-2049 zeroed_weights=0
+[W28-STAGE] seq50 5120x6144 addr=0x42c82f00 zero_headers=0
+[W29-SCAN] seq=-2050 zeroed_weights=0
+[W28-STAGE] seq51 10240x5120 addr=0x41d06f00 zero_headers=0
+[W29-SCAN] seq=-2051 zeroed_weights=0
+[W28-STAGE] seq52 6144x5120 addr=0x44fe6f00 zero_headers=0
+[W29-SCAN] seq=-2052 zeroed_weights=0
+[W28-STAGE] seq53 5120x6144 addr=0x457e2f00 zero_headers=0
+[W29-SCAN] seq=-2053 zeroed_weights=0
+[W28-STAGE] seq54 10240x5120 addr=0x498f6f00 zero_headers=0
+[W29-SCAN] seq=-2054 zeroed_weights=0
+[W28-STAGE] seq55 6144x5120 addr=0x493f6f00 zero_headers=0
+[W29-SCAN] seq=-2055 zeroed_weights=0
+[W28-STAGE] seq56 5120x6144 addr=0x4a71af00 zero_headers=0
+[W29-SCAN] seq=-2056 zeroed_weights=0
+[W28-STAGE] seq57 10240x5120 addr=0x48c76f00 zero_headers=0
+[W29-SCAN] seq=-2057 zeroed_weights=0
+[W28-STAGE] seq58 6144x5120 addr=0x4ca7ef00 zero_headers=0
+[W29-SCAN] seq=-2058 zeroed_weights=0
+[W28-STAGE] seq59 5120x6144 addr=0x4d27af00 zero_headers=0
+[W29-SCAN] seq=-2059 zeroed_weights=0
+[W28-STAGE] seq60 10240x5120 addr=0x4c2fef00 zero_headers=0
+[W29-SCAN] seq=-2060 zeroed_weights=0
+[W28-STAGE] seq61 6144x5120 addr=0x4f6a6f00 zero_headers=0
+[W29-SCAN] seq=-2061 zeroed_weights=0
+[W28-STAGE] seq62 5120x6144 addr=0x4fea2f00 zero_headers=0
+[W29-SCAN] seq=-2062 zeroed_weights=0
+[W28-STAGE] seq63 10240x5120 addr=0x53eeef00 zero_headers=0
+[W29-SCAN] seq=-2063 zeroed_weights=0
+[W28-STAGE] seq64 6144x5120 addr=0x539eef00 zero_headers=0
+[W29-SCAN] seq=-2064 zeroed_weights=0
+[W28-STAGE] seq65 5120x6144 addr=0x54d12f00 zero_headers=0
+[W29-SCAN] seq=-2065 zeroed_weights=0
+[W28-STAGE] seq66 10240x5120 addr=0x5326ef00 zero_headers=0
+[W29-SCAN] seq=-2066 zeroed_weights=0
+[W28-STAGE] seq67 6144x5120 addr=0x5713ef00 zero_headers=0
+[W29-SCAN] seq=-2067 zeroed_weights=0
+[W28-STAGE] seq68 5120x6144 addr=0x5793af00 zero_headers=0
+[W29-SCAN] seq=-2068 zeroed_weights=0
+[W28-STAGE] seq69 10240x5120 addr=0x569bef00 zero_headers=0
+[W29-SCAN] seq=-2069 zeroed_weights=0
+[W28-STAGE] seq70 6144x5120 addr=0x59c9ef00 zero_headers=0
+[W29-SCAN] seq=-2070 zeroed_weights=0
+[W28-STAGE] seq71 5120x6144 addr=0x5a49af00 zero_headers=0
+[W29-SCAN] seq=-2071 zeroed_weights=0
+[W28-STAGE] seq72 10240x5120 addr=0x5e5aef00 zero_headers=0
+[W29-SCAN] seq=-2072 zeroed_weights=0
+[W28-STAGE] seq73 6144x5120 addr=0x5e0aef00 zero_headers=0
+[W29-SCAN] seq=-2073 zeroed_weights=0
+[W28-STAGE] seq74 5120x6144 addr=0x5f3d2f00 zero_headers=0
+[W29-SCAN] seq=-2074 zeroed_weights=0
+[W28-STAGE] seq75 10240x5120 addr=0x5d92ef00 zero_headers=0
+[W29-SCAN] seq=-2075 zeroed_weights=0
+[W28-STAGE] seq76 6144x5120 addr=0x61736f00 zero_headers=0
+[W29-SCAN] seq=-2076 zeroed_weights=0
+[W28-STAGE] seq77 5120x6144 addr=0x61f32f00 zero_headers=0
+[W29-SCAN] seq=-2077 zeroed_weights=0
+[W28-STAGE] seq78 10240x5120 addr=0x60fb6f00 zero_headers=0
+[W29-SCAN] seq=-2078 zeroed_weights=0
+[W28-STAGE] seq79 6144x5120 addr=0x64296f00 zero_headers=0
+[W29-SCAN] seq=-2079 zeroed_weights=0
+[W28-STAGE] seq80 5120x6144 addr=0x64a92f00 zero_headers=0
+[W29-SCAN] seq=-2080 zeroed_weights=0
+[W28-STAGE] seq81 10240x5120 addr=0x68ba6f00 zero_headers=0
+[W29-SCAN] seq=-2081 zeroed_weights=0
+[W28-STAGE] seq82 6144x5120 addr=0x686a6f00 zero_headers=0
+[W29-SCAN] seq=-2082 zeroed_weights=0
+[W28-STAGE] seq83 5120x6144 addr=0x699caf00 zero_headers=0
+[W29-SCAN] seq=-2083 zeroed_weights=0
+[W28-STAGE] seq84 10240x5120 addr=0x67f26f00 zero_headers=0
+[W29-SCAN] seq=-2084 zeroed_weights=0
+[W28-STAGE] seq85 6144x5120 addr=0x6bd2ef00 zero_headers=0
+[W29-SCAN] seq=-2085 zeroed_weights=0
+[W28-STAGE] seq86 5120x6144 addr=0x6c52af00 zero_headers=0
+[W29-SCAN] seq=-2086 zeroed_weights=0
+[W28-STAGE] seq87 10240x5120 addr=0x6b5aef00 zero_headers=0
+[W29-SCAN] seq=-2087 zeroed_weights=0
+[W28-STAGE] seq88 6144x5120 addr=0x6e956f00 zero_headers=0
+[W29-SCAN] seq=-2088 zeroed_weights=0
+[W28-STAGE] seq89 5120x6144 addr=0x6f152f00 zero_headers=0
+[W29-SCAN] seq=-2089 zeroed_weights=0
+[W28-STAGE] seq90 10240x5120 addr=0x7319ef00 zero_headers=0
+[W29-SCAN] seq=-2090 zeroed_weights=0
+[W28-STAGE] seq91 6144x5120 addr=0x72c9ef00 zero_headers=0
+[W29-SCAN] seq=-2091 zeroed_weights=0
+[W28-STAGE] seq92 5120x6144 addr=0x73fc2f00 zero_headers=0
+[W29-SCAN] seq=-2092 zeroed_weights=0
+[W28-STAGE] seq93 10240x5120 addr=0x7251ef00 zero_headers=0
+[W29-SCAN] seq=-2093 zeroed_weights=0
+[W28-STAGE] seq94 6144x5120 addr=0x763eef00 zero_headers=0
+[W29-SCAN] seq=-2094 zeroed_weights=0
+[W28-STAGE] seq95 5120x6144 addr=0x76beaf00 zero_headers=0
+[W29-SCAN] seq=-2095 zeroed_weights=0
+[W28-STAGE] seq96 10240x5120 addr=0x75c6ef00 zero_headers=0
+[W29-SCAN] seq=-2096 zeroed_weights=0
+[W28-STAGE] seq97 6144x5120 addr=0x78f4ef00 zero_headers=0
+[W29-SCAN] seq=-2097 zeroed_weights=0
+[W28-STAGE] seq98 5120x6144 addr=0x7974af00 zero_headers=0
+[W29-SCAN] seq=-2098 zeroed_weights=0
+[W28-STAGE] seq99 10240x5120 addr=0x7d85ef00 zero_headers=0
+[W29-SCAN] seq=-2099 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] seq100 6144x5120 addr=0x7d35ef00 zero_headers=0
+[W29-SCAN] seq=-2100 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] seq101 5120x6144 addr=0x7e682f00 zero_headers=0
+[W29-SCAN] seq=-2101 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] seq102 10240x5120 addr=0x7cbdef00 zero_headers=0
+[W29-SCAN] seq=-2102 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] seq103 6144x5120 addr=0x809e6f00 zero_headers=0
+[W29-SCAN] seq=-2103 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] seq104 5120x6144 addr=0x811e2f00 zero_headers=0
+[W29-SCAN] seq=-2104 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] seq105 10240x5120 addr=0x80266f00 zero_headers=0
+[W29-SCAN] seq=-2105 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] seq106 6144x5120 addr=0x83546f00 zero_headers=0
+[W29-SCAN] seq=-2106 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] seq107 5120x6144 addr=0x83d42f00 zero_headers=0
+[W29-SCAN] seq=-2107 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] seq108 10240x5120 addr=0x87e56f00 zero_headers=0
+[W29-SCAN] seq=-2108 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq109 6144x5120 addr=0x87956f00 zero_headers=0
+[W29-SCAN] seq=-2109 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq110 5120x6144 addr=0x88c7af00 zero_headers=0
+[W29-SCAN] seq=-2110 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq111 10240x5120 addr=0x871d6f00 zero_headers=0
+[W29-SCAN] seq=-2111 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq112 6144x5120 addr=0x8afdef00 zero_headers=0
+[W29-SCAN] seq=-2112 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq113 5120x6144 addr=0x8b7daf00 zero_headers=0
+[W29-SCAN] seq=-2113 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq114 10240x5120 addr=0x8a85ef00 zero_headers=0
+[W29-SCAN] seq=-2114 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq115 6144x5120 addr=0x8dc06f00 zero_headers=0
+[W29-SCAN] seq=-2115 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq116 5120x6144 addr=0x8e402f00 zero_headers=0
+[W29-SCAN] seq=-2116 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq117 10240x5120 addr=0x9244ef00 zero_headers=0
+[W29-SCAN] seq=-2117 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq118 6144x5120 addr=0x91f4ef00 zero_headers=0
+[W29-SCAN] seq=-2118 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq119 5120x6144 addr=0x93272f00 zero_headers=0
+[W29-SCAN] seq=-2119 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq120 10240x5120 addr=0x917cef00 zero_headers=0
+[W29-SCAN] seq=-2120 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq121 6144x5120 addr=0x9569ef00 zero_headers=0
+[W29-SCAN] seq=-2121 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq122 5120x6144 addr=0x95e9af00 zero_headers=0
+[W29-SCAN] seq=-2122 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq123 10240x5120 addr=0x94f1ef00 zero_headers=0
+[W29-SCAN] seq=-2123 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq124 6144x5120 addr=0x981fef00 zero_headers=0
+[W29-SCAN] seq=-2124 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq125 5120x6144 addr=0x989faf00 zero_headers=0
+[W29-SCAN] seq=-2125 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq126 10240x5120 addr=0x9cb0ef00 zero_headers=0
+[W29-SCAN] seq=-2126 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq127 6144x5120 addr=0x9c60ef00 zero_headers=0
+[W29-SCAN] seq=-2127 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq128 5120x6144 addr=0x9d932f00 zero_headers=0
+[W29-SCAN] seq=-2128 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq129 10240x5120 addr=0x9be8ef00 zero_headers=0
+[W29-SCAN] seq=-2129 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq130 6144x5120 addr=0x9fd5ef00 zero_headers=0
+[W29-SCAN] seq=-2130 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq131 5120x6144 addr=0xa055af00 zero_headers=0
+[W29-SCAN] seq=-2131 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq132 10240x5120 addr=0x9f5def00 zero_headers=0
+[W29-SCAN] seq=-2132 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq133 6144x5120 addr=0xa2986f00 zero_headers=0
+[W29-SCAN] seq=-2133 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq134 5120x6144 addr=0xa3182f00 zero_headers=0
+[W29-SCAN] seq=-2134 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq135 10240x5120 addr=0xa735ef00 zero_headers=0
+[W29-SCAN] seq=-2135 zeroed_weights=4 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq136 6144x5120 addr=0xa6e5ef00 zero_headers=0
+[W29-SCAN] seq=-2136 zeroed_weights=4 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq137 5120x6144 addr=0xa8182f00 zero_headers=0
+[W29-SCAN] seq=-2137 zeroed_weights=4 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq138 10240x5120 addr=0xa66def00 zero_headers=0
+[W29-SCAN] seq=-2138 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq139 6144x5120 addr=0xaa5aef00 zero_headers=0
+[W29-SCAN] seq=-2139 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq140 5120x6144 addr=0xaadaaf00 zero_headers=0
+[W29-SCAN] seq=-2140 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq141 10240x5120 addr=0xa9e2ef00 zero_headers=0
+[W29-SCAN] seq=-2141 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq142 6144x5120 addr=0xad1d6f00 zero_headers=0
+[W29-SCAN] seq=-2142 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq143 5120x6144 addr=0xad9d2f00 zero_headers=0
+[W29-SCAN] seq=-2143 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq144 5120x25600 addr=0xbaf42f00 zero_headers=0
+[W29-SCAN] seq=-2144 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq145 1024x5120 addr=0x4931af00 zero_headers=0
+[W29-SCAN] seq=-2145 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq146 1024x5120 addr=0x497f2f00 zero_headers=0
+[W29-SCAN] seq=-2146 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq147 1024x5120 addr=0x4a26af00 zero_headers=0
+[W29-SCAN] seq=-2147 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq148 1024x5120 addr=0x4c9a2f00 zero_headers=0
+[W29-SCAN] seq=-2148 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq149 1024x5120 addr=0x53912f00 zero_headers=0
+[W29-SCAN] seq=-2149 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq150 1024x5120 addr=0x53deaf00 zero_headers=0
+[W29-SCAN] seq=-2150 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq151 1024x5120 addr=0x54862f00 zero_headers=0
+[W29-SCAN] seq=-2151 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq152 1024x5120 addr=0x57062f00 zero_headers=0
+[W29-SCAN] seq=-2152 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq153 1024x5120 addr=0x4f586f00 zero_headers=0
+[W29-SCAN] seq=-2153 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq154 1024x5120 addr=0x5dfd2f00 zero_headers=0
+[W29-SCAN] seq=-2154 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] seq155 1280x5120 addr=0x59b64f00 zero_headers=0
+[W29-SCAN] seq=-2155 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W29-SCAN] seq=0 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-MICRO] fresh_zero=0 ff_zero_before=0 into_zero_after=0 (0 => headers written; >0 => the typecast leaves/zeroes them)
+[W28-CANARY] seq0 addr=0x59b64f00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] seq0 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq156 6144x5120 addr=0xb9782f00 zero_headers=0
+[W29-SCAN] seq=-2156 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq1 addr=0xb9782f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq1 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq157 5120x4096 addr=0xa7a02f00 zero_headers=0
+[W29-SCAN] seq=-2157 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq2 addr=0xa7a02f00 size=22282240 page=1088 pages=20480 banks=8 blocks=1
+[W28-CANARY] seq2 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq158 1280x5120 addr=0x5e4aaf00 zero_headers=0
+[W29-SCAN] seq=-2158 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq3 addr=0x5e4aaf00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] seq3 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq159 34816x5120 addr=0xbea5cf00 zero_headers=0
+[W29-SCAN] seq=-2159 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq4 addr=0xbea5cf00 size=189399040 page=1088 pages=174080 banks=8 blocks=1
+[W28-CANARY] seq4 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq160 5120x17408 addr=0xb9b7ef00 zero_headers=0
+[W29-SCAN] seq=-2160 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq5 addr=0xb9b7ef00 size=94699520 page=1088 pages=87040 banks=8 blocks=1
+[W28-CANARY] seq5 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq161 1280x5120 addr=0x6165af00 zero_headers=0
+[W29-SCAN] seq=-2161 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq6 addr=0x6165af00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] seq6 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq162 6144x5120 addr=0xba6c8f00 zero_headers=0
+[W29-SCAN] seq=-2162 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq7 addr=0xba6c8f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq7 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq163 5120x4096 addr=0xbaac4f00 zero_headers=0
+[W29-SCAN] seq=-2163 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq8 addr=0xbaac4f00 size=22282240 page=1088 pages=20480 banks=8 blocks=1
+[W28-CANARY] seq8 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq164 1280x5120 addr=0x685caf00 zero_headers=0
+[W29-SCAN] seq=-2164 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq9 addr=0x685caf00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] seq9 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq165 34816x5120 addr=0xc00f0f00 zero_headers=0
+[W29-SCAN] seq=-2165 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq10 addr=0xc00f0f00 size=189399040 page=1088 pages=174080 banks=8 blocks=1
+[W28-CANARY] seq10 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq166 5120x17408 addr=0xbd51cf00 zero_headers=0
+[W29-SCAN] seq=-2166 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq11 addr=0xbd51cf00 size=94699520 page=1088 pages=87040 banks=8 blocks=1
+[W28-CANARY] seq11 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq167 1280x5120 addr=0x68aa2f00 zero_headers=0
+[W29-SCAN] seq=-2167 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq12 addr=0x68aa2f00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] seq12 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq168 6144x5120 addr=0xbbfdcf00 zero_headers=0
+[W29-SCAN] seq=-2168 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq13 addr=0xbbfdcf00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq13 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq169 5120x4096 addr=0xbc3d8f00 zero_headers=0
+[W29-SCAN] seq=-2169 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq14 addr=0xbc3d8f00 size=22282240 page=1088 pages=20480 banks=8 blocks=1
+[W28-CANARY] seq14 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq170 1280x5120 addr=0x6bc52f00 zero_headers=0
+[W29-SCAN] seq=-2170 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq15 addr=0x6bc52f00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] seq15 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq171 34816x5120 addr=0xc4204f00 zero_headers=0
+[W29-SCAN] seq=-2171 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq16 addr=0xc4204f00 size=189399040 page=1088 pages=174080 banks=8 blocks=1
+[W28-CANARY] seq16 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq172 5120x17408 addr=0xbc680f00 zero_headers=0
+[W29-SCAN] seq=-2172 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq17 addr=0xbc680f00 size=94699520 page=1088 pages=87040 banks=8 blocks=1
+[W28-CANARY] seq17 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq173 1280x5120 addr=0x6e776f00 zero_headers=0
+[W29-SCAN] seq=-2173 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq18 addr=0x6e776f00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] seq18 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq174 6144x5120 addr=0xbe066f00 zero_headers=0
+[W29-SCAN] seq=-2174 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq19 addr=0xbe066f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq19 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq175 5120x4096 addr=0xbd1caf00 zero_headers=0
+[W29-SCAN] seq=-2175 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq20 addr=0xbd1caf00 size=22282240 page=1088 pages=20480 banks=8 blocks=1
+[W28-CANARY] seq20 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq176 1280x5120 addr=0x6e84b700 zero_headers=0
+[W29-SCAN] seq=-2176 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq21 addr=0x6e84b700 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] seq21 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq177 34816x5120 addr=0xc5898f00 zero_headers=0
+[W29-SCAN] seq=-2177 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq22 addr=0xc5898f00 size=189399040 page=1088 pages=174080 banks=8 blocks=1
+[W28-CANARY] seq22 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq178 5120x17408 addr=0xc2cc4f00 zero_headers=0
+[W29-SCAN] seq=-2178 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq23 addr=0xc2cc4f00 size=94699520 page=1088 pages=87040 banks=8 blocks=1
+[W28-CANARY] seq23 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq179 1280x5120 addr=0x72bc2f00 zero_headers=0
+[W29-SCAN] seq=-2179 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq24 addr=0x72bc2f00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] seq24 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq180 6144x5120 addr=0xbe462f00 zero_headers=0
+[W29-SCAN] seq=-2180 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq25 addr=0xbe462f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq25 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq181 5120x4096 addr=0xc1784f00 zero_headers=0
+[W29-SCAN] seq=-2181 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq26 addr=0xc1784f00 size=22282240 page=1088 pages=20480 banks=8 blocks=1
+[W28-CANARY] seq26 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq182 1280x5120 addr=0x7309af00 zero_headers=0
+[W29-SCAN] seq=-2182 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq27 addr=0x7309af00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] seq27 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq183 34816x5120 addr=0xc99acf00 zero_headers=0
+[W29-SCAN] seq=-2183 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq28 addr=0xc99acf00 size=189399040 page=1088 pages=174080 banks=8 blocks=1
+[W28-CANARY] seq28 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] seq184 5120x17408 addr=0xc1a2cf00 zero_headers=0
+[W29-SCAN] seq=-2184 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq29 addr=0xc1a2cf00 size=94699520 page=1088 pages=87040 banks=8 blocks=1
+[W28-CANARY] seq29 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[TT-STEP-PHASE] step=1 kind=eager-mtap B=9 S=0 boundary=0 warm_calls=0 dram_free_mib=-1 dispatches=0 segments=0 wall_ms=360371284.3 warms_ms=0.0 embed_ms=0.0 pregrow_ms=0.0 cap_begin_ms=0.0 cap_body_ms=0.0 cap_end_ms=0.0 pin_ms=0.0 replay_ms=0.0 body_ms=0.0 gap_prev_ms=-1.0
+[W29-SERVE] seq0 addr=0xacaaf00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq30 addr=0xacaaf00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq30 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq1 addr=0xa7aaf00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] seq31 addr=0xa7aaf00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq31 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq2 addr=0xbacef00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq32 addr=0xbacef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq32 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq3 addr=0xa02af00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq33 addr=0xa02af00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq33 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq4 addr=0xdefaf00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] seq34 addr=0xdefaf00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq34 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq5 addr=0xe6f6f00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq35 addr=0xe6f6f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq35 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq6 addr=0xd77af00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq36 addr=0xd77af00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq36 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq7 addr=0x10b22f00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] seq37 addr=0x10b22f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq37 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq8 addr=0x1131ef00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq38 addr=0x1131ef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq38 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq9 addr=0x154faf00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq39 addr=0x154faf00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq39 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq10 addr=0x14ffaf00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] seq40 addr=0x14ffaf00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq40 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq11 addr=0x15b9ef00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq41 addr=0x15b9ef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq41 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq12 addr=0x1487af00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq42 addr=0x1487af00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq42 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq13 addr=0x186cef00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] seq43 addr=0x186cef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq43 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq14 addr=0x1924af00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq44 addr=0x1924af00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq44 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq15 addr=0x17f4ef00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq45 addr=0x17f4ef00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq45 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq16 addr=0x1b676f00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] seq46 addr=0x1b676f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq46 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq17 addr=0x1be72f00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq47 addr=0x1be72f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq47 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq18 addr=0x2004ef00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq48 addr=0x2004ef00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq48 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq19 addr=0x1fb4ef00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] seq49 addr=0x1fb4ef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq49 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq20 addr=0x20e72f00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq50 addr=0x20e72f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq50 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq21 addr=0x1f3cef00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq51 addr=0x1f3cef00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq51 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq22 addr=0x231d6f00 rows=6144 cols=5120 zero_banks=8
+[W28-CANARY] seq52 addr=0x231d6f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq52 pre=8 post=8 probe_zero=1/8 verdict=ARRIVED-ZEROED capture_hit=0
+[W28-STAGE] seq185 6144x5120 addr=0x20a72f00 zero_headers=0
+[W28-DIFF] seq52 diff=512 hdr=512 data=0 diff_zero=512 range=[0x0,0x1dff] page=1088 capture_hit=0
+[W28-CANARY] seq52 raw dumps (clobbered/clean 1MiB) -> /tmp/tt-w32-canary
+[W29-SERVE] seq23 addr=0x239d2f00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq53 addr=0x239d2f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq53 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq24 addr=0x22a56f00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq54 addr=0x22a56f00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq54 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq25 addr=0x25d36f00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] seq55 addr=0x25d36f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq55 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq26 addr=0x26532f00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq56 addr=0x26532f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq56 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq27 addr=0x2a646f00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq57 addr=0x2a646f00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq57 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq28 addr=0x2a146f00 rows=6144 cols=5120 zero_banks=8
+[W28-CANARY] seq58 addr=0x2a146f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq58 pre=8 post=8 probe_zero=1/8 verdict=ARRIVED-ZEROED capture_hit=0
+[W28-STAGE] seq186 6144x5120 addr=0x26132f00 zero_headers=0
+[W28-DIFF] seq58 diff=512 hdr=512 data=0 diff_zero=512 range=[0x0,0x1dff] page=1088 capture_hit=0
+[W28-CANARY] seq58 raw dumps (clobbered/clean 1MiB) -> /tmp/tt-w32-canary
+[W29-SERVE] seq29 addr=0x2b46af00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq59 addr=0x2b46af00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq59 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq30 addr=0x299c6f00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] seq60 addr=0x299c6f00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq60 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq31 addr=0x2d7cef00 rows=6144 cols=5120 zero_banks=8
+[W28-CANARY] seq61 addr=0x2d7cef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq61 pre=8 post=8 probe_zero=1/8 verdict=ARRIVED-ZEROED capture_hit=0
+[W28-STAGE] seq187 6144x5120 addr=0x2b064f00 zero_headers=0
+[W28-DIFF] seq61 diff=512 hdr=512 data=0 diff_zero=512 range=[0x0,0x1dff] page=1088 capture_hit=0
+[W28-CANARY] seq61 raw dumps (clobbered/clean 1MiB) -> /tmp/tt-w32-canary
+[W29-SERVE] seq32 addr=0x2dfcaf00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] seq62 addr=0x2dfcaf00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] seq62 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq33 addr=0x2d04ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SCAN] seq=63 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] seq63 addr=0x2d04ef00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] seq63 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] seq34 addr=0x303f6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq35 addr=0x30bf2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq36 addr=0x34c3ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq37 addr=0x3473ef00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] seq38 addr=0x35a62f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq39 addr=0x33fbef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq40 addr=0x37e8ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq41 addr=0x3868af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq42 addr=0x3770ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq43 addr=0x3a9eef00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] seq44 addr=0x3b1eaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq45 addr=0x3f2fef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq46 addr=0x3edfef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq47 addr=0x40122f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq48 addr=0x3e67ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq49 addr=0x42486f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq50 addr=0x42c82f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq51 addr=0x41d06f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq52 addr=0x44fe6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq53 addr=0x457e2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq54 addr=0x498f6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq55 addr=0x493f6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq56 addr=0x4a71af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq57 addr=0x48c76f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq58 addr=0x4ca7ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq59 addr=0x4d27af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq60 addr=0x4c2fef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq61 addr=0x4f6a6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq62 addr=0x4fea2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq63 addr=0x53eeef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq64 addr=0x539eef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq65 addr=0x54d12f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq66 addr=0x5326ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq67 addr=0x5713ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq68 addr=0x5793af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq69 addr=0x569bef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq70 addr=0x59c9ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq71 addr=0x5a49af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq72 addr=0x5e5aef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq73 addr=0x5e0aef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq74 addr=0x5f3d2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq75 addr=0x5d92ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq76 addr=0x61736f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq77 addr=0x61f32f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq78 addr=0x60fb6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq79 addr=0x64296f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq80 addr=0x64a92f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq81 addr=0x68ba6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq82 addr=0x686a6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq83 addr=0x699caf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq84 addr=0x67f26f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq85 addr=0x6bd2ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq86 addr=0x6c52af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq87 addr=0x6b5aef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq88 addr=0x6e956f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq89 addr=0x6f152f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq90 addr=0x7319ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq91 addr=0x72c9ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq92 addr=0x73fc2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq93 addr=0x7251ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq94 addr=0x763eef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq95 addr=0x76beaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq96 addr=0x75c6ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq97 addr=0x78f4ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq98 addr=0x7974af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq99 addr=0x7d85ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq100 addr=0x7d35ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq101 addr=0x7e682f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq102 addr=0x7cbdef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq103 addr=0x809e6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq104 addr=0x811e2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq105 addr=0x80266f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq106 addr=0x83546f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq107 addr=0x83d42f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq108 addr=0x87e56f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq109 addr=0x87956f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq110 addr=0x88c7af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq111 addr=0x871d6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq112 addr=0x8afdef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq113 addr=0x8b7daf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq114 addr=0x8a85ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq115 addr=0x8dc06f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq116 addr=0x8e402f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq117 addr=0x9244ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq118 addr=0x91f4ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq119 addr=0x93272f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq120 addr=0x917cef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq121 addr=0x9569ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq122 addr=0x95e9af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq123 addr=0x94f1ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq124 addr=0x981fef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq125 addr=0x989faf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq126 addr=0x9cb0ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq127 addr=0x9c60ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq128 addr=0x9d932f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq129 addr=0x9be8ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq130 addr=0x9fd5ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq131 addr=0xa055af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq132 addr=0x9f5def00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq133 addr=0xa2986f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq134 addr=0xa3182f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq135 addr=0xa735ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq136 addr=0xa6e5ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq137 addr=0xa8182f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq138 addr=0xa66def00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq139 addr=0xaa5aef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq140 addr=0xaadaaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq141 addr=0xa9e2ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq142 addr=0xad1d6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq143 addr=0xad9d2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq144 addr=0xbaf42f00 rows=5120 cols=25600 zero_banks=0
+[W29-SERVE] seq145 addr=0x4931af00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] seq146 addr=0x497f2f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] seq147 addr=0x4a26af00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] seq148 addr=0x4c9a2f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] seq149 addr=0x53912f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] seq150 addr=0x53deaf00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] seq151 addr=0x54862f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] seq152 addr=0x57062f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] seq153 addr=0x4f586f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] seq154 addr=0x5dfd2f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] seq155 addr=0x59b64f00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] seq156 addr=0xb9782f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq157 addr=0xa7a02f00 rows=5120 cols=4096 zero_banks=0
+[W29-SERVE] seq158 addr=0x5e4aaf00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] seq159 addr=0xbea5cf00 rows=34816 cols=5120 zero_banks=0
+[W29-SERVE] seq160 addr=0xb9b7ef00 rows=5120 cols=17408 zero_banks=0
+[W29-SERVE] seq161 addr=0x6165af00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] seq162 addr=0xba6c8f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq163 addr=0xbaac4f00 rows=5120 cols=4096 zero_banks=0
+[W29-SERVE] seq164 addr=0x685caf00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] seq165 addr=0xc00f0f00 rows=34816 cols=5120 zero_banks=0
+[W29-SERVE] seq166 addr=0xbd51cf00 rows=5120 cols=17408 zero_banks=0
+[W29-SERVE] seq167 addr=0x68aa2f00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] seq168 addr=0xbbfdcf00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq169 addr=0xbc3d8f00 rows=5120 cols=4096 zero_banks=0
+[W29-SERVE] seq170 addr=0x6bc52f00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] seq171 addr=0xc4204f00 rows=34816 cols=5120 zero_banks=0
+[W29-SERVE] seq172 addr=0xbc680f00 rows=5120 cols=17408 zero_banks=0
+[W29-SERVE] seq173 addr=0x6e776f00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] seq174 addr=0xbe066f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq175 addr=0xbd1caf00 rows=5120 cols=4096 zero_banks=0
+[W29-SERVE] seq176 addr=0x6e84b700 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] seq177 addr=0xc5898f00 rows=34816 cols=5120 zero_banks=0
+[W29-SERVE] seq178 addr=0xc2cc4f00 rows=5120 cols=17408 zero_banks=0
+[W29-SERVE] seq179 addr=0x72bc2f00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] seq180 addr=0xbe462f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq181 addr=0xc1784f00 rows=5120 cols=4096 zero_banks=0
+[W29-SERVE] seq182 addr=0x7309af00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] seq183 addr=0xc99acf00 rows=34816 cols=5120 zero_banks=0
+[W29-SERVE] seq184 addr=0xc1a2cf00 rows=5120 cols=17408 zero_banks=0
+[TT-STEP-PHASE] step=2 kind=eager-mtap B=9 S=0 boundary=0 warm_calls=0 dram_free_mib=-1 dispatches=0 segments=0 wall_ms=360699849.0 warms_ms=0.0 embed_ms=0.0 pregrow_ms=0.0 cap_begin_ms=0.0 cap_body_ms=0.0 cap_end_ms=0.0 pin_ms=0.0 replay_ms=0.0 body_ms=0.0 gap_prev_ms=-360371284.3
+[W29-SERVE] seq185 addr=0xacaaf00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq186 addr=0xa7aaf00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq187 addr=0xbacef00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq188 addr=0xa02af00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq189 addr=0xdefaf00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq190 addr=0xe6f6f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq191 addr=0xd77af00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq192 addr=0x10b22f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq193 addr=0x1131ef00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq194 addr=0x154faf00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq195 addr=0x14ffaf00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq196 addr=0x15b9ef00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq197 addr=0x1487af00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq198 addr=0x186cef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq199 addr=0x1924af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq200 addr=0x17f4ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq201 addr=0x1b676f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq202 addr=0x1be72f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq203 addr=0x2004ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq204 addr=0x1fb4ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq205 addr=0x20e72f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq206 addr=0x1f3cef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq207 addr=0x231d6f00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] seq208 addr=0x239d2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq209 addr=0x22a56f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq210 addr=0x25d36f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq211 addr=0x26532f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq212 addr=0x2a646f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq213 addr=0x2a146f00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] seq214 addr=0x2b46af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq215 addr=0x299c6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq216 addr=0x2d7cef00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] seq217 addr=0x2dfcaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq218 addr=0x2d04ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq219 addr=0x303f6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq220 addr=0x30bf2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq221 addr=0x34c3ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq222 addr=0x3473ef00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] seq223 addr=0x35a62f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq224 addr=0x33fbef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq225 addr=0x37e8ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq226 addr=0x3868af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq227 addr=0x3770ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq228 addr=0x3a9eef00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] seq229 addr=0x3b1eaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq230 addr=0x3f2fef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq231 addr=0x3edfef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq232 addr=0x40122f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq233 addr=0x3e67ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq234 addr=0x42486f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq235 addr=0x42c82f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq236 addr=0x41d06f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq237 addr=0x44fe6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq238 addr=0x457e2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq239 addr=0x498f6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq240 addr=0x493f6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq241 addr=0x4a71af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq242 addr=0x48c76f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq243 addr=0x4ca7ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq244 addr=0x4d27af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq245 addr=0x4c2fef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq246 addr=0x4f6a6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq247 addr=0x4fea2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq248 addr=0x53eeef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq249 addr=0x539eef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq250 addr=0x54d12f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq251 addr=0x5326ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq252 addr=0x5713ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq253 addr=0x5793af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq254 addr=0x569bef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq255 addr=0x59c9ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq256 addr=0x5a49af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq257 addr=0x5e5aef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq258 addr=0x5e0aef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq259 addr=0x5f3d2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq260 addr=0x5d92ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq261 addr=0x61736f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq262 addr=0x61f32f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq263 addr=0x60fb6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq264 addr=0x64296f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq265 addr=0x64a92f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq266 addr=0x68ba6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq267 addr=0x686a6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq268 addr=0x699caf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq269 addr=0x67f26f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq270 addr=0x6bd2ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq271 addr=0x6c52af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq272 addr=0x6b5aef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq273 addr=0x6e956f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq274 addr=0x6f152f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq275 addr=0x7319ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq276 addr=0x72c9ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq277 addr=0x73fc2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq278 addr=0x7251ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq279 addr=0x763eef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq280 addr=0x76beaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq281 addr=0x75c6ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq282 addr=0x78f4ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq283 addr=0x7974af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq284 addr=0x7d85ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq285 addr=0x7d35ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq286 addr=0x7e682f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq287 addr=0x7cbdef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq288 addr=0x809e6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq289 addr=0x811e2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq290 addr=0x80266f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq291 addr=0x83546f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq292 addr=0x83d42f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq293 addr=0x87e56f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq294 addr=0x87956f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq295 addr=0x88c7af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq296 addr=0x871d6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] seq297 addr=0x8afdef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] seq298 addr=0x8b7daf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] seq299 addr=0x8a85ef00 rows=10240 cols=5120 zero_banks=0
+[TT-STEP-PHASE] step=3 kind=eager-mtap B=9 S=0 boundary=0 warm_calls=0 dram_free_mib=-1 dispatches=0 segments=0 wall_ms=360757276.5 warms_ms=0.0 embed_ms=0.0 pregrow_ms=0.0 cap_begin_ms=0.0 cap_body_ms=0.0 cap_end_ms=0.0 pin_ms=0.0 replay_ms=0.0 body_ms=0.0 gap_prev_ms=-360699849.0

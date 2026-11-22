@@ -1,0 +1,24 @@
+=== neighbors immediately below each victim (extent end == or near victim base) ===
+victim 0x231d6f00: below-neighbors (seq,uid,addr,perbank): [(97271, 38418, '0x20a72f00', '0x3fc000'), (97270, 38417, '0x20a72f00', '0x3fc000'), (96122, 37602, '0x20a72f00', '0x400000'), (48414, 16466, '0x231c2f00', '0x14000'), (48413, 16465, '0x231c2f00', '0x14000'), (48404, 16460, '0x231c2f00', '0x14000')]
+victim 0x2a146f00: below-neighbors (seq,uid,addr,perbank): [(52710, 17891, '0x2a132f00', '0x14000'), (52709, 17890, '0x2a132f00', '0x14000'), (52697, 17883, '0x2a132f00', '0x14000'), (52696, 17882, '0x2a132f00', '0x14000'), (52625, 17833, '0x2a132f00', '0x14000'), (52624, 17832, '0x2a132f00', '0x14000')]
+victim 0x2d7cef00: below-neighbors (seq,uid,addr,perbank): [(104816, 42969, '0x2b064f00', '0x3fc000'), (104815, 42968, '0x2b064f00', '0x3fc000'), (103672, 42157, '0x2b06af00', '0x400000'), (57003, 19314, '0x2d7baf00', '0x14000'), (57002, 19313, '0x2d7baf00', '0x14000'), (56993, 19308, '0x2d7baf00', '0x14000')]
+
+=== bufwrite overflow: txn end beyond declared per-bank extent (excluding base-addr mismatch) ===
+total uids with txn-end beyond alloc extent: 0
+
+=== occupants of each victim window over time ===
+victim 0x231d6f00:
+  seq=10935 uid=4048 addr=0x22a56f00 perbank=0xc80000 freed_seq=10940
+  seq=10936 uid=4049 addr=0x22a56f00 perbank=0xc80000 freed_seq=LIVE
+  seq=10947 uid=4056 addr=0x231d6f00 perbank=0x3fc000 freed_seq=428278
+  seq=10948 uid=4057 addr=0x231d6f00 perbank=0x3fc000 freed_seq=LIVE
+victim 0x2a146f00:
+  seq=14109 uid=5112 addr=0x299c6f00 perbank=0xc80000 freed_seq=14114
+  seq=14110 uid=5113 addr=0x299c6f00 perbank=0xc80000 freed_seq=LIVE
+  seq=14121 uid=5120 addr=0x2a146f00 perbank=0x3fc000 freed_seq=428309
+  seq=14122 uid=5121 addr=0x2a146f00 perbank=0x3fc000 freed_seq=LIVE
+victim 0x2d7cef00:
+  seq=15228 uid=5471 addr=0x2d04ef00 perbank=0xc80000 freed_seq=15233
+  seq=15229 uid=5472 addr=0x2d04ef00 perbank=0xc80000 freed_seq=LIVE
+  seq=15240 uid=5479 addr=0x2d7cef00 perbank=0x3fc000 freed_seq=428320
+  seq=15241 uid=5480 addr=0x2d7cef00 perbank=0x3fc000 freed_seq=LIVE

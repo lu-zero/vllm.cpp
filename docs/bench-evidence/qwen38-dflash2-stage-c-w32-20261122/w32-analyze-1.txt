@@ -1,0 +1,10 @@
+events: 428850
+
+=== victim window 0x231d6f00..0x235d2f00 : 0 bufwrite hits ===
+victim-ish allocs at addr: [(10947, 428278, 4056, '0x3fc000'), (10948, None, 4057, '0x3fc000')]
+
+=== victim window 0x2a146f00..0x2a542f00 : 0 bufwrite hits ===
+victim-ish allocs at addr: [(14121, 428309, 5120, '0x3fc000'), (14122, None, 5121, '0x3fc000')]
+
+=== victim window 0x2d7cef00..0x2dbcaf00 : 0 bufwrite hits ===
+victim-ish allocs at addr: [(15240, 428320, 5479, '0x3fc000'), (15241, None, 5480, '0x3fc000')]
