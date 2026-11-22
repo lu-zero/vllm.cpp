@@ -1,0 +1,809 @@
+[W28-STAGE] #0 10240x5120 addr=0xacaaf00 zero_headers=0
+[W29-SCAN] seq=-2000 zeroed_weights=0
+[W28-STAGE] #1 6144x5120 addr=0xa7aaf00 zero_headers=0
+[W29-SCAN] seq=-2001 zeroed_weights=0
+[W28-STAGE] #2 5120x6144 addr=0xbacef00 zero_headers=0
+[W29-SCAN] seq=-2002 zeroed_weights=0
+[W28-STAGE] #3 10240x5120 addr=0xa02af00 zero_headers=0
+[W29-SCAN] seq=-2003 zeroed_weights=0
+[W28-STAGE] #4 6144x5120 addr=0xdefaf00 zero_headers=0
+[W29-SCAN] seq=-2004 zeroed_weights=0
+[W28-STAGE] #5 5120x6144 addr=0xe6f6f00 zero_headers=0
+[W29-SCAN] seq=-2005 zeroed_weights=0
+[W28-STAGE] #6 10240x5120 addr=0xd77af00 zero_headers=0
+[W29-SCAN] seq=-2006 zeroed_weights=0
+[W28-STAGE] #7 6144x5120 addr=0x10b22f00 zero_headers=0
+[W29-SCAN] seq=-2007 zeroed_weights=0
+[W28-STAGE] #8 5120x6144 addr=0x1131ef00 zero_headers=0
+[W29-SCAN] seq=-2008 zeroed_weights=0
+[W28-STAGE] #9 10240x5120 addr=0x154faf00 zero_headers=0
+[W29-SCAN] seq=-2009 zeroed_weights=0
+[W28-STAGE] #10 6144x5120 addr=0x14ffaf00 zero_headers=0
+[W29-SCAN] seq=-2010 zeroed_weights=0
+[W28-STAGE] #11 5120x6144 addr=0x15b9ef00 zero_headers=0
+[W29-SCAN] seq=-2011 zeroed_weights=0
+[W28-STAGE] #12 10240x5120 addr=0x1487af00 zero_headers=0
+[W29-SCAN] seq=-2012 zeroed_weights=0
+[W28-STAGE] #13 6144x5120 addr=0x186cef00 zero_headers=0
+[W29-SCAN] seq=-2013 zeroed_weights=0
+[W28-STAGE] #14 5120x6144 addr=0x1924af00 zero_headers=0
+[W29-SCAN] seq=-2014 zeroed_weights=0
+[W28-STAGE] #15 10240x5120 addr=0x17f4ef00 zero_headers=0
+[W29-SCAN] seq=-2015 zeroed_weights=0
+[W28-STAGE] #16 6144x5120 addr=0x1b676f00 zero_headers=0
+[W29-SCAN] seq=-2016 zeroed_weights=0
+[W28-STAGE] #17 5120x6144 addr=0x1be72f00 zero_headers=0
+[W29-SCAN] seq=-2017 zeroed_weights=0
+[W28-STAGE] #18 10240x5120 addr=0x2004ef00 zero_headers=0
+[W29-SCAN] seq=-2018 zeroed_weights=0
+[W28-STAGE] #19 6144x5120 addr=0x1fb4ef00 zero_headers=0
+[W29-SCAN] seq=-2019 zeroed_weights=0
+[W28-STAGE] #20 5120x6144 addr=0x20e72f00 zero_headers=0
+[W29-SCAN] seq=-2020 zeroed_weights=0
+[W28-STAGE] #21 10240x5120 addr=0x1f3cef00 zero_headers=0
+[W29-SCAN] seq=-2021 zeroed_weights=0
+[W28-STAGE] #22 6144x5120 addr=0x231d6f00 zero_headers=0
+[W29-SCAN] seq=-2022 zeroed_weights=0
+[W28-STAGE] #23 5120x6144 addr=0x239d2f00 zero_headers=0
+[W29-SCAN] seq=-2023 zeroed_weights=0
+[W28-STAGE] #24 10240x5120 addr=0x22a56f00 zero_headers=0
+[W29-SCAN] seq=-2024 zeroed_weights=0
+[W28-STAGE] #25 6144x5120 addr=0x25d36f00 zero_headers=0
+[W29-SCAN] seq=-2025 zeroed_weights=0
+[W28-STAGE] #26 5120x6144 addr=0x26532f00 zero_headers=0
+[W29-SCAN] seq=-2026 zeroed_weights=0
+[W28-STAGE] #27 10240x5120 addr=0x2a646f00 zero_headers=0
+[W29-SCAN] seq=-2027 zeroed_weights=0
+[W28-STAGE] #28 6144x5120 addr=0x2a146f00 zero_headers=0
+[W29-SCAN] seq=-2028 zeroed_weights=0
+[W28-STAGE] #29 5120x6144 addr=0x2b46af00 zero_headers=0
+[W29-SCAN] seq=-2029 zeroed_weights=0
+[W28-STAGE] #30 10240x5120 addr=0x299c6f00 zero_headers=0
+[W29-SCAN] seq=-2030 zeroed_weights=0
+[W28-STAGE] #31 6144x5120 addr=0x2d7cef00 zero_headers=0
+[W29-SCAN] seq=-2031 zeroed_weights=0
+[W28-STAGE] #32 5120x6144 addr=0x2dfcaf00 zero_headers=0
+[W29-SCAN] seq=-2032 zeroed_weights=0
+[W28-STAGE] #33 10240x5120 addr=0x2d04ef00 zero_headers=0
+[W29-SCAN] seq=-2033 zeroed_weights=0
+[W28-STAGE] #34 6144x5120 addr=0x303f6f00 zero_headers=0
+[W29-SCAN] seq=-2034 zeroed_weights=0
+[W28-STAGE] #35 5120x6144 addr=0x30bf2f00 zero_headers=0
+[W29-SCAN] seq=-2035 zeroed_weights=0
+[W28-STAGE] #36 10240x5120 addr=0x34c3ef00 zero_headers=0
+[W29-SCAN] seq=-2036 zeroed_weights=0
+[W28-STAGE] #37 6144x5120 addr=0x3473ef00 zero_headers=0
+[W29-SCAN] seq=-2037 zeroed_weights=0
+[W28-STAGE] #38 5120x6144 addr=0x35a62f00 zero_headers=0
+[W29-SCAN] seq=-2038 zeroed_weights=0
+[W28-STAGE] #39 10240x5120 addr=0x33fbef00 zero_headers=0
+[W29-SCAN] seq=-2039 zeroed_weights=0
+[W28-STAGE] #40 6144x5120 addr=0x37e8ef00 zero_headers=0
+[W29-SCAN] seq=-2040 zeroed_weights=0
+[W28-STAGE] #41 5120x6144 addr=0x3868af00 zero_headers=0
+[W29-SCAN] seq=-2041 zeroed_weights=0
+[W28-STAGE] #42 10240x5120 addr=0x3770ef00 zero_headers=0
+[W29-SCAN] seq=-2042 zeroed_weights=0
+[W28-STAGE] #43 6144x5120 addr=0x3a9eef00 zero_headers=0
+[W29-SCAN] seq=-2043 zeroed_weights=0
+[W28-STAGE] #44 5120x6144 addr=0x3b1eaf00 zero_headers=0
+[W29-SCAN] seq=-2044 zeroed_weights=0
+[W28-STAGE] #45 10240x5120 addr=0x3f2fef00 zero_headers=0
+[W29-SCAN] seq=-2045 zeroed_weights=0
+[W28-STAGE] #46 6144x5120 addr=0x3edfef00 zero_headers=0
+[W29-SCAN] seq=-2046 zeroed_weights=0
+[W28-STAGE] #47 5120x6144 addr=0x40122f00 zero_headers=0
+[W29-SCAN] seq=-2047 zeroed_weights=0
+[W28-STAGE] #48 10240x5120 addr=0x3e67ef00 zero_headers=0
+[W29-SCAN] seq=-2048 zeroed_weights=0
+[W28-STAGE] #49 6144x5120 addr=0x42486f00 zero_headers=0
+[W29-SCAN] seq=-2049 zeroed_weights=0
+[W28-STAGE] #50 5120x6144 addr=0x42c82f00 zero_headers=0
+[W29-SCAN] seq=-2050 zeroed_weights=0
+[W28-STAGE] #51 10240x5120 addr=0x41d06f00 zero_headers=0
+[W29-SCAN] seq=-2051 zeroed_weights=0
+[W28-STAGE] #52 6144x5120 addr=0x44fe6f00 zero_headers=0
+[W29-SCAN] seq=-2052 zeroed_weights=0
+[W28-STAGE] #53 5120x6144 addr=0x457e2f00 zero_headers=0
+[W29-SCAN] seq=-2053 zeroed_weights=0
+[W28-STAGE] #54 10240x5120 addr=0x498f6f00 zero_headers=0
+[W29-SCAN] seq=-2054 zeroed_weights=0
+[W28-STAGE] #55 6144x5120 addr=0x493f6f00 zero_headers=0
+[W29-SCAN] seq=-2055 zeroed_weights=0
+[W28-STAGE] #56 5120x6144 addr=0x4a71af00 zero_headers=0
+[W29-SCAN] seq=-2056 zeroed_weights=0
+[W28-STAGE] #57 10240x5120 addr=0x48c76f00 zero_headers=0
+[W29-SCAN] seq=-2057 zeroed_weights=0
+[W28-STAGE] #58 6144x5120 addr=0x4ca7ef00 zero_headers=0
+[W29-SCAN] seq=-2058 zeroed_weights=0
+[W28-STAGE] #59 5120x6144 addr=0x4d27af00 zero_headers=0
+[W29-SCAN] seq=-2059 zeroed_weights=0
+[W28-STAGE] #60 10240x5120 addr=0x4c2fef00 zero_headers=0
+[W29-SCAN] seq=-2060 zeroed_weights=0
+[W28-STAGE] #61 6144x5120 addr=0x4f6a6f00 zero_headers=0
+[W29-SCAN] seq=-2061 zeroed_weights=0
+[W28-STAGE] #62 5120x6144 addr=0x4fea2f00 zero_headers=0
+[W29-SCAN] seq=-2062 zeroed_weights=0
+[W28-STAGE] #63 10240x5120 addr=0x53eeef00 zero_headers=0
+[W29-SCAN] seq=-2063 zeroed_weights=0
+[W28-STAGE] #64 6144x5120 addr=0x539eef00 zero_headers=0
+[W29-SCAN] seq=-2064 zeroed_weights=0
+[W28-STAGE] #65 5120x6144 addr=0x54d12f00 zero_headers=0
+[W29-SCAN] seq=-2065 zeroed_weights=0
+[W28-STAGE] #66 10240x5120 addr=0x5326ef00 zero_headers=0
+[W29-SCAN] seq=-2066 zeroed_weights=0
+[W28-STAGE] #67 6144x5120 addr=0x5713ef00 zero_headers=0
+[W29-SCAN] seq=-2067 zeroed_weights=0
+[W28-STAGE] #68 5120x6144 addr=0x5793af00 zero_headers=0
+[W29-SCAN] seq=-2068 zeroed_weights=0
+[W28-STAGE] #69 10240x5120 addr=0x569bef00 zero_headers=0
+[W29-SCAN] seq=-2069 zeroed_weights=0
+[W28-STAGE] #70 6144x5120 addr=0x59c9ef00 zero_headers=0
+[W29-SCAN] seq=-2070 zeroed_weights=0
+[W28-STAGE] #71 5120x6144 addr=0x5a49af00 zero_headers=0
+[W29-SCAN] seq=-2071 zeroed_weights=0
+[W28-STAGE] #72 10240x5120 addr=0x5e5aef00 zero_headers=0
+[W29-SCAN] seq=-2072 zeroed_weights=0
+[W28-STAGE] #73 6144x5120 addr=0x5e0aef00 zero_headers=0
+[W29-SCAN] seq=-2073 zeroed_weights=0
+[W28-STAGE] #74 5120x6144 addr=0x5f3d2f00 zero_headers=0
+[W29-SCAN] seq=-2074 zeroed_weights=0
+[W28-STAGE] #75 10240x5120 addr=0x5d92ef00 zero_headers=0
+[W29-SCAN] seq=-2075 zeroed_weights=0
+[W28-STAGE] #76 6144x5120 addr=0x61736f00 zero_headers=0
+[W29-SCAN] seq=-2076 zeroed_weights=0
+[W28-STAGE] #77 5120x6144 addr=0x61f32f00 zero_headers=0
+[W29-SCAN] seq=-2077 zeroed_weights=0
+[W28-STAGE] #78 10240x5120 addr=0x60fb6f00 zero_headers=0
+[W29-SCAN] seq=-2078 zeroed_weights=0
+[W28-STAGE] #79 6144x5120 addr=0x64296f00 zero_headers=0
+[W29-SCAN] seq=-2079 zeroed_weights=0
+[W28-STAGE] #80 5120x6144 addr=0x64a92f00 zero_headers=0
+[W29-SCAN] seq=-2080 zeroed_weights=0
+[W28-STAGE] #81 10240x5120 addr=0x68ba6f00 zero_headers=0
+[W29-SCAN] seq=-2081 zeroed_weights=0
+[W28-STAGE] #82 6144x5120 addr=0x686a6f00 zero_headers=0
+[W29-SCAN] seq=-2082 zeroed_weights=0
+[W28-STAGE] #83 5120x6144 addr=0x699caf00 zero_headers=0
+[W29-SCAN] seq=-2083 zeroed_weights=0
+[W28-STAGE] #84 10240x5120 addr=0x67f26f00 zero_headers=0
+[W29-SCAN] seq=-2084 zeroed_weights=0
+[W28-STAGE] #85 6144x5120 addr=0x6bd2ef00 zero_headers=0
+[W29-SCAN] seq=-2085 zeroed_weights=0
+[W28-STAGE] #86 5120x6144 addr=0x6c52af00 zero_headers=0
+[W29-SCAN] seq=-2086 zeroed_weights=0
+[W28-STAGE] #87 10240x5120 addr=0x6b5aef00 zero_headers=0
+[W29-SCAN] seq=-2087 zeroed_weights=0
+[W28-STAGE] #88 6144x5120 addr=0x6e956f00 zero_headers=0
+[W29-SCAN] seq=-2088 zeroed_weights=0
+[W28-STAGE] #89 5120x6144 addr=0x6f152f00 zero_headers=0
+[W29-SCAN] seq=-2089 zeroed_weights=0
+[W28-STAGE] #90 10240x5120 addr=0x7319ef00 zero_headers=0
+[W29-SCAN] seq=-2090 zeroed_weights=0
+[W28-STAGE] #91 6144x5120 addr=0x72c9ef00 zero_headers=0
+[W29-SCAN] seq=-2091 zeroed_weights=0
+[W28-STAGE] #92 5120x6144 addr=0x73fc2f00 zero_headers=0
+[W29-SCAN] seq=-2092 zeroed_weights=0
+[W28-STAGE] #93 10240x5120 addr=0x7251ef00 zero_headers=0
+[W29-SCAN] seq=-2093 zeroed_weights=0
+[W28-STAGE] #94 6144x5120 addr=0x763eef00 zero_headers=0
+[W29-SCAN] seq=-2094 zeroed_weights=0
+[W28-STAGE] #95 5120x6144 addr=0x76beaf00 zero_headers=0
+[W29-SCAN] seq=-2095 zeroed_weights=0
+[W28-STAGE] #96 10240x5120 addr=0x75c6ef00 zero_headers=0
+[W29-SCAN] seq=-2096 zeroed_weights=0
+[W28-STAGE] #97 6144x5120 addr=0x78f4ef00 zero_headers=0
+[W29-SCAN] seq=-2097 zeroed_weights=0
+[W28-STAGE] #98 5120x6144 addr=0x7974af00 zero_headers=0
+[W29-SCAN] seq=-2098 zeroed_weights=0
+[W28-STAGE] #99 10240x5120 addr=0x7d85ef00 zero_headers=0
+[W29-SCAN] seq=-2099 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] #100 6144x5120 addr=0x7d35ef00 zero_headers=0
+[W29-SCAN] seq=-2100 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] #101 5120x6144 addr=0x7e682f00 zero_headers=0
+[W29-SCAN] seq=-2101 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] #102 10240x5120 addr=0x7cbdef00 zero_headers=0
+[W29-SCAN] seq=-2102 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] #103 6144x5120 addr=0x809e6f00 zero_headers=0
+[W29-SCAN] seq=-2103 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] #104 5120x6144 addr=0x811e2f00 zero_headers=0
+[W29-SCAN] seq=-2104 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] #105 10240x5120 addr=0x80266f00 zero_headers=0
+[W29-SCAN] seq=-2105 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] #106 6144x5120 addr=0x83546f00 zero_headers=0
+[W29-SCAN] seq=-2106 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] #107 5120x6144 addr=0x83d42f00 zero_headers=0
+[W29-SCAN] seq=-2107 zeroed_weights=1 0x231d6f00:8
+[W28-STAGE] #108 10240x5120 addr=0x87e56f00 zero_headers=0
+[W29-SCAN] seq=-2108 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #109 6144x5120 addr=0x87956f00 zero_headers=0
+[W29-SCAN] seq=-2109 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #110 5120x6144 addr=0x88c7af00 zero_headers=0
+[W29-SCAN] seq=-2110 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #111 10240x5120 addr=0x871d6f00 zero_headers=0
+[W29-SCAN] seq=-2111 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #112 6144x5120 addr=0x8afdef00 zero_headers=0
+[W29-SCAN] seq=-2112 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #113 5120x6144 addr=0x8b7daf00 zero_headers=0
+[W29-SCAN] seq=-2113 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #114 10240x5120 addr=0x8a85ef00 zero_headers=0
+[W29-SCAN] seq=-2114 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #115 6144x5120 addr=0x8dc06f00 zero_headers=0
+[W29-SCAN] seq=-2115 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #116 5120x6144 addr=0x8e402f00 zero_headers=0
+[W29-SCAN] seq=-2116 zeroed_weights=2 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #117 10240x5120 addr=0x9244ef00 zero_headers=0
+[W29-SCAN] seq=-2117 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #118 6144x5120 addr=0x91f4ef00 zero_headers=0
+[W29-SCAN] seq=-2118 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #119 5120x6144 addr=0x93272f00 zero_headers=0
+[W29-SCAN] seq=-2119 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #120 10240x5120 addr=0x917cef00 zero_headers=0
+[W29-SCAN] seq=-2120 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #121 6144x5120 addr=0x9569ef00 zero_headers=0
+[W29-SCAN] seq=-2121 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #122 5120x6144 addr=0x95e9af00 zero_headers=0
+[W29-SCAN] seq=-2122 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #123 10240x5120 addr=0x94f1ef00 zero_headers=0
+[W29-SCAN] seq=-2123 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #124 6144x5120 addr=0x981fef00 zero_headers=0
+[W29-SCAN] seq=-2124 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #125 5120x6144 addr=0x989faf00 zero_headers=0
+[W29-SCAN] seq=-2125 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #126 10240x5120 addr=0x9cb0ef00 zero_headers=0
+[W29-SCAN] seq=-2126 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #127 6144x5120 addr=0x9c60ef00 zero_headers=0
+[W29-SCAN] seq=-2127 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #128 5120x6144 addr=0x9d932f00 zero_headers=0
+[W29-SCAN] seq=-2128 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #129 10240x5120 addr=0x9be8ef00 zero_headers=0
+[W29-SCAN] seq=-2129 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #130 6144x5120 addr=0x9fd5ef00 zero_headers=0
+[W29-SCAN] seq=-2130 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #131 5120x6144 addr=0xa055af00 zero_headers=0
+[W29-SCAN] seq=-2131 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #132 10240x5120 addr=0x9f5def00 zero_headers=0
+[W29-SCAN] seq=-2132 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #133 6144x5120 addr=0xa2986f00 zero_headers=0
+[W29-SCAN] seq=-2133 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #134 5120x6144 addr=0xa3182f00 zero_headers=0
+[W29-SCAN] seq=-2134 zeroed_weights=3 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #135 10240x5120 addr=0xa735ef00 zero_headers=0
+[W29-SCAN] seq=-2135 zeroed_weights=4 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #136 6144x5120 addr=0xa6e5ef00 zero_headers=0
+[W29-SCAN] seq=-2136 zeroed_weights=4 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #137 5120x6144 addr=0xa8182f00 zero_headers=0
+[W29-SCAN] seq=-2137 zeroed_weights=4 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #138 10240x5120 addr=0xa66def00 zero_headers=0
+[W29-SCAN] seq=-2138 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #139 6144x5120 addr=0xaa5aef00 zero_headers=0
+[W29-SCAN] seq=-2139 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #140 5120x6144 addr=0xaadaaf00 zero_headers=0
+[W29-SCAN] seq=-2140 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #141 10240x5120 addr=0xa9e2ef00 zero_headers=0
+[W29-SCAN] seq=-2141 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #142 6144x5120 addr=0xad1d6f00 zero_headers=0
+[W29-SCAN] seq=-2142 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #143 5120x6144 addr=0xad9d2f00 zero_headers=0
+[W29-SCAN] seq=-2143 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #144 5120x25600 addr=0xbaf42f00 zero_headers=0
+[W29-SCAN] seq=-2144 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #145 1024x5120 addr=0x4931af00 zero_headers=0
+[W29-SCAN] seq=-2145 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #146 1024x5120 addr=0x497f2f00 zero_headers=0
+[W29-SCAN] seq=-2146 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #147 1024x5120 addr=0x4a26af00 zero_headers=0
+[W29-SCAN] seq=-2147 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #148 1024x5120 addr=0x4c9a2f00 zero_headers=0
+[W29-SCAN] seq=-2148 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #149 1024x5120 addr=0x53912f00 zero_headers=0
+[W29-SCAN] seq=-2149 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #150 1024x5120 addr=0x53deaf00 zero_headers=0
+[W29-SCAN] seq=-2150 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #151 1024x5120 addr=0x54862f00 zero_headers=0
+[W29-SCAN] seq=-2151 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #152 1024x5120 addr=0x57062f00 zero_headers=0
+[W29-SCAN] seq=-2152 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #153 1024x5120 addr=0x4f586f00 zero_headers=0
+[W29-SCAN] seq=-2153 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #154 1024x5120 addr=0x5dfd2f00 zero_headers=0
+[W29-SCAN] seq=-2154 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-STAGE] #155 1280x5120 addr=0x59b64f00 zero_headers=0
+[W29-SCAN] seq=-2155 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W29-SCAN] seq=0 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #0 addr=0x59b64f00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] #0 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #156 6144x5120 addr=0xb9782f00 zero_headers=0
+[W29-SCAN] seq=-2156 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #1 addr=0xb9782f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #1 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #157 5120x4096 addr=0xa7a02f00 zero_headers=0
+[W29-SCAN] seq=-2157 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #2 addr=0xa7a02f00 size=22282240 page=1088 pages=20480 banks=8 blocks=1
+[W28-CANARY] #2 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #158 1280x5120 addr=0x5e4aaf00 zero_headers=0
+[W29-SCAN] seq=-2158 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #3 addr=0x5e4aaf00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] #3 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #159 34816x5120 addr=0xbea5cf00 zero_headers=0
+[W29-SCAN] seq=-2159 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #4 addr=0xbea5cf00 size=189399040 page=1088 pages=174080 banks=8 blocks=1
+[W28-CANARY] #4 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #160 5120x17408 addr=0xb9b7ef00 zero_headers=0
+[W29-SCAN] seq=-2160 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #5 addr=0xb9b7ef00 size=94699520 page=1088 pages=87040 banks=8 blocks=1
+[W28-CANARY] #5 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #161 1280x5120 addr=0x6165af00 zero_headers=0
+[W29-SCAN] seq=-2161 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #6 addr=0x6165af00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] #6 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #162 6144x5120 addr=0xba6c8f00 zero_headers=0
+[W29-SCAN] seq=-2162 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #7 addr=0xba6c8f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #7 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #163 5120x4096 addr=0xbaac4f00 zero_headers=0
+[W29-SCAN] seq=-2163 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #8 addr=0xbaac4f00 size=22282240 page=1088 pages=20480 banks=8 blocks=1
+[W28-CANARY] #8 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #164 1280x5120 addr=0x685caf00 zero_headers=0
+[W29-SCAN] seq=-2164 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #9 addr=0x685caf00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] #9 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #165 34816x5120 addr=0xc00f0f00 zero_headers=0
+[W29-SCAN] seq=-2165 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #10 addr=0xc00f0f00 size=189399040 page=1088 pages=174080 banks=8 blocks=1
+[W28-CANARY] #10 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #166 5120x17408 addr=0xbd51cf00 zero_headers=0
+[W29-SCAN] seq=-2166 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #11 addr=0xbd51cf00 size=94699520 page=1088 pages=87040 banks=8 blocks=1
+[W28-CANARY] #11 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #167 1280x5120 addr=0x68aa2f00 zero_headers=0
+[W29-SCAN] seq=-2167 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #12 addr=0x68aa2f00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] #12 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #168 6144x5120 addr=0xbbfdcf00 zero_headers=0
+[W29-SCAN] seq=-2168 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #13 addr=0xbbfdcf00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #13 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #169 5120x4096 addr=0xbc3d8f00 zero_headers=0
+[W29-SCAN] seq=-2169 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #14 addr=0xbc3d8f00 size=22282240 page=1088 pages=20480 banks=8 blocks=1
+[W28-CANARY] #14 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #170 1280x5120 addr=0x6bc52f00 zero_headers=0
+[W29-SCAN] seq=-2170 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #15 addr=0x6bc52f00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] #15 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #171 34816x5120 addr=0xc4204f00 zero_headers=0
+[W29-SCAN] seq=-2171 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #16 addr=0xc4204f00 size=189399040 page=1088 pages=174080 banks=8 blocks=1
+[W28-CANARY] #16 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #172 5120x17408 addr=0xbc680f00 zero_headers=0
+[W29-SCAN] seq=-2172 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #17 addr=0xbc680f00 size=94699520 page=1088 pages=87040 banks=8 blocks=1
+[W28-CANARY] #17 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #173 1280x5120 addr=0x6e776f00 zero_headers=0
+[W29-SCAN] seq=-2173 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #18 addr=0x6e776f00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] #18 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #174 6144x5120 addr=0xbe066f00 zero_headers=0
+[W29-SCAN] seq=-2174 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #19 addr=0xbe066f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #19 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #175 5120x4096 addr=0xbd1caf00 zero_headers=0
+[W29-SCAN] seq=-2175 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #20 addr=0xbd1caf00 size=22282240 page=1088 pages=20480 banks=8 blocks=1
+[W28-CANARY] #20 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #176 1280x5120 addr=0x6e84b700 zero_headers=0
+[W29-SCAN] seq=-2176 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #21 addr=0x6e84b700 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] #21 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #177 34816x5120 addr=0xc5898f00 zero_headers=0
+[W29-SCAN] seq=-2177 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #22 addr=0xc5898f00 size=189399040 page=1088 pages=174080 banks=8 blocks=1
+[W28-CANARY] #22 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #178 5120x17408 addr=0xc2cc4f00 zero_headers=0
+[W29-SCAN] seq=-2178 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #23 addr=0xc2cc4f00 size=94699520 page=1088 pages=87040 banks=8 blocks=1
+[W28-CANARY] #23 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #179 1280x5120 addr=0x72bc2f00 zero_headers=0
+[W29-SCAN] seq=-2179 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #24 addr=0x72bc2f00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] #24 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #180 6144x5120 addr=0xbe462f00 zero_headers=0
+[W29-SCAN] seq=-2180 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #25 addr=0xbe462f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #25 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #181 5120x4096 addr=0xc1784f00 zero_headers=0
+[W29-SCAN] seq=-2181 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #26 addr=0xc1784f00 size=22282240 page=1088 pages=20480 banks=8 blocks=1
+[W28-CANARY] #26 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #182 1280x5120 addr=0x7309af00 zero_headers=0
+[W29-SCAN] seq=-2182 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #27 addr=0x7309af00 size=6963200 page=1088 pages=6400 banks=8 blocks=1
+[W28-CANARY] #27 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #183 34816x5120 addr=0xc99acf00 zero_headers=0
+[W29-SCAN] seq=-2183 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #28 addr=0xc99acf00 size=189399040 page=1088 pages=174080 banks=8 blocks=1
+[W28-CANARY] #28 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W28-STAGE] #184 5120x17408 addr=0xc1a2cf00 zero_headers=0
+[W29-SCAN] seq=-2184 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #29 addr=0xc1a2cf00 size=94699520 page=1088 pages=87040 banks=8 blocks=1
+[W28-CANARY] #29 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #0 addr=0xacaaf00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #30 addr=0xacaaf00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #30 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #1 addr=0xa7aaf00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] #31 addr=0xa7aaf00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #31 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #2 addr=0xbacef00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #32 addr=0xbacef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #32 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #3 addr=0xa02af00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #33 addr=0xa02af00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #33 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #4 addr=0xdefaf00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] #34 addr=0xdefaf00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #34 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #5 addr=0xe6f6f00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #35 addr=0xe6f6f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #35 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #6 addr=0xd77af00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #36 addr=0xd77af00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #36 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #7 addr=0x10b22f00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] #37 addr=0x10b22f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #37 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #8 addr=0x1131ef00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #38 addr=0x1131ef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #38 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #9 addr=0x154faf00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #39 addr=0x154faf00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #39 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #10 addr=0x14ffaf00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] #40 addr=0x14ffaf00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #40 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #11 addr=0x15b9ef00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #41 addr=0x15b9ef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #41 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #12 addr=0x1487af00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #42 addr=0x1487af00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #42 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #13 addr=0x186cef00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] #43 addr=0x186cef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #43 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #14 addr=0x1924af00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #44 addr=0x1924af00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #44 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #15 addr=0x17f4ef00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #45 addr=0x17f4ef00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #45 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #16 addr=0x1b676f00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] #46 addr=0x1b676f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #46 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #17 addr=0x1be72f00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #47 addr=0x1be72f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #47 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #18 addr=0x2004ef00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #48 addr=0x2004ef00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #48 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #19 addr=0x1fb4ef00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] #49 addr=0x1fb4ef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #49 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #20 addr=0x20e72f00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #50 addr=0x20e72f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #50 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #21 addr=0x1f3cef00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #51 addr=0x1f3cef00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #51 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #22 addr=0x231d6f00 rows=6144 cols=5120 zero_banks=8
+[W28-CANARY] #52 addr=0x231d6f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #52 pre=8 post=8 probe_zero=1/8 verdict=ARRIVED-ZEROED capture_hit=0
+[W28-STAGE] #185 6144x5120 addr=0x20a72f00 zero_headers=0
+[W28-DIFF] #52 diff=512 hdr=512 data=0 diff_zero=512 range=[0x0,0x1dff] page=1088 capture_hit=0
+[W28-CANARY] #52 raw dumps (clobbered/clean 1MiB) -> /tmp/tt-w31-canary
+[W29-SERVE] #23 addr=0x239d2f00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #53 addr=0x239d2f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #53 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #24 addr=0x22a56f00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #54 addr=0x22a56f00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #54 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #25 addr=0x25d36f00 rows=6144 cols=5120 zero_banks=0
+[W28-CANARY] #55 addr=0x25d36f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #55 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #26 addr=0x26532f00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #56 addr=0x26532f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #56 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #27 addr=0x2a646f00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #57 addr=0x2a646f00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #57 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #28 addr=0x2a146f00 rows=6144 cols=5120 zero_banks=8
+[W28-CANARY] #58 addr=0x2a146f00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #58 pre=8 post=8 probe_zero=1/8 verdict=ARRIVED-ZEROED capture_hit=0
+[W28-STAGE] #186 6144x5120 addr=0x26132f00 zero_headers=0
+[W28-DIFF] #58 diff=512 hdr=512 data=0 diff_zero=512 range=[0x0,0x1dff] page=1088 capture_hit=0
+[W28-CANARY] #58 raw dumps (clobbered/clean 1MiB) -> /tmp/tt-w31-canary
+[W29-SERVE] #29 addr=0x2b46af00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #59 addr=0x2b46af00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #59 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #30 addr=0x299c6f00 rows=10240 cols=5120 zero_banks=0
+[W28-CANARY] #60 addr=0x299c6f00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #60 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #31 addr=0x2d7cef00 rows=6144 cols=5120 zero_banks=8
+[W28-CANARY] #61 addr=0x2d7cef00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #61 pre=8 post=8 probe_zero=1/8 verdict=ARRIVED-ZEROED capture_hit=0
+[W28-STAGE] #187 6144x5120 addr=0x2b064f00 zero_headers=0
+[W28-DIFF] #61 diff=512 hdr=512 data=0 diff_zero=512 range=[0x0,0x1dff] page=1088 capture_hit=0
+[W28-CANARY] #61 raw dumps (clobbered/clean 1MiB) -> /tmp/tt-w31-canary
+[W29-SERVE] #32 addr=0x2dfcaf00 rows=5120 cols=6144 zero_banks=0
+[W28-CANARY] #62 addr=0x2dfcaf00 size=33423360 page=1088 pages=30720 banks=8 blocks=1
+[W28-CANARY] #62 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #33 addr=0x2d04ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SCAN] seq=63 zeroed_weights=5 0x3a9eef00:8 0x3473ef00:8 0x2d7cef00:8 0x2a146f00:8 0x231d6f00:8
+[W28-CANARY] #63 addr=0x2d04ef00 size=55705600 page=1088 pages=51200 banks=8 blocks=1
+[W28-CANARY] #63 pre=0 post=0 probe_zero=0/8 verdict=clean capture_hit=0
+[W29-SERVE] #34 addr=0x303f6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #35 addr=0x30bf2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #36 addr=0x34c3ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #37 addr=0x3473ef00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] #38 addr=0x35a62f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #39 addr=0x33fbef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #40 addr=0x37e8ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #41 addr=0x3868af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #42 addr=0x3770ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #43 addr=0x3a9eef00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] #44 addr=0x3b1eaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #45 addr=0x3f2fef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #46 addr=0x3edfef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #47 addr=0x40122f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #48 addr=0x3e67ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #49 addr=0x42486f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #50 addr=0x42c82f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #51 addr=0x41d06f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #52 addr=0x44fe6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #53 addr=0x457e2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #54 addr=0x498f6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #55 addr=0x493f6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #56 addr=0x4a71af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #57 addr=0x48c76f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #58 addr=0x4ca7ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #59 addr=0x4d27af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #60 addr=0x4c2fef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #61 addr=0x4f6a6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #62 addr=0x4fea2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #63 addr=0x53eeef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #64 addr=0x539eef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #65 addr=0x54d12f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #66 addr=0x5326ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #67 addr=0x5713ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #68 addr=0x5793af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #69 addr=0x569bef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #70 addr=0x59c9ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #71 addr=0x5a49af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #72 addr=0x5e5aef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #73 addr=0x5e0aef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #74 addr=0x5f3d2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #75 addr=0x5d92ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #76 addr=0x61736f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #77 addr=0x61f32f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #78 addr=0x60fb6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #79 addr=0x64296f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #80 addr=0x64a92f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #81 addr=0x68ba6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #82 addr=0x686a6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #83 addr=0x699caf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #84 addr=0x67f26f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #85 addr=0x6bd2ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #86 addr=0x6c52af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #87 addr=0x6b5aef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #88 addr=0x6e956f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #89 addr=0x6f152f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #90 addr=0x7319ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #91 addr=0x72c9ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #92 addr=0x73fc2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #93 addr=0x7251ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #94 addr=0x763eef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #95 addr=0x76beaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #96 addr=0x75c6ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #97 addr=0x78f4ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #98 addr=0x7974af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #99 addr=0x7d85ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #100 addr=0x7d35ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #101 addr=0x7e682f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #102 addr=0x7cbdef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #103 addr=0x809e6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #104 addr=0x811e2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #105 addr=0x80266f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #106 addr=0x83546f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #107 addr=0x83d42f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #108 addr=0x87e56f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #109 addr=0x87956f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #110 addr=0x88c7af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #111 addr=0x871d6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #112 addr=0x8afdef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #113 addr=0x8b7daf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #114 addr=0x8a85ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #115 addr=0x8dc06f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #116 addr=0x8e402f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #117 addr=0x9244ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #118 addr=0x91f4ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #119 addr=0x93272f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #120 addr=0x917cef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #121 addr=0x9569ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #122 addr=0x95e9af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #123 addr=0x94f1ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #124 addr=0x981fef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #125 addr=0x989faf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #126 addr=0x9cb0ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #127 addr=0x9c60ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #128 addr=0x9d932f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #129 addr=0x9be8ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #130 addr=0x9fd5ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #131 addr=0xa055af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #132 addr=0x9f5def00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #133 addr=0xa2986f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #134 addr=0xa3182f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #135 addr=0xa735ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #136 addr=0xa6e5ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #137 addr=0xa8182f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #138 addr=0xa66def00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #139 addr=0xaa5aef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #140 addr=0xaadaaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #141 addr=0xa9e2ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #142 addr=0xad1d6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #143 addr=0xad9d2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #144 addr=0xbaf42f00 rows=5120 cols=25600 zero_banks=0
+[W29-SERVE] #145 addr=0x4931af00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] #146 addr=0x497f2f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] #147 addr=0x4a26af00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] #148 addr=0x4c9a2f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] #149 addr=0x53912f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] #150 addr=0x53deaf00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] #151 addr=0x54862f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] #152 addr=0x57062f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] #153 addr=0x4f586f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] #154 addr=0x5dfd2f00 rows=1024 cols=5120 zero_banks=0
+[W29-SERVE] #155 addr=0x59b64f00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] #156 addr=0xb9782f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #157 addr=0xa7a02f00 rows=5120 cols=4096 zero_banks=0
+[W29-SERVE] #158 addr=0x5e4aaf00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] #159 addr=0xbea5cf00 rows=34816 cols=5120 zero_banks=0
+[W29-SERVE] #160 addr=0xb9b7ef00 rows=5120 cols=17408 zero_banks=0
+[W29-SERVE] #161 addr=0x6165af00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] #162 addr=0xba6c8f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #163 addr=0xbaac4f00 rows=5120 cols=4096 zero_banks=0
+[W29-SERVE] #164 addr=0x685caf00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] #165 addr=0xc00f0f00 rows=34816 cols=5120 zero_banks=0
+[W29-SERVE] #166 addr=0xbd51cf00 rows=5120 cols=17408 zero_banks=0
+[W29-SERVE] #167 addr=0x68aa2f00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] #168 addr=0xbbfdcf00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #169 addr=0xbc3d8f00 rows=5120 cols=4096 zero_banks=0
+[W29-SERVE] #170 addr=0x6bc52f00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] #171 addr=0xc4204f00 rows=34816 cols=5120 zero_banks=0
+[W29-SERVE] #172 addr=0xbc680f00 rows=5120 cols=17408 zero_banks=0
+[W29-SERVE] #173 addr=0x6e776f00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] #174 addr=0xbe066f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #175 addr=0xbd1caf00 rows=5120 cols=4096 zero_banks=0
+[W29-SERVE] #176 addr=0x6e84b700 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] #177 addr=0xc5898f00 rows=34816 cols=5120 zero_banks=0
+[W29-SERVE] #178 addr=0xc2cc4f00 rows=5120 cols=17408 zero_banks=0
+[W29-SERVE] #179 addr=0x72bc2f00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] #180 addr=0xbe462f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #181 addr=0xc1784f00 rows=5120 cols=4096 zero_banks=0
+[W29-SERVE] #182 addr=0x7309af00 rows=1280 cols=5120 zero_banks=0
+[W29-SERVE] #183 addr=0xc99acf00 rows=34816 cols=5120 zero_banks=0
+[W29-SERVE] #184 addr=0xc1a2cf00 rows=5120 cols=17408 zero_banks=0
+[W29-SERVE] #185 addr=0xacaaf00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #186 addr=0xa7aaf00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #187 addr=0xbacef00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #188 addr=0xa02af00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #189 addr=0xdefaf00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #190 addr=0xe6f6f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #191 addr=0xd77af00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #192 addr=0x10b22f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #193 addr=0x1131ef00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #194 addr=0x154faf00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #195 addr=0x14ffaf00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #196 addr=0x15b9ef00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #197 addr=0x1487af00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #198 addr=0x186cef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #199 addr=0x1924af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #200 addr=0x17f4ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #201 addr=0x1b676f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #202 addr=0x1be72f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #203 addr=0x2004ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #204 addr=0x1fb4ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #205 addr=0x20e72f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #206 addr=0x1f3cef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #207 addr=0x231d6f00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] #208 addr=0x239d2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #209 addr=0x22a56f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #210 addr=0x25d36f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #211 addr=0x26532f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #212 addr=0x2a646f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #213 addr=0x2a146f00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] #214 addr=0x2b46af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #215 addr=0x299c6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #216 addr=0x2d7cef00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] #217 addr=0x2dfcaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #218 addr=0x2d04ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #219 addr=0x303f6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #220 addr=0x30bf2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #221 addr=0x34c3ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #222 addr=0x3473ef00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] #223 addr=0x35a62f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #224 addr=0x33fbef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #225 addr=0x37e8ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #226 addr=0x3868af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #227 addr=0x3770ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #228 addr=0x3a9eef00 rows=6144 cols=5120 zero_banks=8
+[W29-SERVE] #229 addr=0x3b1eaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #230 addr=0x3f2fef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #231 addr=0x3edfef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #232 addr=0x40122f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #233 addr=0x3e67ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #234 addr=0x42486f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #235 addr=0x42c82f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #236 addr=0x41d06f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #237 addr=0x44fe6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #238 addr=0x457e2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #239 addr=0x498f6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #240 addr=0x493f6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #241 addr=0x4a71af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #242 addr=0x48c76f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #243 addr=0x4ca7ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #244 addr=0x4d27af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #245 addr=0x4c2fef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #246 addr=0x4f6a6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #247 addr=0x4fea2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #248 addr=0x53eeef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #249 addr=0x539eef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #250 addr=0x54d12f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #251 addr=0x5326ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #252 addr=0x5713ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #253 addr=0x5793af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #254 addr=0x569bef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #255 addr=0x59c9ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #256 addr=0x5a49af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #257 addr=0x5e5aef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #258 addr=0x5e0aef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #259 addr=0x5f3d2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #260 addr=0x5d92ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #261 addr=0x61736f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #262 addr=0x61f32f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #263 addr=0x60fb6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #264 addr=0x64296f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #265 addr=0x64a92f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #266 addr=0x68ba6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #267 addr=0x686a6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #268 addr=0x699caf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #269 addr=0x67f26f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #270 addr=0x6bd2ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #271 addr=0x6c52af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #272 addr=0x6b5aef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #273 addr=0x6e956f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #274 addr=0x6f152f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #275 addr=0x7319ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #276 addr=0x72c9ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #277 addr=0x73fc2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #278 addr=0x7251ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #279 addr=0x763eef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #280 addr=0x76beaf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #281 addr=0x75c6ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #282 addr=0x78f4ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #283 addr=0x7974af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #284 addr=0x7d85ef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #285 addr=0x7d35ef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #286 addr=0x7e682f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #287 addr=0x7cbdef00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #288 addr=0x809e6f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #289 addr=0x811e2f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #290 addr=0x80266f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #291 addr=0x83546f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #292 addr=0x83d42f00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #293 addr=0x87e56f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #294 addr=0x87956f00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #295 addr=0x88c7af00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #296 addr=0x871d6f00 rows=10240 cols=5120 zero_banks=0
+[W29-SERVE] #297 addr=0x8afdef00 rows=6144 cols=5120 zero_banks=0
+[W29-SERVE] #298 addr=0x8b7daf00 rows=5120 cols=6144 zero_banks=0
+[W29-SERVE] #299 addr=0x8a85ef00 rows=10240 cols=5120 zero_banks=0

@@ -1,0 +1,26 @@
+victims: #52 base=0x231d6f00, #58 base=0x2a146f00, #61 base=0x2d7cef00
+
+=== victim #52 base=0x231d6f00 — TA lines with addr==base ===
+  line 1436: kernel=writer param=output
+  line 1442: kernel=in1_sender_writer param=in1
+  line 20750: kernel=in1_sender_writer param=in1
+  line 80026: kernel=in1_sender_writer param=in1
+  line 138299: kernel=in1_sender_writer param=in1
+
+=== victim #58 base=0x2a146f00 — TA lines with addr==base ===
+  line 1939: kernel=writer param=output
+  line 1945: kernel=in1_sender_writer param=in1
+  line 23251: kernel=in1_sender_writer param=in1
+  line 82460: kernel=in1_sender_writer param=in1
+  line 140727: kernel=in1_sender_writer param=in1
+
+=== victim #61 base=0x2d7cef00 — TA lines with addr==base ===
+  line 2125: kernel=writer param=output
+  line 2131: kernel=in1_sender_writer param=in1
+  line 24381: kernel=in1_sender_writer param=in1
+  line 83553: kernel=in1_sender_writer param=in1
+  line 141817: kernel=in1_sender_writer param=in1
+
+=== EMPTY-bindings kernels whose CRTA dump contains a victim base ===
+
+=== TT-RTA lines with an arg inside a victim window ===
