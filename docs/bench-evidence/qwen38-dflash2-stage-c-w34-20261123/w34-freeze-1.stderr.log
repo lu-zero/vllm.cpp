@@ -1,0 +1,566 @@
+vllm-bench: /mnt/models/unsloth-qwen3.8-27B-gguf/Qwen3.8-27B-Q4_K_M.gguf engine | num_prompts=1 input_len=32 output_len=12 concurrency=1 seed=0 temp=0.00 dataset=generated output_wait=poll kv_cache_dtype=auto ignore_eos=1 chat_template=skipped
+vllm.cpp: the draft checkpoint at "/mnt/models/qwen38-dflash2-drafter" declares architecture "DFlash2DraftModel". Its grouped dynamic depthwise convolution, its CANDIDATE SELECTOR and its PATH WALK are all implemented and will run, so this draft DRAFTS -- from safetensors and from GGUF alike (row SPEC-DFLASH2 waves W1-W5, .agents/specs/dflash2-spec-decode.md, issue #1314). Two things are still owed and neither is silent: a GGUF drafter is DEQUANTIZED wholesale to bf16 at load, so a k-quant draft costs its bf16 residency rather than its file size, and no throughput number has been taken for this architecture -- a DFlash2 draft runs its block forward off the paged CUDA-graph fast path, because the candidate selector needs the hidden states of the same forward its logits came from. This port mirrors vllm-project/vllm#52816, which MERGED upstream on 2026-08-21 at head 3406ec1dae9916f920b90f0dbf90dcf54923d042, merge commit b389ac29465b33f9e9c534df221ea3c129e9793f. It does not advance the parity pin, and the port is not yet reconciled onto that merged head (issue #1561).
+engine: device placement: --fit resolved NO placement: the model has no routed-expert layers, so a placement has nothing to move
+engine: qwen3.5 gguf: SKIPPING the MTP drafter head — 15 tensor(s), 289527808 B, none of them read by this trunk-only load: blk.64.attn_k.weight, blk.64.attn_k_norm.weight, blk.64.attn_norm.weight, blk.64.attn_output.weight, blk.64.attn_q.weight, blk.64.attn_q_norm.weight, blk.64.attn_v.weight, blk.64.ffn_down.weight, blk.64.ffn_gate.weight, blk.64.ffn_up.weight, blk.64.nextn.eh_proj.weight, blk.64.nextn.enorm.weight, blk.64.nextn.hnorm.weight, blk.64.nextn.shared_head_norm.weight, blk.64.post_attention_norm.weight. They are the multi-token-prediction head at blk.64 (block_count 65 = 64 trunk + 1 head); they load only when speculative decoding is configured (speculative-config method "mtp"). Denominator parity: the pinned llama.cpp b10451 oracle IGNORES these same tensors too (64 trunk layers, no MTP head; .agents/oracles/llama-cpp.md), so a gate against it is matched work only with this skip loud.
+vllm.cpp: DFlash2 draft: grouped conv taps=2 group=16 block=9
+vllm.cpp: DFlash draft loaded from safetensors /mnt/models/qwen38-dflash2-drafter (k=8, taps=5, mask=248070, vocab=248320, shared head from the GGUF target file)
+vllm.cpp: the draft checkpoint at "/mnt/models/qwen38-dflash2-drafter" declares architecture "DFlash2DraftModel". Its grouped dynamic depthwise convolution, its CANDIDATE SELECTOR and its PATH WALK are all implemented and will run, so this draft DRAFTS -- from safetensors and from GGUF alike (row SPEC-DFLASH2 waves W1-W5, .agents/specs/dflash2-spec-decode.md, issue #1314). Two things are still owed and neither is silent: a GGUF drafter is DEQUANTIZED wholesale to bf16 at load, so a k-quant draft costs its bf16 residency rather than its file size, and no throughput number has been taken for this architecture -- a DFlash2 draft runs its block forward off the paged CUDA-graph fast path, because the candidate selector needs the hidden states of the same forward its logits came from. This port mirrors vllm-project/vllm#52816, which MERGED upstream on 2026-08-21 at head 3406ec1dae9916f920b90f0dbf90dcf54923d042, merge commit b389ac29465b33f9e9c534df221ea3c129e9793f. It does not advance the parity pin, and the port is not yet reconciled onto that merged head (issue #1561).
+vllm.cpp: DFlash draft embed SHARED with the target (one device copy, 2542796800 B saved)
+vllm.cpp: DFlash draft head SHARED with the target (one device copy, 1042944000 B saved)
+INFO auto-fit max_model_len: reduced from 262144 to 576 to fit the KV cache (64 blocks, one of them the null block, shared by 3 KV cache groups). Raise --num-blocks / --kv-cache-memory for a longer context.
+vllm.cpp: DFlash draft weights staged to device at load (5 layers)
+vllm.cpp: VT_DFLASH_DRAFT=1 — the DFlash2 draft proposes through the DIRECT-ARGMAX arm (bundle dflash2.py has_selector=false): full-vocab argmax per block row, candidate selector NOT resident (~254 MB freed). The verify stays lossless (greedy accept = the target's argmax); only acceptance can differ from the selector arm.
+vllm.cpp: draft speculative context is limited to 592 tokens (37 pages x 16, 11.5625 MiB per concurrent request across 5 draft layers, so 11.5625 MiB of device memory at max_num_seqs 1 — NOT counted by gpu_memory_utilization). max_model_len is 576 and the (1+k) draft block needs 9 more, so the whole advertised context is speculated.
+vllm.cpp: Asynchronous scheduling is disabled (max_concurrent_batches=1)
+[W34-FREEZE] kept=0 addr=0xa02af00 bytes=104857600
+[W28-STAGE] #0 10240x5120 addr=0xacaaf00 zero_headers=0
+[W29-SCAN] seq=-2000 zeroed_weights=0
+[W34-FREEZE] kept=1 addr=0xb34ef00 bytes=62914560
+[W28-STAGE] #1 6144x5120 addr=0xbacef00 zero_headers=0
+[W29-SCAN] seq=-2001 zeroed_weights=0
+[W34-FREEZE] kept=2 addr=0xbecaf00 bytes=62914560
+[W28-STAGE] #2 5120x6144 addr=0xcdcaf00 zero_headers=0
+[W29-SCAN] seq=-2002 zeroed_weights=0
+[W34-FREEZE] kept=3 addr=0xea76f00 bytes=104857600
+[W28-STAGE] #3 10240x5120 addr=0xf6f6f00 zero_headers=0
+[W29-SCAN] seq=-2003 zeroed_weights=0
+[W34-FREEZE] kept=4 addr=0xfd9af00 bytes=62914560
+[W28-STAGE] #4 6144x5120 addr=0x1051af00 zero_headers=0
+[W29-SCAN] seq=-2004 zeroed_weights=0
+[W34-FREEZE] kept=5 addr=0x10916f00 bytes=62914560
+[W28-STAGE] #5 5120x6144 addr=0x11496f00 zero_headers=0
+[W29-SCAN] seq=-2005 zeroed_weights=0
+[W34-FREEZE] kept=6 addr=0x13142f00 bytes=104857600
+[W28-STAGE] #6 10240x5120 addr=0x13dc2f00 zero_headers=0
+[W29-SCAN] seq=-2006 zeroed_weights=0
+[W34-FREEZE] kept=7 addr=0x14466f00 bytes=62914560
+[W28-STAGE] #7 6144x5120 addr=0x14be6f00 zero_headers=0
+[W29-SCAN] seq=-2007 zeroed_weights=0
+[W34-FREEZE] kept=8 addr=0x14fe2f00 bytes=62914560
+[W28-STAGE] #8 5120x6144 addr=0x15b62f00 zero_headers=0
+[W29-SCAN] seq=-2008 zeroed_weights=0
+[W34-FREEZE] kept=9 addr=0x198e6f00 bytes=104857600
+[W28-STAGE] #9 10240x5120 addr=0x1a566f00 zero_headers=0
+[W29-SCAN] seq=-2009 zeroed_weights=0
+[W34-FREEZE] kept=10 addr=0x1ac0af00 bytes=62914560
+[W28-STAGE] #10 6144x5120 addr=0x1b38af00 zero_headers=0
+[W29-SCAN] seq=-2010 zeroed_weights=0
+[W34-FREEZE] kept=11 addr=0x1b786f00 bytes=62914560
+[W28-STAGE] #11 5120x6144 addr=0x1c686f00 zero_headers=0
+[W29-SCAN] seq=-2011 zeroed_weights=0
+[W34-FREEZE] kept=12 addr=0x1e332f00 bytes=104857600
+[W28-STAGE] #12 10240x5120 addr=0x1efb2f00 zero_headers=0
+[W29-SCAN] seq=-2012 zeroed_weights=0
+[W34-FREEZE] kept=13 addr=0x1f656f00 bytes=62914560
+[W28-STAGE] #13 6144x5120 addr=0x1fdd6f00 zero_headers=0
+[W29-SCAN] seq=-2013 zeroed_weights=0
+[W34-FREEZE] kept=14 addr=0x201d2f00 bytes=62914560
+[W28-STAGE] #14 5120x6144 addr=0x20d52f00 zero_headers=0
+[W29-SCAN] seq=-2014 zeroed_weights=0
+[W34-FREEZE] kept=15 addr=0x229fef00 bytes=104857600
+[W28-STAGE] #15 10240x5120 addr=0x2367ef00 zero_headers=0
+[W29-SCAN] seq=-2015 zeroed_weights=0
+[W34-FREEZE] kept=16 addr=0x23d22f00 bytes=62914560
+[W28-STAGE] #16 6144x5120 addr=0x244a2f00 zero_headers=0
+[W29-SCAN] seq=-2016 zeroed_weights=0
+[W34-FREEZE] kept=17 addr=0x2489ef00 bytes=62914560
+[W28-STAGE] #17 5120x6144 addr=0x2541ef00 zero_headers=0
+[W29-SCAN] seq=-2017 zeroed_weights=0
+[W34-FREEZE] kept=18 addr=0x28f1af00 bytes=104857600
+[W28-STAGE] #18 10240x5120 addr=0x29b9af00 zero_headers=0
+[W29-SCAN] seq=-2018 zeroed_weights=0
+[W34-FREEZE] kept=19 addr=0x2a23ef00 bytes=62914560
+[W28-STAGE] #19 6144x5120 addr=0x2a9bef00 zero_headers=0
+[W29-SCAN] seq=-2019 zeroed_weights=0
+[W34-FREEZE] kept=20 addr=0x2adbaf00 bytes=62914560
+[W28-STAGE] #20 5120x6144 addr=0x2b53af00 zero_headers=0
+[W29-SCAN] seq=-2020 zeroed_weights=0
+[W34-FREEZE] kept=21 addr=0x2d6a2f00 bytes=104857600
+[W28-STAGE] #21 10240x5120 addr=0x2e322f00 zero_headers=0
+[W29-SCAN] seq=-2021 zeroed_weights=0
+[W34-FREEZE] kept=22 addr=0x2e9c6f00 bytes=62914560
+[W28-STAGE] #22 6144x5120 addr=0x2f146f00 zero_headers=0
+[W29-SCAN] seq=-2022 zeroed_weights=0
+[W34-FREEZE] kept=23 addr=0x2f542f00 bytes=62914560
+[W28-STAGE] #23 5120x6144 addr=0x2fcc2f00 zero_headers=0
+[W29-SCAN] seq=-2023 zeroed_weights=0
+[W34-FREEZE] kept=24 addr=0x31e2af00 bytes=104857600
+[W28-STAGE] #24 10240x5120 addr=0x32aaaf00 zero_headers=0
+[W29-SCAN] seq=-2024 zeroed_weights=0
+[W34-FREEZE] kept=25 addr=0x3314ef00 bytes=62914560
+[W28-STAGE] #25 6144x5120 addr=0x338cef00 zero_headers=0
+[W29-SCAN] seq=-2025 zeroed_weights=0
+[W34-FREEZE] kept=26 addr=0x33ccaf00 bytes=62914560
+[W28-STAGE] #26 5120x6144 addr=0x3444af00 zero_headers=0
+[W29-SCAN] seq=-2026 zeroed_weights=0
+[W34-FREEZE] kept=27 addr=0x386d2f00 bytes=104857600
+[W28-STAGE] #27 10240x5120 addr=0x39352f00 zero_headers=0
+[W29-SCAN] seq=-2027 zeroed_weights=0
+[W34-FREEZE] kept=28 addr=0x399f6f00 bytes=62914560
+[W28-STAGE] #28 6144x5120 addr=0x3a176f00 zero_headers=0
+[W29-SCAN] seq=-2028 zeroed_weights=0
+[W34-FREEZE] kept=29 addr=0x3a572f00 bytes=62914560
+[W28-STAGE] #29 5120x6144 addr=0x3acf2f00 zero_headers=0
+[W29-SCAN] seq=-2029 zeroed_weights=0
+[W34-FREEZE] kept=30 addr=0x3ce5af00 bytes=104857600
+[W28-STAGE] #30 10240x5120 addr=0x3dadaf00 zero_headers=0
+[W29-SCAN] seq=-2030 zeroed_weights=0
+[W34-FREEZE] kept=31 addr=0x3e17ef00 bytes=62914560
+[W28-STAGE] #31 6144x5120 addr=0x3e8fef00 zero_headers=0
+[W29-SCAN] seq=-2031 zeroed_weights=0
+[W34-FREEZE] kept=32 addr=0x3ecfaf00 bytes=62914560
+[W28-STAGE] #32 5120x6144 addr=0x3f47af00 zero_headers=0
+[W29-SCAN] seq=-2032 zeroed_weights=0
+[W34-FREEZE] kept=33 addr=0x416aaf00 bytes=104857600
+[W28-STAGE] #33 10240x5120 addr=0x4232af00 zero_headers=0
+[W29-SCAN] seq=-2033 zeroed_weights=0
+[W34-FREEZE] kept=34 addr=0x429cef00 bytes=62914560
+[W28-STAGE] #34 6144x5120 addr=0x4314ef00 zero_headers=0
+[W29-SCAN] seq=-2034 zeroed_weights=0
+[W34-FREEZE] kept=35 addr=0x4354af00 bytes=62914560
+[W28-STAGE] #35 5120x6144 addr=0x43ccaf00 zero_headers=0
+[W29-SCAN] seq=-2035 zeroed_weights=0
+[W34-FREEZE] kept=36 addr=0x47e8af00 bytes=104857600
+[W28-STAGE] #36 10240x5120 addr=0x48b0af00 zero_headers=0
+[W29-SCAN] seq=-2036 zeroed_weights=0
+[W34-FREEZE] kept=37 addr=0x491aef00 bytes=62914560
+[W28-STAGE] #37 6144x5120 addr=0x4992ef00 zero_headers=0
+[W29-SCAN] seq=-2037 zeroed_weights=0
+[W34-FREEZE] kept=38 addr=0x49d2af00 bytes=62914560
+[W28-STAGE] #38 5120x6144 addr=0x4a4aaf00 zero_headers=0
+[W29-SCAN] seq=-2038 zeroed_weights=0
+[W34-FREEZE] kept=39 addr=0x4c6daf00 bytes=104857600
+[W28-STAGE] #39 10240x5120 addr=0x4d35af00 zero_headers=0
+[W29-SCAN] seq=-2039 zeroed_weights=0
+[W34-FREEZE] kept=40 addr=0x4d9fef00 bytes=62914560
+[W28-STAGE] #40 6144x5120 addr=0x4e17ef00 zero_headers=0
+[W29-SCAN] seq=-2040 zeroed_weights=0
+[W34-FREEZE] kept=41 addr=0x4e57af00 bytes=62914560
+[W28-STAGE] #41 5120x6144 addr=0x4ecfaf00 zero_headers=0
+[W29-SCAN] seq=-2041 zeroed_weights=0
+[W34-FREEZE] kept=42 addr=0x50e62f00 bytes=104857600
+[W28-STAGE] #42 10240x5120 addr=0x51ae2f00 zero_headers=0
+[W29-SCAN] seq=-2042 zeroed_weights=0
+[W34-FREEZE] kept=43 addr=0x52186f00 bytes=62914560
+[W28-STAGE] #43 6144x5120 addr=0x52906f00 zero_headers=0
+[W29-SCAN] seq=-2043 zeroed_weights=0
+[W34-FREEZE] kept=44 addr=0x52d02f00 bytes=62914560
+[W28-STAGE] #44 5120x6144 addr=0x53482f00 zero_headers=0
+[W29-SCAN] seq=-2044 zeroed_weights=0
+[W34-FREEZE] kept=45 addr=0x5770af00 bytes=104857600
+[W28-STAGE] #45 10240x5120 addr=0x5838af00 zero_headers=0
+[W29-SCAN] seq=-2045 zeroed_weights=0
+[W34-FREEZE] kept=46 addr=0x58a2ef00 bytes=62914560
+[W28-STAGE] #46 6144x5120 addr=0x591aef00 zero_headers=0
+[W29-SCAN] seq=-2046 zeroed_weights=0
+[W34-FREEZE] kept=47 addr=0x595aaf00 bytes=62914560
+[W28-STAGE] #47 5120x6144 addr=0x59d2af00 zero_headers=0
+[W29-SCAN] seq=-2047 zeroed_weights=0
+[W34-FREEZE] kept=48 addr=0x5be92f00 bytes=104857600
+[W28-STAGE] #48 10240x5120 addr=0x5cb12f00 zero_headers=0
+[W29-SCAN] seq=-2048 zeroed_weights=0
+[W34-FREEZE] kept=49 addr=0x5d1b6f00 bytes=62914560
+[W28-STAGE] #49 6144x5120 addr=0x5d936f00 zero_headers=0
+[W29-SCAN] seq=-2049 zeroed_weights=0
+[W34-FREEZE] kept=50 addr=0x5dd32f00 bytes=62914560
+[W28-STAGE] #50 5120x6144 addr=0x5e4b2f00 zero_headers=0
+[W29-SCAN] seq=-2050 zeroed_weights=0
+[W34-FREEZE] kept=51 addr=0x6061af00 bytes=104857600
+[W28-STAGE] #51 10240x5120 addr=0x6129af00 zero_headers=0
+[W29-SCAN] seq=-2051 zeroed_weights=0
+[W34-FREEZE] kept=52 addr=0x6193ef00 bytes=62914560
+[W28-STAGE] #52 6144x5120 addr=0x620bef00 zero_headers=0
+[W29-SCAN] seq=-2052 zeroed_weights=0
+[W34-FREEZE] kept=53 addr=0x624baf00 bytes=62914560
+[W28-STAGE] #53 5120x6144 addr=0x62c3af00 zero_headers=0
+[W29-SCAN] seq=-2053 zeroed_weights=0
+[W34-FREEZE] kept=54 addr=0x66ec2f00 bytes=104857600
+[W28-STAGE] #54 10240x5120 addr=0x67b42f00 zero_headers=0
+[W29-SCAN] seq=-2054 zeroed_weights=0
+[W34-FREEZE] kept=55 addr=0x681e6f00 bytes=62914560
+[W28-STAGE] #55 6144x5120 addr=0x68966f00 zero_headers=0
+[W29-SCAN] seq=-2055 zeroed_weights=0
+[W34-FREEZE] kept=56 addr=0x68d62f00 bytes=62914560
+[W28-STAGE] #56 5120x6144 addr=0x694e2f00 zero_headers=0
+[W29-SCAN] seq=-2056 zeroed_weights=0
+[W34-FREEZE] kept=57 addr=0x6b64af00 bytes=104857600
+[W28-STAGE] #57 10240x5120 addr=0x6c2caf00 zero_headers=0
+[W29-SCAN] seq=-2057 zeroed_weights=0
+[W34-FREEZE] kept=58 addr=0x6c96ef00 bytes=62914560
+[W28-STAGE] #58 6144x5120 addr=0x6d0eef00 zero_headers=0
+[W29-SCAN] seq=-2058 zeroed_weights=0
+[W34-FREEZE] kept=59 addr=0x6d4eaf00 bytes=62914560
+[W28-STAGE] #59 5120x6144 addr=0x6dc6af00 zero_headers=0
+[W29-SCAN] seq=-2059 zeroed_weights=0
+[W34-FREEZE] kept=60 addr=0x6fe9af00 bytes=104857600
+[W28-STAGE] #60 10240x5120 addr=0x70b1af00 zero_headers=0
+[W29-SCAN] seq=-2060 zeroed_weights=0
+[W34-FREEZE] kept=61 addr=0x711bef00 bytes=62914560
+[W28-STAGE] #61 6144x5120 addr=0x7193ef00 zero_headers=0
+[W29-SCAN] seq=-2061 zeroed_weights=0
+[W34-FREEZE] kept=62 addr=0x71d3af00 bytes=62914560
+[W28-STAGE] #62 5120x6144 addr=0x724baf00 zero_headers=0
+[W29-SCAN] seq=-2062 zeroed_weights=0
+[W34-FREEZE] kept=63 addr=0x7667af00 bytes=104857600
+[W28-STAGE] #63 10240x5120 addr=0x772faf00 zero_headers=0
+[W29-SCAN] seq=-2063 zeroed_weights=0
+[W34-FREEZE] kept=64 addr=0x7799ef00 bytes=62914560
+[W28-STAGE] #64 6144x5120 addr=0x7811ef00 zero_headers=0
+[W29-SCAN] seq=-2064 zeroed_weights=0
+[W34-FREEZE] kept=65 addr=0x7851af00 bytes=62914560
+[W28-STAGE] #65 5120x6144 addr=0x78c9af00 zero_headers=0
+[W29-SCAN] seq=-2065 zeroed_weights=0
+[W34-FREEZE] kept=66 addr=0x7aecaf00 bytes=104857600
+[W28-STAGE] #66 10240x5120 addr=0x7bb4af00 zero_headers=0
+[W29-SCAN] seq=-2066 zeroed_weights=0
+[W34-FREEZE] kept=67 addr=0x7c1eef00 bytes=62914560
+[W28-STAGE] #67 6144x5120 addr=0x7c96ef00 zero_headers=0
+[W29-SCAN] seq=-2067 zeroed_weights=0
+[W34-FREEZE] kept=68 addr=0x7cd6af00 bytes=62914560
+[W28-STAGE] #68 5120x6144 addr=0x7d4eaf00 zero_headers=0
+[W29-SCAN] seq=-2068 zeroed_weights=0
+[W34-FREEZE] kept=69 addr=0x7f652f00 bytes=104857600
+[W28-STAGE] #69 10240x5120 addr=0x802d2f00 zero_headers=0
+[W29-SCAN] seq=-2069 zeroed_weights=0
+[W34-FREEZE] kept=70 addr=0x80976f00 bytes=62914560
+[W28-STAGE] #70 6144x5120 addr=0x810f6f00 zero_headers=0
+[W29-SCAN] seq=-2070 zeroed_weights=0
+[W34-FREEZE] kept=71 addr=0x814f2f00 bytes=62914560
+[W28-STAGE] #71 5120x6144 addr=0x81c72f00 zero_headers=0
+[W29-SCAN] seq=-2071 zeroed_weights=0
+[W34-FREEZE] kept=72 addr=0x85efaf00 bytes=104857600
+[W28-STAGE] #72 10240x5120 addr=0x86b7af00 zero_headers=0
+[W29-SCAN] seq=-2072 zeroed_weights=0
+[W34-FREEZE] kept=73 addr=0x8721ef00 bytes=62914560
+[W28-STAGE] #73 6144x5120 addr=0x8799ef00 zero_headers=0
+[W29-SCAN] seq=-2073 zeroed_weights=0
+[W34-FREEZE] kept=74 addr=0x87d9af00 bytes=62914560
+[W28-STAGE] #74 5120x6144 addr=0x8851af00 zero_headers=0
+[W29-SCAN] seq=-2074 zeroed_weights=0
+[W34-FREEZE] kept=75 addr=0x8a682f00 bytes=104857600
+[W28-STAGE] #75 10240x5120 addr=0x8b302f00 zero_headers=0
+[W29-SCAN] seq=-2075 zeroed_weights=0
+[W34-FREEZE] kept=76 addr=0x8b9a6f00 bytes=62914560
+[W28-STAGE] #76 6144x5120 addr=0x8c126f00 zero_headers=0
+[W29-SCAN] seq=-2076 zeroed_weights=0
+[W34-FREEZE] kept=77 addr=0x8c522f00 bytes=62914560
+[W28-STAGE] #77 5120x6144 addr=0x8cca2f00 zero_headers=0
+[W29-SCAN] seq=-2077 zeroed_weights=0
+[W34-FREEZE] kept=78 addr=0x8ee0af00 bytes=104857600
+[W28-STAGE] #78 10240x5120 addr=0x8fa8af00 zero_headers=0
+[W29-SCAN] seq=-2078 zeroed_weights=0
+[W34-FREEZE] kept=79 addr=0x9012ef00 bytes=62914560
+[W28-STAGE] #79 6144x5120 addr=0x908aef00 zero_headers=0
+[W29-SCAN] seq=-2079 zeroed_weights=0
+[W34-FREEZE] kept=80 addr=0x90caaf00 bytes=62914560
+[W28-STAGE] #80 5120x6144 addr=0x9142af00 zero_headers=0
+[W29-SCAN] seq=-2080 zeroed_weights=0
+[W34-FREEZE] kept=81 addr=0x956b2f00 bytes=104857600
+[W28-STAGE] #81 10240x5120 addr=0x96332f00 zero_headers=0
+[W29-SCAN] seq=-2081 zeroed_weights=0
+[W34-FREEZE] kept=82 addr=0x969d6f00 bytes=62914560
+[W28-STAGE] #82 6144x5120 addr=0x97156f00 zero_headers=0
+[W29-SCAN] seq=-2082 zeroed_weights=0
+[W34-FREEZE] kept=83 addr=0x97552f00 bytes=62914560
+[W28-STAGE] #83 5120x6144 addr=0x97cd2f00 zero_headers=0
+[W29-SCAN] seq=-2083 zeroed_weights=0
+[W34-FREEZE] kept=84 addr=0x99e3af00 bytes=104857600
+[W28-STAGE] #84 10240x5120 addr=0x9aabaf00 zero_headers=0
+[W29-SCAN] seq=-2084 zeroed_weights=0
+[W34-FREEZE] kept=85 addr=0x9b15ef00 bytes=62914560
+[W28-STAGE] #85 6144x5120 addr=0x9b8def00 zero_headers=0
+[W29-SCAN] seq=-2085 zeroed_weights=0
+[W34-FREEZE] kept=86 addr=0x9bcdaf00 bytes=62914560
+[W28-STAGE] #86 5120x6144 addr=0x9c45af00 zero_headers=0
+[W29-SCAN] seq=-2086 zeroed_weights=0
+[W34-FREEZE] kept=87 addr=0x9e68af00 bytes=104857600
+[W28-STAGE] #87 10240x5120 addr=0x9f30af00 zero_headers=0
+[W29-SCAN] seq=-2087 zeroed_weights=0
+[W34-FREEZE] kept=88 addr=0x9f9aef00 bytes=62914560
+[W28-STAGE] #88 6144x5120 addr=0xa012ef00 zero_headers=0
+[W29-SCAN] seq=-2088 zeroed_weights=0
+[W34-FREEZE] kept=89 addr=0xa052af00 bytes=62914560
+[W28-STAGE] #89 5120x6144 addr=0xa0caaf00 zero_headers=0
+[W29-SCAN] seq=-2089 zeroed_weights=0
+[W34-FREEZE] kept=90 addr=0xa4e6af00 bytes=104857600
+[W28-STAGE] #90 10240x5120 addr=0xa5aeaf00 zero_headers=0
+[W29-SCAN] seq=-2090 zeroed_weights=0
+[W34-FREEZE] kept=91 addr=0xa618ef00 bytes=62914560
+[W28-STAGE] #91 6144x5120 addr=0xa690ef00 zero_headers=0
+[W29-SCAN] seq=-2091 zeroed_weights=0
+[W34-FREEZE] kept=92 addr=0xa6d0af00 bytes=62914560
+[W28-STAGE] #92 5120x6144 addr=0xa748af00 zero_headers=0
+[W29-SCAN] seq=-2092 zeroed_weights=0
+[W34-FREEZE] kept=93 addr=0xa96baf00 bytes=104857600
+[W28-STAGE] #93 10240x5120 addr=0xaa33af00 zero_headers=0
+[W29-SCAN] seq=-2093 zeroed_weights=0
+[W34-FREEZE] kept=94 addr=0xaa9def00 bytes=62914560
+[W28-STAGE] #94 6144x5120 addr=0xab15ef00 zero_headers=0
+[W29-SCAN] seq=-2094 zeroed_weights=0
+[W34-FREEZE] kept=95 addr=0xab55af00 bytes=62914560
+[W28-STAGE] #95 5120x6144 addr=0xabcdaf00 zero_headers=0
+[W29-SCAN] seq=-2095 zeroed_weights=0
+[W34-FREEZE] kept=96 addr=0xade42f00 bytes=104857600
+[W28-STAGE] #96 10240x5120 addr=0xaeac2f00 zero_headers=0
+[W29-SCAN] seq=-2096 zeroed_weights=0
+[W34-FREEZE] kept=97 addr=0xaf166f00 bytes=62914560
+[W28-STAGE] #97 6144x5120 addr=0xaf8e6f00 zero_headers=0
+[W29-SCAN] seq=-2097 zeroed_weights=0
+[W34-FREEZE] kept=98 addr=0xafce2f00 bytes=62914560
+[W28-STAGE] #98 5120x6144 addr=0xb0462f00 zero_headers=0
+[W29-SCAN] seq=-2098 zeroed_weights=0
+[W34-FREEZE] kept=99 addr=0xb46eaf00 bytes=104857600
+[W28-STAGE] #99 10240x5120 addr=0xb536af00 zero_headers=0
+[W29-SCAN] seq=-2099 zeroed_weights=0
+[W34-FREEZE] kept=100 addr=0xb5a0ef00 bytes=62914560
+[W28-STAGE] #100 6144x5120 addr=0xb618ef00 zero_headers=0
+[W29-SCAN] seq=-2100 zeroed_weights=0
+[W34-FREEZE] kept=101 addr=0xb658af00 bytes=62914560
+[W28-STAGE] #101 5120x6144 addr=0xb6d0af00 zero_headers=0
+[W29-SCAN] seq=-2101 zeroed_weights=0
+[W34-FREEZE] kept=102 addr=0xb8e72f00 bytes=104857600
+[W28-STAGE] #102 10240x5120 addr=0xb9af2f00 zero_headers=0
+[W29-SCAN] seq=-2102 zeroed_weights=0
+[W34-FREEZE] kept=103 addr=0xba196f00 bytes=62914560
+[W28-STAGE] #103 6144x5120 addr=0xba916f00 zero_headers=0
+[W29-SCAN] seq=-2103 zeroed_weights=0
+[W34-FREEZE] kept=104 addr=0xbad12f00 bytes=62914560
+[W28-STAGE] #104 5120x6144 addr=0xbb492f00 zero_headers=0
+[W29-SCAN] seq=-2104 zeroed_weights=0
+[W34-FREEZE] kept=105 addr=0xbd5faf00 bytes=104857600
+[W28-STAGE] #105 10240x5120 addr=0xbe27af00 zero_headers=0
+[W29-SCAN] seq=-2105 zeroed_weights=0
+[W34-FREEZE] kept=106 addr=0xbe91ef00 bytes=62914560
+[W28-STAGE] #106 6144x5120 addr=0xbf09ef00 zero_headers=0
+[W29-SCAN] seq=-2106 zeroed_weights=0
+[W34-FREEZE] kept=107 addr=0xbf49af00 bytes=62914560
+[W28-STAGE] #107 5120x6144 addr=0xbfc1af00 zero_headers=0
+[W29-SCAN] seq=-2107 zeroed_weights=0
+[W34-FREEZE] kept=108 addr=0xc3ea2f00 bytes=104857600
+[W28-STAGE] #108 10240x5120 addr=0xc4b22f00 zero_headers=0
+[W29-SCAN] seq=-2108 zeroed_weights=0
+[W34-FREEZE] kept=109 addr=0xc51c6f00 bytes=62914560
+[W28-STAGE] #109 6144x5120 addr=0xc5946f00 zero_headers=0
+[W29-SCAN] seq=-2109 zeroed_weights=0
+[W34-FREEZE] kept=110 addr=0xc5d42f00 bytes=62914560
+[W28-STAGE] #110 5120x6144 addr=0xc64c2f00 zero_headers=0
+[W29-SCAN] seq=-2110 zeroed_weights=0
+[W34-FREEZE] kept=111 addr=0xc862af00 bytes=104857600
+[W28-STAGE] #111 10240x5120 addr=0xc92aaf00 zero_headers=0
+[W29-SCAN] seq=-2111 zeroed_weights=0
+[W34-FREEZE] kept=112 addr=0xc994ef00 bytes=62914560
+[W28-STAGE] #112 6144x5120 addr=0xca0cef00 zero_headers=0
+[W29-SCAN] seq=-2112 zeroed_weights=0
+[W34-FREEZE] kept=113 addr=0xca4caf00 bytes=62914560
+[W28-STAGE] #113 5120x6144 addr=0xcac4af00 zero_headers=0
+[W29-SCAN] seq=-2113 zeroed_weights=0
+[W34-FREEZE] kept=114 addr=0xcce7af00 bytes=104857600
+[W28-STAGE] #114 10240x5120 addr=0xcdafaf00 zero_headers=0
+[W29-SCAN] seq=-2114 zeroed_weights=0
+[W34-FREEZE] kept=115 addr=0xce19ef00 bytes=62914560
+[W28-STAGE] #115 6144x5120 addr=0xce91ef00 zero_headers=0
+[W29-SCAN] seq=-2115 zeroed_weights=0
+[W34-FREEZE] kept=116 addr=0xced1af00 bytes=62914560
+[W28-STAGE] #116 5120x6144 addr=0xcf49af00 zero_headers=0
+[W29-SCAN] seq=-2116 zeroed_weights=0
+[W34-FREEZE] kept=117 addr=0xd365af00 bytes=104857600
+[W28-STAGE] #117 10240x5120 addr=0xd42daf00 zero_headers=0
+[W29-SCAN] seq=-2117 zeroed_weights=0
+[W34-FREEZE] kept=118 addr=0xd497ef00 bytes=62914560
+[W28-STAGE] #118 6144x5120 addr=0xd50fef00 zero_headers=0
+[W29-SCAN] seq=-2118 zeroed_weights=0
+[W34-FREEZE] kept=119 addr=0xd54faf00 bytes=62914560
+[W28-STAGE] #119 5120x6144 addr=0xd5c7af00 zero_headers=0
+[W29-SCAN] seq=-2119 zeroed_weights=0
+[W34-FREEZE] kept=120 addr=0xd7eaaf00 bytes=104857600
+[W28-STAGE] #120 10240x5120 addr=0xd8b2af00 zero_headers=0
+[W29-SCAN] seq=-2120 zeroed_weights=0
+[W34-FREEZE] kept=121 addr=0xd91cef00 bytes=62914560
+[W28-STAGE] #121 6144x5120 addr=0xd994ef00 zero_headers=0
+[W29-SCAN] seq=-2121 zeroed_weights=0
+[W34-FREEZE] kept=122 addr=0xd9d4af00 bytes=62914560
+[W28-STAGE] #122 5120x6144 addr=0xda4caf00 zero_headers=0
+[W29-SCAN] seq=-2122 zeroed_weights=0
+[W34-FREEZE] kept=123 addr=0xdc632f00 bytes=104857600
+[W28-STAGE] #123 10240x5120 addr=0xdd2b2f00 zero_headers=0
+[W29-SCAN] seq=-2123 zeroed_weights=0
+[W34-FREEZE] kept=124 addr=0xdd956f00 bytes=62914560
+[W28-STAGE] #124 6144x5120 addr=0xde0d6f00 zero_headers=0
+[W29-SCAN] seq=-2124 zeroed_weights=0
+[W34-FREEZE] kept=125 addr=0xde4d2f00 bytes=62914560
+[W28-STAGE] #125 5120x6144 addr=0xdec52f00 zero_headers=0
+[W29-SCAN] seq=-2125 zeroed_weights=0
+[W34-FREEZE] kept=126 addr=0xe2edaf00 bytes=104857600
+[W28-STAGE] #126 10240x5120 addr=0xe3b5af00 zero_headers=0
+[W29-SCAN] seq=-2126 zeroed_weights=0
+[W34-FREEZE] kept=127 addr=0xe41fef00 bytes=62914560
+[W28-STAGE] #127 6144x5120 addr=0xe497ef00 zero_headers=0
+[W29-SCAN] seq=-2127 zeroed_weights=0
+[W34-FREEZE] kept=128 addr=0xe4d7af00 bytes=62914560
+[W28-STAGE] #128 5120x6144 addr=0xe54faf00 zero_headers=0
+[W29-SCAN] seq=-2128 zeroed_weights=0
+[W34-FREEZE] kept=129 addr=0xe772af00 bytes=104857600
+[W28-STAGE] #129 10240x5120 addr=0xe83aaf00 zero_headers=0
+[W29-SCAN] seq=-2129 zeroed_weights=0
+[W34-FREEZE] kept=130 addr=0xe8a4ef00 bytes=62914560
+[W28-STAGE] #130 6144x5120 addr=0xe91cef00 zero_headers=0
+[W29-SCAN] seq=-2130 zeroed_weights=0
+[W34-FREEZE] kept=131 addr=0xe95caf00 bytes=62914560
+[W28-STAGE] #131 5120x6144 addr=0xe9d4af00 zero_headers=0
+[W29-SCAN] seq=-2131 zeroed_weights=0
+[W34-FREEZE] kept=132 addr=0xebf7af00 bytes=104857600
+[W28-STAGE] #132 10240x5120 addr=0xecbfaf00 zero_headers=0
+[W29-SCAN] seq=-2132 zeroed_weights=0
+[W34-FREEZE] kept=133 addr=0xed29ef00 bytes=62914560
+[W28-STAGE] #133 6144x5120 addr=0xeda1ef00 zero_headers=0
+[W29-SCAN] seq=-2133 zeroed_weights=0
+[W34-FREEZE] kept=134 addr=0xede1af00 bytes=62914560
+[W28-STAGE] #134 5120x6144 addr=0xee59af00 zero_headers=0
+[W29-SCAN] seq=-2134 zeroed_weights=0
+[W34-FREEZE] kept=135 addr=0xf28eaf00 bytes=104857600
+[W28-STAGE] #135 10240x5120 addr=0xf356af00 zero_headers=0
+[W29-SCAN] seq=-2135 zeroed_weights=0
+[W34-FREEZE] kept=136 addr=0xf3c0ef00 bytes=62914560
+[W28-STAGE] #136 6144x5120 addr=0xf438ef00 zero_headers=0
+[W29-SCAN] seq=-2136 zeroed_weights=0
+[W34-FREEZE] kept=137 addr=0xf478af00 bytes=62914560
+[W28-STAGE] #137 5120x6144 addr=0xf4f0af00 zero_headers=0
+[W29-SCAN] seq=-2137 zeroed_weights=0
+[W34-FREEZE] kept=138 addr=0xf713af00 bytes=104857600
+[W28-STAGE] #138 10240x5120 addr=0xf7dbaf00 zero_headers=0
+[W29-SCAN] seq=-2138 zeroed_weights=0
+[W34-FREEZE] kept=139 addr=0xf845ef00 bytes=62914560
+[W28-STAGE] #139 6144x5120 addr=0xf8bdef00 zero_headers=0
+[W29-SCAN] seq=-2139 zeroed_weights=0
+[W34-FREEZE] kept=140 addr=0xf8fdaf00 bytes=62914560
+[W28-STAGE] #140 5120x6144 addr=0xf975af00 zero_headers=0
+[W29-SCAN] seq=-2140 zeroed_weights=0
+[W34-FREEZE] kept=141 addr=0xfb98af00 bytes=104857600
+[W28-STAGE] #141 10240x5120 addr=0xfc60af00 zero_headers=0
+[W29-SCAN] seq=-2141 zeroed_weights=0
+[W34-FREEZE] kept=142 addr=0xfccaef00 bytes=62914560
+[W28-STAGE] #142 6144x5120 addr=0xfd42ef00 zero_headers=0
+[W29-SCAN] seq=-2142 zeroed_weights=0
+[W34-FREEZE] kept=143 addr=0xfd82af00 bytes=62914560
+[W28-STAGE] #143 5120x6144 addr=0xfdfaaf00 zero_headers=0
+[W29-SCAN] seq=-2143 zeroed_weights=0
+engine-fatal: EngineCore busy loop threw: TT_FATAL @ /home/lu_zero/Sources/tt/tt-metal-pin/tt_metal/impl/allocator/bank_manager.cpp:495: false
+info:
+Out of Memory: Not enough space to allocate 66846720 B DRAM buffer across 8 banks, where each bank needs to store 8355840 B, but bank size is 4272341376 B (allocated: 4224471296 B, free: 47870080 B, largest free block: 6818048 B)
+backtrace:
+ --- void tt::assert::detail::tt_throw<unsigned long, std::basic_string_view<char, std::char_traits<char> >, unsigned int, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long>(char const*, int, char const*, char const*, fmt::v11::fstring<unsigned long const&, std::basic_string_view<char, std::char_traits<char> > const&, unsigned int const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&>::t, unsigned long const&, std::basic_string_view<char, std::char_traits<char> > const&, unsigned int const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&)
+ --- tt::tt_metal::BankManager::allocate_buffer(unsigned long, unsigned long, bool, tt::tt_metal::CoreRangeSet const&, std::optional<unsigned int>, ttsl::StrongType<unsigned int, tt::tt_metal::AllocatorIDTag>, std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > > const&, std::optional<std::unordered_set<unsigned int, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<unsigned int> > > const&)
+ --- tt::tt_metal::AllocatorImpl::allocate_buffer(tt::tt_metal::Buffer*)
+ --- tt::tt_metal::BufferImpl::allocate_impl(tt::tt_metal::Buffer&)
+ --- tt::tt_metal::BufferImpl::create(tt::tt_metal::IDevice*, unsigned long, unsigned long, tt::tt_metal::BufferType, tt::tt_metal::BufferShardingArgs const&, std::optional<bool>, std::optional<ttsl::StrongType<unsigned char, tt::tt_metal::SubDeviceIdTag> >)
+ --- tt::tt_metal::distributed::MeshBuffer::create(std::variant<tt::tt_metal::distributed::ReplicatedBufferConfig, tt::tt_metal::distributed::ShardedBufferConfig> const&, tt::tt_metal::distributed::DeviceLocalBufferConfig const&, tt::tt_metal::distributed::MeshDevice*, std::optional<unsigned long>)
+ --- tt::tt_metal::tensor_impl::allocate_device_buffer(tt::tt_metal::distributed::MeshDevice*, tt::tt_metal::TensorSpec const&)
+ --- tt::tt_metal::allocate_mesh_tensor_on_device_with_topology(tt::tt_metal::distributed::MeshDevice&, tt::tt_metal::TensorSpec, tt::tt_metal::TensorTopology)
+ --- tt::tt_metal::distributed::MeshCommandQueue::enqueue_write_tensor(tt::tt_metal::HostTensor const&, tt::tt_metal::MemoryConfig const&)
+ --- tt::tt_metal::to_device(ttnn::Tensor const&, tt::tt_metal::distributed::MeshDevice*, ttsl::optional_reference<tt::tt_metal::MemoryConfig const>, std::optional<ttsl::StrongType<unsigned char, ttnn::QueueIdTag> >)
+ --- ttnn::Tensor ttnn::Tensor::from_vector<int>(std::vector<int, std::allocator<int> >&&, tt::tt_metal::TensorSpec const&, tt::tt_metal::distributed::MeshDevice*, std::optional<ttsl::StrongType<unsigned char, ttnn::QueueIdTag> >, int)
+ --- vt::tenstorrent::EnsureKeepQuantWords(vt::Tensor const&, vt::DType, long, long, tt::tt_metal::distributed::MeshDevice&)
+ --- vt::tenstorrent::MatmulBTQuantInt8DotKernel(vt::Queue&, vt::Tensor&, vt::Tensor const&, vt::Tensor const&)
+ --- vt::tenstorrent::MatmulBTQuantKernel(vt::Queue&, vt::Tensor&, vt::Tensor const&, vt::Tensor const&)
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x372488) [0xaaad622e2488]
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x38f4a4) [0xaaad622ff4a4]
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x393b74) [0xaaad62303b74]
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x394a80) [0xaaad62304a80]
+ --- vllm::Qwen3_5DenseModel::ForwardDeviceMultiTap(std::vector<int, std::allocator<int> > const&, std::vector<int, std::allocator<int> > const&, vllm::v1::CommonAttentionMetadata const&, vllm::v1::GDNAttentionMetadata const&, std::vector<vllm::PagedKvCache, std::allocator<vllm::PagedKvCache> > const&, std::vector<vllm::GdnStateCache, std::allocator<vllm::GdnStateCache> > const&, vllm::Qwen3_5DenseWeights const&, vllm::HfConfig const&, vt::Queue&)
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x3cb4c0) [0xaaad6233b4c0]
+ --- vllm::ModelRegistry::Forward(vllm::LoadedModel&, vllm::ModelForwardInput const&)
+ --- vllm::v1::GPUModelRunner::execute_model(vllm::v1::SchedulerOutput const&)
+ --- vllm::v1::Executor::execute_model(vllm::v1::SchedulerOutput const&)
+ --- vllm::v1::EngineCore::step()
+ --- vllm::v1::EngineCoreProc::process_engine_step()
+ --- vllm::v1::EngineCoreProc::run_busy_loop()
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0xf2ba90) [0xaaad62e9ba90]
+ --- /usr/lib/gcc/aarch64-unknown-linux-gnu/16/libstdc++.so.6(+0xecabc) [0xfffc13eecabc]
+ --- /usr/lib64/libc.so.6(+0x99070) [0xfffc13b69070]
+ --- /usr/lib64/libc.so.6(+0x1282dc) [0xfffc13bf82dc]
+
+async-llm: output handler saw engine death: EngineCore encountered an issue. See stack trace (above) for the root cause. [TT_FATAL @ /home/lu_zero/Sources/tt/tt-metal-pin/tt_metal/impl/allocator/bank_manager.cpp:495: false
+info:
+Out of Memory: Not enough space to allocate 66846720 B DRAM buffer across 8 banks, where each bank needs to store 8355840 B, but bank size is 4272341376 B (allocated: 4224471296 B, free: 47870080 B, largest free block: 6818048 B)
+backtrace:
+ --- void tt::assert::detail::tt_throw<unsigned long, std::basic_string_view<char, std::char_traits<char> >, unsigned int, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long>(char const*, int, char const*, char const*, fmt::v11::fstring<unsigned long const&, std::basic_string_view<char, std::char_traits<char> > const&, unsigned int const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&>::t, unsigned long const&, std::basic_string_view<char, std::char_traits<char> > const&, unsigned int const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&)
+ --- tt::tt_metal::BankManager::allocate_buffer(unsigned long, unsigned long, bool, tt::tt_metal::CoreRangeSet const&, std::optional<unsigned int>, ttsl::StrongType<unsigned int, tt::tt_metal::AllocatorIDTag>, std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > > const&, std::optional<std::unordered_set<unsigned int, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<unsigned int> > > const&)
+ --- tt::tt_metal::AllocatorImpl::allocate_buffer(tt::tt_metal::Buffer*)
+ --- tt::tt_metal::BufferImpl::allocate_impl(tt::tt_metal::Buffer&)
+ --- tt::tt_metal::BufferImpl::create(tt::tt_metal::IDevice*, unsigned long, unsigned long, tt::tt_metal::BufferType, tt::tt_metal::BufferShardingArgs const&, std::optional<bool>, std::optional<ttsl::StrongType<unsigned char, tt::tt_metal::SubDeviceIdTag> >)
+ --- tt::tt_metal::distributed::MeshBuffer::create(std::variant<tt::tt_metal::distributed::ReplicatedBufferConfig, tt::tt_metal::distributed::ShardedBufferConfig> const&, tt::tt_metal::distributed::DeviceLocalBufferConfig const&, tt::tt_metal::distributed::MeshDevice*, std::optional<unsigned long>)
+ --- tt::tt_metal::tensor_impl::allocate_device_buffer(tt::tt_metal::distributed::MeshDevice*, tt::tt_metal::TensorSpec const&)
+ --- tt::tt_metal::allocate_mesh_tensor_on_device_with_topology(tt::tt_metal::distributed::MeshDevice&, tt::tt_metal::TensorSpec, tt::tt_metal::TensorTopology)
+ --- tt::tt_metal::distributed::MeshCommandQueue::enqueue_write_tensor(tt::tt_metal::HostTensor const&, tt::tt_metal::MemoryConfig const&)
+ --- tt::tt_metal::to_device(ttnn::Tensor const&, tt::tt_metal::distributed::MeshDevice*, ttsl::optional_reference<tt::tt_metal::MemoryConfig const>, std::optional<ttsl::StrongType<unsigned char, ttnn::QueueIdTag> >)
+ --- ttnn::Tensor ttnn::Tensor::from_vector<int>(std::vector<int, std::allocator<int> >&&, tt::tt_metal::TensorSpec const&, tt::tt_metal::distributed::MeshDevice*, std::optional<ttsl::StrongType<unsigned char, ttnn::QueueIdTag> >, int)
+ --- vt::tenstorrent::EnsureKeepQuantWords(vt::Tensor const&, vt::DType, long, long, tt::tt_metal::distributed::MeshDevice&)
+ --- vt::tenstorrent::MatmulBTQuantInt8DotKernel(vt::Queue&, vt::Tensor&, vt::Tensor const&, vt::Tensor const&)
+ --- vt::tenstorrent::MatmulBTQuantKernel(vt::Queue&, vt::Tensor&, vt::Tensor const&, vt::Tensor const&)
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x372488) [0xaaad622e2488]
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x38f4a4) [0xaaad622ff4a4]
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x393b74) [0xaaad62303b74]
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x394a80) [0xaaad62304a80]
+ --- vllm::Qwen3_5DenseModel::ForwardDeviceMultiTap(std::vector<int, std::allocator<int> > const&, std::vector<int, std::allocator<int> > const&, vllm::v1::CommonAttentionMetadata const&, vllm::v1::GDNAttentionMetadata const&, std::vector<vllm::PagedKvCache, std::allocator<vllm::PagedKvCache> > const&, std::vector<vllm::GdnStateCache, std::allocator<vllm::GdnStateCache> > const&, vllm::Qwen3_5DenseWeights const&, vllm::HfConfig const&, vt::Queue&)
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x3cb4c0) [0xaaad6233b4c0]
+ --- vllm::ModelRegistry::Forward(vllm::LoadedModel&, vllm::ModelForwardInput const&)
+ --- vllm::v1::GPUModelRunner::execute_model(vllm::v1::SchedulerOutput const&)
+ --- vllm::v1::Executor::execute_model(vllm::v1::SchedulerOutput const&)
+ --- vllm::v1::EngineCore::step()
+ --- vllm::v1::EngineCoreProc::process_engine_step()
+ --- vllm::v1::EngineCoreProc::run_busy_loop()
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0xf2ba90) [0xaaad62e9ba90]
+ --- /usr/lib/gcc/aarch64-unknown-linux-gnu/16/libstdc++.so.6(+0xecabc) [0xfffc13eecabc]
+ --- /usr/lib64/libc.so.6(+0x99070) [0xfffc13b69070]
+ --- /usr/lib64/libc.so.6(+0x1282dc) [0xfffc13bf82dc]
+]
+vllm-bench: failed: EngineCore encountered an issue. See stack trace (above) for the root cause. [TT_FATAL @ /home/lu_zero/Sources/tt/tt-metal-pin/tt_metal/impl/allocator/bank_manager.cpp:495: false
+info:
+Out of Memory: Not enough space to allocate 66846720 B DRAM buffer across 8 banks, where each bank needs to store 8355840 B, but bank size is 4272341376 B (allocated: 4224471296 B, free: 47870080 B, largest free block: 6818048 B)
+backtrace:
+ --- void tt::assert::detail::tt_throw<unsigned long, std::basic_string_view<char, std::char_traits<char> >, unsigned int, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long, unsigned long>(char const*, int, char const*, char const*, fmt::v11::fstring<unsigned long const&, std::basic_string_view<char, std::char_traits<char> > const&, unsigned int const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&>::t, unsigned long const&, std::basic_string_view<char, std::char_traits<char> > const&, unsigned int const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&, unsigned long const&)
+ --- tt::tt_metal::BankManager::allocate_buffer(unsigned long, unsigned long, bool, tt::tt_metal::CoreRangeSet const&, std::optional<unsigned int>, ttsl::StrongType<unsigned int, tt::tt_metal::AllocatorIDTag>, std::vector<std::pair<unsigned long, unsigned long>, std::allocator<std::pair<unsigned long, unsigned long> > > const&, std::optional<std::unordered_set<unsigned int, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<unsigned int> > > const&)
+ --- tt::tt_metal::AllocatorImpl::allocate_buffer(tt::tt_metal::Buffer*)
+ --- tt::tt_metal::BufferImpl::allocate_impl(tt::tt_metal::Buffer&)
+ --- tt::tt_metal::BufferImpl::create(tt::tt_metal::IDevice*, unsigned long, unsigned long, tt::tt_metal::BufferType, tt::tt_metal::BufferShardingArgs const&, std::optional<bool>, std::optional<ttsl::StrongType<unsigned char, tt::tt_metal::SubDeviceIdTag> >)
+ --- tt::tt_metal::distributed::MeshBuffer::create(std::variant<tt::tt_metal::distributed::ReplicatedBufferConfig, tt::tt_metal::distributed::ShardedBufferConfig> const&, tt::tt_metal::distributed::DeviceLocalBufferConfig const&, tt::tt_metal::distributed::MeshDevice*, std::optional<unsigned long>)
+ --- tt::tt_metal::tensor_impl::allocate_device_buffer(tt::tt_metal::distributed::MeshDevice*, tt::tt_metal::TensorSpec const&)
+ --- tt::tt_metal::allocate_mesh_tensor_on_device_with_topology(tt::tt_metal::distributed::MeshDevice&, tt::tt_metal::TensorSpec, tt::tt_metal::TensorTopology)
+ --- tt::tt_metal::distributed::MeshCommandQueue::enqueue_write_tensor(tt::tt_metal::HostTensor const&, tt::tt_metal::MemoryConfig const&)
+ --- tt::tt_metal::to_device(ttnn::Tensor const&, tt::tt_metal::distributed::MeshDevice*, ttsl::optional_reference<tt::tt_metal::MemoryConfig const>, std::optional<ttsl::StrongType<unsigned char, ttnn::QueueIdTag> >)
+ --- ttnn::Tensor ttnn::Tensor::from_vector<int>(std::vector<int, std::allocator<int> >&&, tt::tt_metal::TensorSpec const&, tt::tt_metal::distributed::MeshDevice*, std::optional<ttsl::StrongType<unsigned char, ttnn::QueueIdTag> >, int)
+ --- vt::tenstorrent::EnsureKeepQuantWords(vt::Tensor const&, vt::DType, long, long, tt::tt_metal::distributed::MeshDevice&)
+ --- vt::tenstorrent::MatmulBTQuantInt8DotKernel(vt::Queue&, vt::Tensor&, vt::Tensor const&, vt::Tensor const&)
+ --- vt::tenstorrent::MatmulBTQuantKernel(vt::Queue&, vt::Tensor&, vt::Tensor const&, vt::Tensor const&)
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x372488) [0xaaad622e2488]
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x38f4a4) [0xaaad622ff4a4]
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x393b74) [0xaaad62303b74]
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x394a80) [0xaaad62304a80]
+ --- vllm::Qwen3_5DenseModel::ForwardDeviceMultiTap(std::vector<int, std::allocator<int> > const&, std::vector<int, std::allocator<int> > const&, vllm::v1::CommonAttentionMetadata const&, vllm::v1::GDNAttentionMetadata const&, std::vector<vllm::PagedKvCache, std::allocator<vllm::PagedKvCache> > const&, std::vector<vllm::GdnStateCache, std::allocator<vllm::GdnStateCache> > const&, vllm::Qwen3_5DenseWeights const&, vllm::HfConfig const&, vt::Queue&)
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0x3cb4c0) [0xaaad6233b4c0]
+ --- vllm::ModelRegistry::Forward(vllm::LoadedModel&, vllm::ModelForwardInput const&)
+ --- vllm::v1::GPUModelRunner::execute_model(vllm::v1::SchedulerOutput const&)
+ --- vllm::v1::Executor::execute_model(vllm::v1::SchedulerOutput const&)
+ --- vllm::v1::EngineCore::step()
+ --- vllm::v1::EngineCoreProc::process_engine_step()
+ --- vllm::v1::EngineCoreProc::run_busy_loop()
+ --- /tmp/build-stagec-w31/examples/vllm-bench(+0xf2ba90) [0xaaad62e9ba90]
+ --- /usr/lib/gcc/aarch64-unknown-linux-gnu/16/libstdc++.so.6(+0xecabc) [0xfffc13eecabc]
+ --- /usr/lib64/libc.so.6(+0x99070) [0xfffc13b69070]
+ --- /usr/lib64/libc.so.6(+0x1282dc) [0xfffc13bf82dc]
+]
+[thalia:34355] *** Process received signal ***
+[thalia:34355] Signal: Segmentation fault (11)
+[thalia:34355] Signal code: Address not mapped (1)
+[thalia:34355] Failing at address: 0x20
+[thalia:34355] [ 0] linux-vdso.so.1(__kernel_rt_sigreturn+0x0) [0xfffc18cb0848]
+[thalia:34355] [ 1] /home/lu_zero/Sources/tt/tt-metal-pin/build_Release/lib64/libtt_metal.so(_ZNK2tt8tt_metal12GraphTracker10is_enabledEv+0x4c) [0xfffc15f33f6c]
+[thalia:34355] [ 2] /home/lu_zero/Sources/tt/tt-metal-pin/build_Release/lib64/_ttnncpp.so(_ZN4ttnn6Tensor15deallocate_implEb+0x24) [0xfffc1853271c]
+[thalia:34355] [ 3] /home/lu_zero/Sources/tt/tt-metal-pin/build_Release/lib64/_ttnncpp.so(_ZN4ttnn6TensorD1Ev+0x18) [0xfffc1853242c]
+[thalia:34355] [ 4] /tmp/build-stagec-w31/examples/vllm-bench(_ZNSt6vectorIN4ttnn6TensorESaIS1_EED1Ev+0x2c) [0xaaad63389cac]
+[thalia:34355] [ 5] /usr/lib64/libc.so.6(+0x401fc) [0xfffc13b101fc]
+[thalia:34355] [ 6] /usr/lib64/libc.so.6(+0x4031c) [0xfffc13b1031c]
+[thalia:34355] [ 7] /usr/lib64/libc.so.6(+0x22df8) [0xfffc13af2df8]
+[thalia:34355] [ 8] /usr/lib64/libc.so.6(__libc_start_main+0x98) [0xfffc13af2f38]
+[thalia:34355] [ 9] /tmp/build-stagec-w31/examples/vllm-bench(_start+0x30) [0xaaad6217a7b0]
+[thalia:34355] *** End of error message ***

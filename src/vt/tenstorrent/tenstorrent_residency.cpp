@@ -9,6 +9,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
+#include <map>
+#include <mutex>
+#include <optional>
 #include <span>
 #include <filesystem>
 #include <fstream>
@@ -944,24 +947,128 @@ namespace {
 size_t Bfp8DirectZeroHeaders(const ttnn::Tensor& dev_b);
 }  // namespace
 
+// W34 STAGING-FREEZE BISECT holder (tenstorrent_residency.cpp): the retained
+// bf16 staging temporaries. Under VT_TT_BFP8_FREEZE=1 every Bfp8TypecastInstall
+// bf16 upload temp is MOVED here instead of being dropped, so the DRAM
+// allocator never frees nor recycles a staging-temp base for the whole run.
+// The bisect: if the deterministic #52/#58/#61 header strikes disappear or
+// move under the freeze, the poison is the staging-temp recycle interaction;
+// if they are unchanged, the recycle is exonerated too and the remaining
+// candidate is the compile-time constant class.
+std::vector<ttnn::Tensor>& Bfp8FrozenStagingTemps() {
+  // Heap-allocated and intentionally never destroyed: a function-static
+  // vector of live ttnn tensors runs its destructor after main, when the
+  // device and GraphTracker are already gone (w34-freeze-1 died exactly
+  // there, in vector<ttnn::Tensor> destruction at exit, not in the run).
+  static std::vector<ttnn::Tensor>* v = new std::vector<ttnn::Tensor>();
+  return *v;
+}
+
 // The cold staging body, shared by EnsureBfp8WeightDevice and the W25 repair:
 // bf16 from_span + on-device typecast to BFLOAT8_B. The device typecast is the
 // SAME single RNE BFP pack the tt-metal host packer performs
 // (typecast_sharded_program_factory.cpp:48 — BFLOAT16 -> BFLOAT8_B is a
 // supported TILE conversion), executed on-device so the packed operand never
 // exists on the host and the bf16 staging is dropped with the temporary.
+ttnn::Tensor Bfp8StageCanaryLog(ttnn::Tensor out, uint32_t rows, uint32_t cols);
+
 ttnn::Tensor Bfp8TypecastInstall(const Tensor& b, MeshDevice& device) {
   const uint32_t rows = static_cast<uint32_t>(b.shape[0]);
   const uint32_t cols = static_cast<uint32_t>(b.shape[1]);
   const size_t n = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+  // W34 STAGING-SCRATCH FIX (VT_TT_BFP8_SCRATCH, DEFAULT ON; =0 restores the
+  // recycled-temporary staging for regression comparison): stage the bf16
+  // upload into
+  // a PERSISTENT per-(rows, cols) device scratch that is never freed, instead
+  // of a fresh from_span temporary that the DRAM allocator recycles the moment
+  // it drops. The w34-freeze-3 bisect proved the deterministic #52/#58/#61
+  // header strikes depend on that recycle (frozen staging: the whole strike
+  // window passes clean; baseline: ARRIVED-ZEROED at #52/#58/#61). The scratch
+  // arm keeps one buffer per distinct staging shape (~1.5 GB across the run's
+  // distinct sizes instead of ~2.6 GB per-weight temporaries), so no
+  // staging-temp base is ever allocated, freed, and handed to a later weight
+  // while some async writer still targets it. Bytes are identical: the host
+  // span reaches the scratch through from_vector + copy_to_device (the
+  // RefreshQuantEmbedRows H2D pattern), and the typecast reads the scratch.
+  static const bool scratch_mode = [] {
+    const char* e = std::getenv("VT_TT_BFP8_SCRATCH");
+    return e == nullptr || e[0] != '0';
+  }();
+  const auto spec = TileSpecOf(rows, cols);
+  if (scratch_mode) {
+    static std::mutex scratch_mutex;
+    // Keyed by (rows, cols); every entry lives for the whole process.
+    static auto& scratches = *new std::map<std::pair<uint32_t, uint32_t>,
+                                           std::optional<ttnn::Tensor>>();
+    ttnn::Tensor* slot;
+    bool fresh;
+    {
+      std::lock_guard<std::mutex> g(scratch_mutex);
+      std::optional<ttnn::Tensor>& opt = scratches[{rows, cols}];
+      fresh = !opt.has_value();
+      if (fresh) opt.emplace();
+      slot = &*opt;
+    }
+    if (fresh) {
+      *slot = ttnn::Tensor::from_span(
+          ttsl::Span<const bfloat16>(static_cast<const bfloat16*>(b.data), n),
+          spec, &device);
+      std::fprintf(stderr,
+                   "[W34-SCRATCH] new %ux%u addr=0x%llx\n", rows, cols,
+                   (unsigned long long)
+                       slot->mesh_buffer().get_reference_buffer()->address());
+    } else {
+      // Host staging tensor + H2D copy into the SAME device buffer.
+      ttnn::Tensor hst = ttnn::Tensor::from_span(
+          ttsl::Span<const bfloat16>(static_cast<const bfloat16*>(b.data), n),
+          spec, nullptr);
+      ttnn::copy_to_device(hst, *slot);
+    }
+    ttnn::Tensor out = ttnn::typecast(*slot, ttnn::DataType::BFLOAT8_B);
+    return Bfp8StageCanaryLog(std::move(out), rows, cols);
+  }
   ttnn::Tensor bf16_dev = ttnn::Tensor::from_span(
       ttsl::Span<const bfloat16>(static_cast<const bfloat16*>(b.data), n),
-      TileSpecOf(rows, cols), &device);
+      spec, &device);
   ttnn::Tensor out = ttnn::typecast(bf16_dev, ttnn::DataType::BFLOAT8_B);
-  // W28 stage-time check (VT_TT_BFP8_CANARY=1): is the FRESH typecast output
-  // already header-zeroed? zero>0 here convicts the typecast-into-recycled-
-  // DRAM write itself; zero==0 here with a later zeroed canary convicts an
-  // async writer between the stage and the matmul arm.
+  // W34 staging-freeze bisect (VT_TT_BFP8_FREEZE=1, diagnostic): retain the
+  // bf16 upload temp so its DRAM base is never freed or recycled. Cap
+  // VT_TT_BFP8_FREEZE_N (default 4096, i.e. every temp) bounds the retained
+  // set; each kept temp prints one [W34-FREEZE] line with the frozen base.
+  // This is the bisect instrument only — it OOMs at cap >= ~90 on the
+  // Q4_K_M KV64 drafter-ON arm (w34-freeze-1/2) and is not a fix.
+  static const bool freeze = [] {
+    const char* e = std::getenv("VT_TT_BFP8_FREEZE");
+    return e != nullptr && e[0] == '1';
+  }();
+  static const size_t freeze_cap = [] {
+    const char* e = std::getenv("VT_TT_BFP8_FREEZE_N");
+    return e == nullptr ? size_t{4096} : static_cast<size_t>(atoll(e));
+  }();
+  if (freeze) {
+    static std::atomic<int64_t> frozen{0};
+    const int64_t k = frozen.load(std::memory_order_relaxed);
+    if (static_cast<size_t>(k) < freeze_cap) {
+      Bfp8FrozenStagingTemps().push_back(std::move(bf16_dev));
+      frozen.fetch_add(1, std::memory_order_relaxed);
+      std::fprintf(stderr,
+                   "[W34-FREEZE] kept=%lld addr=0x%llx bytes=%zu\n",
+                   (long long)k,
+                   (unsigned long long)
+                       Bfp8FrozenStagingTemps().back().mesh_buffer().address(),
+                   rows * static_cast<size_t>(cols) * 2);
+    }
+  }
+  return Bfp8StageCanaryLog(std::move(out), rows, cols);
+}
+
+// W28 stage-time check (VT_TT_BFP8_CANARY=1): is the FRESH typecast output
+// already header-zeroed? zero>0 here convicts the typecast-into-recycled-DRAM
+// write itself; zero==0 here with a later zeroed canary convicts an async
+// writer between the stage and the matmul arm. Both W34 staging arms (the
+// from-span temporary and the persistent scratch) report through this.
+ttnn::Tensor Bfp8StageCanaryLog(ttnn::Tensor out, uint32_t rows,
+                                uint32_t cols) {
   static const bool canary = [] {
     const char* e = std::getenv("VT_TT_BFP8_CANARY");
     return e != nullptr && e[0] == '1';
