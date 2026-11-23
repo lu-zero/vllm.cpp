@@ -1,0 +1,14 @@
+devecho lines parsed: 80
+
+=== victim window [0x231d6f00, 0x235d2f00) ===
+raw in-window words: 0
+256B-aligned in-window words: 0; exact-base words: 0
+
+=== victim window [0x2a146f00, 0x2a542f00) ===
+raw in-window words: 1
+  raw lseq=18432 core=10-6 slot=0xa000 word[823]=0x2a412483
+256B-aligned in-window words: 0; exact-base words: 0
+
+=== victim window [0x2d7cef00, 0x2dbcaf00) ===
+raw in-window words: 0
+256B-aligned in-window words: 0; exact-base words: 0

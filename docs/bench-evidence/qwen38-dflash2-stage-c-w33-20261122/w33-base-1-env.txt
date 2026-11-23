@@ -1,0 +1,8 @@
+date: 2026-11-22T21:07:59+01:00
+head: bfd88f4fd88288bf16c6a244ca355505d0e82030
+pin: 35be99e764e3cbd1d8a4f19bdfbdcfe51857963d
+bench: /tmp/build-stagec-w31/examples/vllm-bench
+model: /mnt/models/unsloth-qwen3.8-27B-gguf/Qwen3.8-27B-Q4_K_M.gguf
+model sha256: 7e78da5d7e3ae28d178121f58646953305f3e5bd3cb46f4a75584e8b6c6fe169
+extra-env: VLLM_CPP_CUDAGRAPH=0 VT_TT_WEIGHT_RESIDENCY=bfp8 VT_DFLASH_DRAFT=1 VT_TT_GEMM_OUT_KEEPALIVE=0 VT_TT_BFP8_RESTAGE=0 VT_TT_BFP8_CANARY=1 VT_TT_BFP8_CANARY_DIR=/tmp/tt-w33-base-canary TT_METAL_DEVECHO=0 TT_METAL_TA_DEBUG=1
+output-len: 12
