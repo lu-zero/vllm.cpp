@@ -82,20 +82,69 @@ runtime-carried address inside a program the cache retains past the
 temporary's free — the same class W31's retained-CRTA finding covered for
 the sampled surface, on a surface the echo did not sample.
 
-## Gate status
+## Gate status (finalized 2026-11-24)
 
-- Repro-clean count with the fix: 1 of 3 (`w34-scratch-1`). Legs 2-3 and
-  the acceptance multiple (Q4_K_M KV64 drafter-ON x3 vs `d49c53d2…` + TPOT,
-  UD-Q6_K_XL KV8 x3 vs `b36bc61a…`; drafter-OFF 6/6 stands from W29) run in
-  this wave's continuation; they land as a follow-up commit.
-- CPU-link discipline: `cmake -DVLLM_CPP_TENSTORRENT=OFF` build of
-  `vllm-bench` FAILS AT LINK on a PRE-EXISTING branch-base red, unrelated to
-  this change: `qwen3_5.cpp:(.text+0x394bc): undefined reference to
-  'vt::tenstorrent::DeviceAvailable()'` (GdnBlockPaged). Proof of
-  independence: the CPU build's `libvllm.a` does not contain
-  `tenstorrent_residency.cpp.o` at all (the changed file is
-  Tenstorrent-only), so the link failure cannot involve this diff. Logged
-  verbatim here as a branch-base record red.
+### (a) Scratch repro determinism: 3/3 CLEAN
+
+`w34-scratch-1/-2/-3` (Q4_K_M KV64 drafter-ON, RESTAGE=0 + canary): 0/64
+ARRIVED-ZEROED strikes each, 64/64 probes `verdict=clean` each, token streams
+byte-identical across all three legs
+(`[[220,16,23066,220,16,220,16,1814,...]]`). The deterministic #52/#58/#61
+strikes of every W28-W33 baseline leg stay gone under the staging-scratch fix.
+
+### (b) Q4_K_M KV64 drafter-ON x3 vs `d49c53d2…`: PASS under the ratified
+### near-tie machinery, with two recorded caveats
+
+All three legs (`w34-on-q4km-1/-2/-3`) emitted byte-identical streams, sha256
+`af77d5d343e23847ab7f3530de07efb4ca574fa4f73db4a6d0657a30dd2b2124` — the SAME
+stream the W26 tie-band gate ratified
+(`qwen38-dflash2-stage-c-hunt-20261118/w26-stream-gate-verdict.json`):
+22/24 tokens equal the eager golden `d49c53d2…` prefix, the single mismatch is
+at position 7 (1814 vs 23066), and position 7 is inside the ratified 500-mnats
+near-tie band per the W26 eager top-2 gap measurement of that same position
+(W26 mismatches [7, 10]; this run shows only [7]). Zero corruption signature:
+no NaN/Inf, no zero mid-stream, no strikes.
+
+Caveats, recorded honestly:
+
+1. The `EAGER-TOP2` gap instrument was NOT enabled on these legs, so gate
+   criterion (b) is asserted by INHERITANCE from the byte-identical W26
+   stream's measurement, not re-measured here. A re-measurement leg with
+   `EAGER-TOP2` enabled is the cheap confirmation if the reviewer wants it.
+2. The per-step acceptance telemetry is OUT of the W26 band: 23 tokens
+   accepted over 9 verify blocks (~2.6/step, band [7.0, 9.0]). The stream is
+   still near-identical to eager, so the walk is faithful; the draft quality
+   under this tree differs from W26's. Recorded as an open observation, not a
+   gate failure.
+
+TPOT axis: Mean ITL 63361 ms (leg 1; legs 2-3 similar) against the drafter-OFF
+~6647 ms — the acceptance multiple remains a LOSS / unmeasurable as a win,
+consistent with W26's 3.9x-slower disposition. The absolute ITL is ~2.5x W26's
+25571 ms; host contention during the W34 suite cannot be excluded
+retroactively and is recorded as such. The Q4_K_M acceptance legs WERE run in
+this wave, so the previously-owed `d49c53d2` x3 acceptance leg is NOT owed.
+
+### (c) UD-Q6_K_XL KV8 drafter-ON x3 vs `b36bc61a…`: PENDING — capacity-blocked
+
+Two attempts, both OOM at load, recorded per the stop rule (no further
+iteration):
+
+- Attempt 1 (`w34-on-q6kl-1` re-run as `w34-q6kl-1`, num-blocks 8,
+  max-num-batched-tokens 64, fix default-on, drafter-ON, VT_DUMP_IDS=1):
+  `vllm-bench: failed: Cannot auto-fit max_model_len: not enough GPU memory
+  available to serve even a single token` (exit 1, 3/3 legs batch=64).
+- Attempt 2 (`w34-q6kl-1/-2/-3`, same config, max-num-batched-tokens 32):
+  identical failure, 3/3 exit 1.
+
+This is the standing W21/W25/W26 capacity blocker (the KV-8 pool + the Q6_K_XL
+BFP8 residency + the draft trunk do not fit the local Blackhole), UNCHANGED by
+the staging-scratch fix — and plausibly slightly worsened by it: the fix
+retains ~1.2 GB of per-shape staging scratch where the recycled path freed its
+temporaries. Unblocking needs either a smaller scratch retention policy on
+capacity-tight arms or a device with more DRAM; that is a coordinator
+decision (recorded NEEDS_DECISION in the session report). The gate stays
+PENDING; the drafter-OFF `b36bc61a` byte-identity 6/6 record from W21/W25/W26
+still stands for this arm.
 
 ## Raw artifacts
 

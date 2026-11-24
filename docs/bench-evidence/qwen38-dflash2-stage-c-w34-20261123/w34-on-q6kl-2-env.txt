@@ -1,0 +1,9 @@
+date: 2026-11-23T06:47:27+01:00
+head: 666d89959c1bf53f2ba01e7608fd3098f8e29cb7
+bench: /tmp/build-stagec-w31/examples/vllm-bench
+model: /mnt/models/unsloth-qwen3.8-27B-gguf-v2/Qwen3.8-27B-UD-Q6_K_XL.gguf
+model sha256: 701d8fa9ed214ab21bfc130cd2a7df19ca89bbef7713e2dfb19f3c63696aa917
+num-blocks: 8
+extra-env: VLLM_CPP_CUDAGRAPH=0 VT_TT_WEIGHT_RESIDENCY=bfp8 VT_DFLASH_DRAFT=1 VT_TT_GEMM_OUT_KEEPALIVE=0 VT_SPEC_ACCEPT_TRACE=24
+output-len: 24
+spec: 1

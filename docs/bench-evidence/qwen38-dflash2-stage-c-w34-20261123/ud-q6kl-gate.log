@@ -1,0 +1,47 @@
+# W34 UD-Q6_K_XL acceptance-leg gate record (2026-11-24)
+
+Gate: greedy token stream vs the committed UD-Q6_K_XL golden
+b36bc61a59828c1ddf05fbabf62ca0a491c652d50f7ec06bee86d4b17ad18bcc
+(tests/parity/goldens provenance: docs/bench-evidence/qwen38-dflash2-stage-c-w3-20261115/w4-q6kl-off-1-token-ids.json,
+64 tokens, KV8 drafter-OFF; greedy-accept token-exact). 3 legs required,
+byte-identical across legs. Config: memory-bounded num-blocks 8, drafter-ON,
+fix default-on (no VT_TT_BFP8_* overrides), VT_DUMP_IDS=1, seed 0, input-len 32,
+output-len 64. Device: local Blackhole /dev/tenstorrent/0; flock $HOME/gpu.lock
+on every run; luwen reset + sleep 15 before each leg.
+
+## Attempt 1: num-blocks 8, max-num-batched-tokens 64 (leg w34-q6kl-1, 2026-11-24T10:16)
+
+exit 1, no token stream produced. Failure (stderr tail):
+
+  vllm-bench: failed: Cannot auto-fit max_model_len: not enough GPU memory
+  available to serve even a single token. Try increasing
+  `gpu_memory_utilization`. In vllm.cpp the KV pool is sized by --num-blocks /
+  --kv-cache-memory (gpu_memory_utilization profiling is not ported yet), so
+  raise one of those or lower --max-model-len.
+
+(The same failure at the same point, 3/3 legs, in the prior wave's
+w34-on-q6kl-1/-2/-3.)
+
+## Attempt 2: num-blocks 8, max-num-batched-tokens 64->32 (legs w34-q6kl-1/-2/-3, 2026-11-24T10:21)
+
+3/3 exit 1, same failure text, at the same load-time auto-fit point, before
+any weight staging or decode. No token streams, no canary probes reached
+(strikes=0 is vacuous here: the run never started).
+
+## Verdict: PENDING — capacity-blocked
+
+The stop rule (max two attempts) is reached. The UD-Q6_K_XL KV8 drafter-ON
+acceptance leg does not fit the local Blackhole under the memory-bounded
+config, unchanged from the W21/W25/W26 standing blocker. The staging-scratch
+fix does not reopen it and plausibly worsens the envelope slightly (~1.2 GB
+retained per-shape scratch vs the recycled temporaries it replaces).
+Unblocking options (coordinator decision): a reduced retention policy on
+capacity-tight arms, or a larger-DRAM device. The drafter-OFF b36bc61a
+byte-identity record (6/6, W21/W25/W26) still stands for this arm.
+
+Leg artifacts in this directory: w34-q6kl-{1,2,3}.log / .stderr.log / -env.txt
+(attempt 2); the attempt-1 single leg reused the w34-q6kl-1 names and was
+overwritten by attempt 2 per the script's naming — the attempt-1 failure is
+byte-identical (same auto-fit abort) and is quoted above; its full log text is
+preserved in the session gate output /tmp/w34-q6kl-gate.out on the host and in
+the prior wave's w34-on-q6kl-1.log (same failure, batch 64).
